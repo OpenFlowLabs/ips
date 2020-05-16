@@ -10,11 +10,6 @@ mod tests {
     use std::fmt;
 
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
     fn parse_manifest() {
         let manifest_string = String::from("set name=pkg.fmri value=pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z
         set name=com.oracle.info.name value=nginx value=test
