@@ -13,6 +13,7 @@ mod tests {
     use crate::actions::ManifestError;
     use std::error;
     use std::fmt;
+    use std::collections::HashSet;
 
     #[test]
     fn parse_manifest() {
@@ -31,51 +32,63 @@ mod tests {
         let testResults = vec![
             Attr{
                 key: String::from("pkg.fmri"),
-                values: vec![String::from("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z")]
+                values: vec![String::from("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("com.oracle.info.name"),
-                values: vec![String::from("nginx"), String::from("test")]
+                values: vec![String::from("nginx"), String::from("test")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("userland.info.git-remote"),
-                values: vec![String::from("git://github.com/OpenIndiana/oi-userland.git")]
+                values: vec![String::from("git://github.com/OpenIndiana/oi-userland.git")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("userland.info.git-branch"),
-                values: vec![String::from("HEAD")]
+                values: vec![String::from("HEAD")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("userland.info.git-rev"),
-                values: vec![String::from("1665491ba61bd494bf73e2916cd2250f3024260e")]
+                values: vec![String::from("1665491ba61bd494bf73e2916cd2250f3024260e")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("pkg.summary"),
-                values: vec![String::from("Nginx Webserver")]
+                values: vec![String::from("Nginx Webserver")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("info.classification"),
-                values: vec![String::from("org.opensolaris.category.2008:Web Services/Application and Web Servers")]
+                values: vec![String::from("org.opensolaris.category.2008:Web Services/Application and Web Servers")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("info.upstream-url"),
-                values: vec![String::from("http://nginx.net/")]
+                values: vec![String::from("http://nginx.net/")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("info.source-url"),
-                values: vec![String::from("http://nginx.org/download/nginx-1.18.0.tar.gz")]
+                values: vec![String::from("http://nginx.org/download/nginx-1.18.0.tar.gz")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("org.opensolaris.consolidation"),
-                values: vec![String::from("userland")]
+                values: vec![String::from("userland")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("com.oracle.info.version"),
-                values: vec![String::from("1.18.0")]
+                values: vec![String::from("1.18.0")],
+                properties: HashSet::new(),
             },
             Attr{
                 key: String::from("variant.arch"),
-                values: vec![String::from("i386")]
+                values: vec![String::from("i386")],
+                properties: HashSet::new(),
             }
         ];
 

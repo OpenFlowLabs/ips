@@ -178,9 +178,9 @@ pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
             continue;
         }
 
-        properties.push(Property{
-            key: String::from(&cap[1].trim()),
-            value: String::from(&cap[2].trim()),
+        properties.insert(Property{
+            key: String::from(cap[1].trim()),
+            value: String::from(cap[2].trim()),
         });
     }
 
@@ -189,9 +189,9 @@ pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
             continue;
         }
 
-        properties.push(Property{
-            key: String::from(&cap[1].trim()),
-            value: String::from(&cap[2].trim()),
+        properties.insert(Property{
+            key: String::from(cap[1].trim()),
+            value: String::from(cap[2].trim()),
         });
     }
 
