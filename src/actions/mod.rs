@@ -53,7 +53,6 @@ enum ActionKind {
     Driver,
     License,
     Link,
-
 }
 
 #[derive(Debug)]
