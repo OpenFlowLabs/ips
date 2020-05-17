@@ -1,3 +1,8 @@
+//  This Source Code Form is subject to the terms of
+//  the Mozilla Public License, v. 2.0. If a copy of the
+//  MPL was not distributed with this file, You can
+//  obtain one at https://mozilla.org/MPL/2.0/.
+
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -5,22 +10,50 @@ use std::error;
 use std::fmt;
 use regex::Regex;
 use regex::RegexSet;
+use std::collections::HashSet;
+
+pub struct Dir {
+    pub path: String,
+    pub group: String,
+    pub owner: String,
+    pub mode: String, //TODO implement as bitmask
+}
 
 pub struct Attr {
-    pub Key: String,
-    pub Values: Vec<String>,
+    pub key: String,
+    pub values: Vec<String>,
+    pub properties: HashSet<Property>,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug)]
+pub struct Property {
+    pub key: String,
+    pub value: String,
 }
 
 pub struct Manifest {
-    pub Attributes: Vec<Attr>,
+    pub attributes: Vec<Attr>,
 }
 
 impl Manifest {
     pub fn new() -> Manifest {
         return Manifest{
-            Attributes: Vec::new(),
+            attributes: Vec::new(),
         };
     }
+}
+
+enum ActionKind {
+    Attr,
+    Dir,
+    File,
+    Dependency,
+    User,
+    Group,
+    Driver,
+    License,
+    Link,
+
 }
 
 #[derive(Debug)]
@@ -57,7 +90,7 @@ impl error::Error for ManifestError {
     }
 }
 
-pub fn ParseManifestFile(filename: String) -> Result<Manifest, ManifestError> {
+pub fn parse_manifest_file(filename: String) -> Result<Manifest, ManifestError> {
     let mut manifest = Manifest::new();
     let f = match File::open(filename) {
         Ok(file) => file,
@@ -69,9 +102,9 @@ pub fn ParseManifestFile(filename: String) -> Result<Manifest, ManifestError> {
             Ok(l) => l,
             Err(e) => return Err(ManifestError::Read(e)),
         };
-        if isAttrLine(&line) {
-            match ParseAttrLine(line) {
-                Ok(attr) => manifest.Attributes.push(attr),
+        if is_attr_action(&line) {
+            match parse_attr_action(line) {
+                Ok(attr) => manifest.attributes.push(attr),
                 Err(e) => return Err(e)
             }
         }
@@ -79,12 +112,12 @@ pub fn ParseManifestFile(filename: String) -> Result<Manifest, ManifestError> {
     return Ok(manifest);
 }
 
-pub fn ParseManifestString(manifest: String) -> Result<Manifest, ManifestError> {
+pub fn parse_manifest_string(manifest: String) -> Result<Manifest, ManifestError> {
     let mut m = Manifest::new();
     for line in manifest.lines() {
-        if isAttrLine(&String::from(line)) {
-            let attr = match ParseAttrLine(String::from(line)) {
-                Ok(attr) => m.Attributes.push(attr),
+        if is_attr_action(&String::from(line)) {
+            let attr = match parse_attr_action(String::from(line)) {
+                Ok(attr) => m.attributes.push(attr),
                 Err(e) => return Err(e)
             };
         }
@@ -92,21 +125,22 @@ pub fn ParseManifestString(manifest: String) -> Result<Manifest, ManifestError> 
     return Ok(m)
 }
 
-fn isAttrLine(line: &String) -> bool {
+fn is_attr_action(line: &String) -> bool {
     if line.trim().starts_with("set ") {
         return true;
     }
     return false;
 }
 
-pub fn ParseAttrLine(line: String) -> Result<Attr, ManifestError> {
+pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
+    //Todo move regex initialisation out of for loop into static area
     let name_regex = match Regex::new(r"name=([^ ]+) value=") {
         Ok(re) => re,
         Err(e) => return Err(ManifestError::Regex(e))
     };
-    let mut name = String::new();
+    let mut key = String::new();
     for cap in name_regex.captures_iter(line.trim_start()) {
-        name = String::from(&cap[1]);
+        key = String::from(&cap[1]);
     }
 
     let mut values = Vec::new();
@@ -120,16 +154,50 @@ pub fn ParseAttrLine(line: String) -> Result<Attr, ManifestError> {
         Err(e) => return Err(ManifestError::Regex(e)),
     };
 
+    let mut properties = HashSet::new();
+    let optionals_regex_no_quotes = match Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#) {
+        Ok(re) => re,
+        Err(e) => return Err(ManifestError::Regex(e))
+    };
+
+    let optionals_regex_quotes = match Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#) {
+        Ok(re) => re,
+        Err(e) => return Err(ManifestError::Regex(e))
+    };
+
     for cap in value_no_space_regex.captures_iter(line.trim_start()) {
-        values.push(String::from(&cap[1]));
+        values.push(String::from(cap[1].trim()));
     }
 
     for cap in value_space_regex.captures_iter(line.trim_start()) {
-        values.push(String::from(&cap[1]));
+        values.push(String::from(cap[1].trim()));
+    }
+
+    for cap in optionals_regex_quotes.captures_iter(line.trim_start()) {
+        if cap[1].trim().starts_with("name") || cap[1].trim().starts_with("value") {
+            continue;
+        }
+
+        properties.push(Property{
+            key: String::from(&cap[1].trim()),
+            value: String::from(&cap[2].trim()),
+        });
+    }
+
+    for cap in optionals_regex_no_quotes.captures_iter(line.trim_start()) {
+        if cap[1].trim().starts_with("name") || cap[1].trim().starts_with("value") {
+            continue;
+        }
+
+        properties.push(Property{
+            key: String::from(&cap[1].trim()),
+            value: String::from(&cap[2].trim()),
+        });
     }
 
     Ok(Attr{
-        Key: name,
-        Values: values,
+        key,
+        values,
+        properties,
     })
 }
