@@ -13,7 +13,7 @@ test_task:
   before_cache_script: rm -rf $CARGO_HOME/registry/index
 
 freebsd_instance:
-  image-family: freebsd-13-0
+  image-family: freebsd-12-0
 
 task:
   name: cargo test (stable)
