@@ -5,6 +5,8 @@
 
 mod actions;
 
+#[macro_use] extern crate failure;
+
 #[cfg(test)]
 mod tests {
 
@@ -28,7 +30,9 @@ mod tests {
         set name=pkg.summary value=\\\"provided mouse accessibility enhancements\\\"
         set name=info.upstream value=X.Org Foundation
         set name=pkg.description value=Latvian language support's extra files
-        set name=variant.arch value=i386 optional=testing optionalWithString=\"test ing\"");
+        set name=variant.arch value=i386 optional=testing optionalWithString=\"test ing\"
+        set name=info.source-url value=http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz
+        set name=pkg.summary value=\\\"'XZ Utils - loss-less file compression application and library.'\\\"");
 
         let mut optional_hash = HashSet::new();
         optional_hash.insert(Property{key: String::from("optional"), value:String::from("testing")});
@@ -109,16 +113,29 @@ mod tests {
                 key: String::from("variant.arch"),
                 values: vec![String::from("i386")],
                 properties: optional_hash,
+            },
+            Attr{
+                key: String::from("info.source-url"),
+                values: vec![String::from("http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz")],
+                properties: HashSet::new(),
+            },
+            Attr{
+                key: String::from("pkg.summary"),
+                values: vec![String::from("'XZ Utils - loss-less file compression application and library.'")], //TODO knock out the single quotes
+                properties: HashSet::new(),
             }
         ];
 
         let mut manifest = Manifest::new();
         match parse_manifest_string(manifest_string) {
             Ok(m) => manifest = m,
-            Err(_) => assert!(false, "caught error"),
+            Err(e) => {
+                println!("{}", e);
+                assert!(false, "caught error");
+            }
         };
 
-        assert_eq!(manifest.attributes.len(), 15);
+        assert_eq!(manifest.attributes.len(), 17);
 
         for (pos, attr) in manifest.attributes.iter().enumerate() {
             assert_eq!(attr.key, test_results[pos].key);

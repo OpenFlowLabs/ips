@@ -10,6 +10,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use failure::Error;
 
 #[derive(Debug, Default)]
 pub struct Dir {
@@ -55,93 +56,144 @@ enum ActionKind {
     Driver,
     License,
     Link,
+    Legacy,
+    Unknown{action: String},
 }
 
-#[derive(Debug)]
+//TODO Multierror and no failure for these cases
+#[derive(Debug, Fail)]
 pub enum ManifestError {
-    EmptyVec,
-    // We will defer to the parse error implementation for their error.
-    // Supplying extra info requires adding more data to the type.
-    Read(std::io::Error),
-    Regex(regex::Error),
+    #[fail(display = "unknown action {} at line {}", action, line)]
+    UnknownAction {
+        line: usize,
+        action: String,
+    },
 }
 
-impl fmt::Display for ManifestError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ManifestError::EmptyVec => write!(f, "please use a vector with at least one element"),
-            // This is a wrapper, so defer to the underlying types' implementation of `fmt`.
-            ManifestError::Read(ref e) => e.fmt(f),
-            ManifestError::Regex(ref e) => e.fmt(f),
-        }
-    }
-}
+pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
+    let mut m = Manifest::new();
+    let f = File::open(filename)?;
 
-impl error::Error for ManifestError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match *self {
-            ManifestError::EmptyVec => None,
-            // The cause is the underlying implementation error type. Is implicitly
-            // cast to the trait object `&error::Error`. This works because the
-            // underlying type already implements the `Error` trait.
-            ManifestError::Read(ref e) => Some(e),
-            ManifestError::Regex(ref e) => Some(e),
-        }
-    }
-}
-
-pub fn parse_manifest_file(filename: String) -> Result<Manifest, ManifestError> {
-    let mut manifest = Manifest::new();
-    let f = match File::open(filename) {
-        Ok(file) => file,
-        Err(e) => return Err(ManifestError::Read(e)),
-    };
     let file = BufReader::new(&f);
-    for line_read in file.lines() {
-        let line = match line_read {
-            Ok(l) => l,
-            Err(e) => return Err(ManifestError::Read(e)),
-        };
-        if is_attr_action(&line) {
-            match parse_attr_action(line) {
-                Ok(attr) => manifest.attributes.push(attr),
-                Err(e) => return Err(e),
+
+    for (line_nr, line_read) in file.lines().enumerate() {
+        let line = line_read?;
+        match determine_action_kind(&line) {
+            ActionKind::Attr => {
+                let attr = parse_attr_action(String::from(line))?;
+                m.attributes.push(attr)
+            }
+            ActionKind::Dir => {
+
+            }
+            ActionKind::File => {
+
+            }
+            ActionKind::Dependency => {
+
+            }
+            ActionKind::User => {
+
+            }
+            ActionKind::Group => {
+
+            }
+            ActionKind::Driver => {
+
+            }
+            ActionKind::License => {
+
+            }
+            ActionKind::Link => {
+
+            }
+            ActionKind::Legacy => {
+
+            }
+            ActionKind::Unknown{action} => {
+                Err(ManifestError::UnknownAction {action, line: line_nr})?;
             }
         }
     }
-    return Ok(manifest);
+
+    return Ok(m);
 }
 
-pub fn parse_manifest_string(manifest: String) -> Result<Manifest, ManifestError> {
+pub fn parse_manifest_string(manifest: String) -> Result<Manifest, Error> {
     let mut m = Manifest::new();
-    for line in manifest.lines() {
-        if is_attr_action(&String::from(line)) {
-            match parse_attr_action(String::from(line)) {
-                Ok(attr) => m.attributes.push(attr),
-                Err(e) => return Err(e),
-            };
+    for (line_nr, line) in manifest.lines().enumerate() {
+        match determine_action_kind(&line) {
+            ActionKind::Attr => {
+                let attr = parse_attr_action(String::from(line))?;
+                m.attributes.push(attr)
+            }
+            ActionKind::Dir => {
+
+            }
+            ActionKind::File => {
+
+            }
+            ActionKind::Dependency => {
+
+            }
+            ActionKind::User => {
+
+            }
+            ActionKind::Group => {
+
+            }
+            ActionKind::Driver => {
+
+            }
+            ActionKind::License => {
+
+            }
+            ActionKind::Link => {
+
+            }
+            ActionKind::Legacy => {
+
+            }
+            ActionKind::Unknown{action} => {
+                Err(ManifestError::UnknownAction {action, line: line_nr})?;
+            }
         }
     }
     return Ok(m);
 }
 
-fn is_attr_action(line: &String) -> bool {
-    if line.trim().starts_with("set ") {
-        return true;
+fn determine_action_kind(line: &str) -> ActionKind {
+    let mut act = String::new();
+    for c in line.trim_start().chars() {
+        if c == ' ' {
+            break
+        }
+        act.push(c)
     }
-    return false;
+
+    return match act.as_str() {
+        "set" => ActionKind::Attr,
+        "depend" => ActionKind::Dependency,
+        "dir" => ActionKind::Dir,
+        "file" => ActionKind::File,
+        "license" => ActionKind::License,
+        "hardlink" => ActionKind::Link,
+        "link" => ActionKind::Link,
+        "driver" => ActionKind::Driver,
+        "group" => ActionKind::Group,
+        "user" => ActionKind::User,
+        "legacy" => ActionKind::Legacy,
+        _ => ActionKind::Unknown{action: act},
+    }
 }
 
-pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
+pub fn parse_attr_action(line: String) -> Result<Attr, Error> {
     // Do a full line match to see if we can fast path this.
     // This also catches values with spaces, that have not been properly escaped.
     // Note: values with spaces must be properly escaped or the rest here will fail. Strings with
     //  unescaped spaces are never valid but sadly present in the wild.
     // Fast path will fail if a value has multiple values or a '=' sign in the values
-    let full_line_regex = match Regex::new(r"^set name=([^ ]+) value=(.+)$") {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let full_line_regex = Regex::new(r"^set name=([^ ]+) value=(.+)$")?;
 
     if full_line_regex.is_match(line.trim_start()) {
         match full_line_regex.captures(line.trim_start()) {
@@ -162,6 +214,7 @@ pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
                 }
 
                 val = val.replace(&['"', '\\'][..], "");
+                //TODO knock out single quotes somehow
 
                 if !fast_path_fail{
                     return Ok(Attr{
@@ -177,36 +230,21 @@ pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
 
 
     //Todo move regex initialisation out of for loop into static area
-    let name_regex = match Regex::new(r"name=([^ ]+) value=") {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let name_regex = Regex::new(r"name=([^ ]+) value=")?;
     let mut key = String::new();
     for cap in name_regex.captures_iter(line.trim_start()) {
         key = String::from(&cap[1]);
     }
 
     let mut values = Vec::new();
-    let value_no_space_regex = match Regex::new(r#"value="(.+)""#) {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let value_no_space_regex = Regex::new(r#"value="(.+)""#)?;
 
-    let value_space_regex = match Regex::new(r#"value=([^"][^ ]+[^"])"#) {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let value_space_regex = Regex::new(r#"value=([^"][^ ]+[^"])"#)?;
 
     let mut properties = HashSet::new();
-    let optionals_regex_no_quotes = match Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#) {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let optionals_regex_no_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
 
-    let optionals_regex_quotes = match Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#) {
-        Ok(re) => re,
-        Err(e) => return Err(ManifestError::Regex(e)),
-    };
+    let optionals_regex_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
 
     for cap in value_no_space_regex.captures_iter(line.trim_start()) {
         values.push(String::from(cap[1].trim()));
