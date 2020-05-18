@@ -8,7 +8,7 @@ mod actions;
 #[cfg(test)]
 mod tests {
 
-    use crate::actions::Manifest;
+    use crate::actions::{Manifest, Property};
     use crate::actions::{parse_manifest_string, Attr};
     use std::collections::HashSet;
 
@@ -25,7 +25,15 @@ mod tests {
         set name=info.source-url value=http://nginx.org/download/nginx-1.18.0.tar.gz
         set name=org.opensolaris.consolidation value=userland
         set name=com.oracle.info.version value=1.18.0
-        set name=variant.arch value=i386");
+        set name=pkg.summary value=\\\"provided mouse accessibility enhancements\\\"
+        set name=info.upstream value=X.Org Foundation
+        set name=pkg.description value=Latvian language support's extra files
+        set name=variant.arch value=i386 optional=testing optionalWithString=\"test ing\"");
+
+        let mut optional_hash = HashSet::new();
+        optional_hash.insert(Property{key: String::from("optional"), value:String::from("testing")});
+        optional_hash.insert(Property{key: String::from("optionalWithString"), value:String::from("test ing")});
+
         let test_results = vec![
             Attr{
                 key: String::from("pkg.fmri"),
@@ -83,9 +91,24 @@ mod tests {
                 properties: HashSet::new(),
             },
             Attr{
+                key: String::from("pkg.summary"),
+                values: vec![String::from("provided mouse accessibility enhancements")],
+                properties: HashSet::new(),
+            },
+            Attr{
+                key: String::from("info.upstream"),
+                values: vec![String::from("X.Org Foundation")],
+                properties: HashSet::new(),
+            },
+            Attr{
+                key: String::from("pkg.description"),
+                values: vec![String::from("Latvian language support's extra files")],
+                properties: HashSet::new(),
+            },
+            Attr{
                 key: String::from("variant.arch"),
                 values: vec![String::from("i386")],
-                properties: HashSet::new(),
+                properties: optional_hash,
             }
         ];
 
@@ -94,9 +117,12 @@ mod tests {
             Ok(m) => manifest = m,
             Err(_) => assert!(false, "caught error"),
         };
-        assert_eq!(manifest.attributes.len(), 12);
+
+        assert_eq!(manifest.attributes.len(), 15);
+
         for (pos, attr) in manifest.attributes.iter().enumerate() {
             assert_eq!(attr.key, test_results[pos].key);
+
             for (vpos, val) in attr.values.iter().enumerate() {
                 assert_eq!(val, &test_results[pos].values[vpos]);
             }

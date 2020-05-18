@@ -3,7 +3,7 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use regex::Regex;
+use regex::{Regex, Captures};
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 
+#[derive(Debug, Default)]
 pub struct Dir {
     pub path: String,
     pub group: String,
@@ -18,6 +19,7 @@ pub struct Dir {
     pub mode: String, //TODO implement as bitmask
 }
 
+#[derive(Debug, Default)]
 pub struct Attr {
     pub key: String,
     pub values: Vec<String>,
@@ -30,6 +32,7 @@ pub struct Property {
     pub value: String,
 }
 
+#[derive(Debug, Default)]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
 }
@@ -130,6 +133,49 @@ fn is_attr_action(line: &String) -> bool {
 }
 
 pub fn parse_attr_action(line: String) -> Result<Attr, ManifestError> {
+    // Do a full line match to see if we can fast path this.
+    // This also catches values with spaces, that have not been properly escaped.
+    // Note: values with spaces must be properly escaped or the rest here will fail. Strings with
+    //  unescaped spaces are never valid but sadly present in the wild.
+    // Fast path will fail if a value has multiple values or a '=' sign in the values
+    let full_line_regex = match Regex::new(r"^set name=([^ ]+) value=(.+)$") {
+        Ok(re) => re,
+        Err(e) => return Err(ManifestError::Regex(e)),
+    };
+
+    if full_line_regex.is_match(line.trim_start()) {
+        match full_line_regex.captures(line.trim_start()) {
+            Some(captures) => {
+                let mut fast_path_fail = false;
+                let mut val = String::from(&captures[2]);
+
+                if val.contains("=") {
+                    fast_path_fail = true;
+                }
+
+                if val.contains("value=") {
+                    fast_path_fail = true;
+                }
+
+                if val.contains("name=") {
+                    fast_path_fail = true;
+                }
+
+                val = val.replace(&['"', '\\'][..], "");
+
+                if !fast_path_fail{
+                    return Ok(Attr{
+                        key: String::from(&captures[1]),
+                        values: vec![val],
+                        ..Attr::default()
+                    });
+                }
+            }
+            None => (),
+        };
+    }
+
+
     //Todo move regex initialisation out of for loop into static area
     let name_regex = match Regex::new(r"name=([^ ]+) value=") {
         Ok(re) => re,
