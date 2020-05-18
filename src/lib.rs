@@ -8,11 +8,8 @@ mod actions;
 #[cfg(test)]
 mod tests {
 
-    use crate::actions::{parse_manifest_string, Attr};
     use crate::actions::Manifest;
-    use crate::actions::ManifestError;
-    use std::error;
-    use std::fmt;
+    use crate::actions::{parse_manifest_string, Attr};
     use std::collections::HashSet;
 
     #[test]
@@ -29,7 +26,7 @@ mod tests {
         set name=org.opensolaris.consolidation value=userland
         set name=com.oracle.info.version value=1.18.0
         set name=variant.arch value=i386");
-        let testResults = vec![
+        let test_results = vec![
             Attr{
                 key: String::from("pkg.fmri"),
                 values: vec![String::from("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z")],
@@ -92,19 +89,17 @@ mod tests {
             }
         ];
 
-        let mut manifest = Manifest::new(); 
-        match parse_manifest_string(manifest_string){
+        let mut manifest = Manifest::new();
+        match parse_manifest_string(manifest_string) {
             Ok(m) => manifest = m,
-            Err(_) => assert!(false, "caught error")
+            Err(_) => assert!(false, "caught error"),
         };
         assert_eq!(manifest.attributes.len(), 12);
         for (pos, attr) in manifest.attributes.iter().enumerate() {
-            assert_eq!(attr.key, testResults[pos].key);
+            assert_eq!(attr.key, test_results[pos].key);
             for (vpos, val) in attr.values.iter().enumerate() {
-                assert_eq!(val, &testResults[pos].values[vpos]);
+                assert_eq!(val, &test_results[pos].values[vpos]);
             }
         }
     }
-    
 }
-
