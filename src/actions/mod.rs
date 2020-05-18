@@ -80,8 +80,7 @@ pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
         let line = line_read?;
         match determine_action_kind(&line) {
             ActionKind::Attr => {
-                let attr = parse_attr_action(String::from(line))?;
-                m.attributes.push(attr)
+                m.attributes.push(parse_attr_action(String::from(line))?);
             }
             ActionKind::Dir => {
 
