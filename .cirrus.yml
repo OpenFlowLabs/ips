@@ -12,7 +12,7 @@ test_task:
   before_cache_script: rm -rf $CARGO_HOME/registry/index
 
 freebsd_test_task:
-  name: cargo test (stable)
+  name: cargo test FreeBSD (stable)
   matrix:
     - freebsd_instance:
         image_family: freebsd-13-0-snap
