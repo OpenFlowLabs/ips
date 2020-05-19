@@ -77,42 +77,7 @@ pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
     let file = BufReader::new(&f);
 
     for (line_nr, line_read) in file.lines().enumerate() {
-        let line = line_read?;
-        match determine_action_kind(&line) {
-            ActionKind::Attr => {
-                m.attributes.push(parse_attr_action(String::from(line))?);
-            }
-            ActionKind::Dir => {
-
-            }
-            ActionKind::File => {
-
-            }
-            ActionKind::Dependency => {
-
-            }
-            ActionKind::User => {
-
-            }
-            ActionKind::Group => {
-
-            }
-            ActionKind::Driver => {
-
-            }
-            ActionKind::License => {
-
-            }
-            ActionKind::Link => {
-
-            }
-            ActionKind::Legacy => {
-
-            }
-            ActionKind::Unknown{action} => {
-                Err(ManifestError::UnknownAction {action, line: line_nr})?;
-            }
-        }
+        handle_manifest_line(&mut m, line_read?.trim_start(), line_nr)?;
     }
 
     return Ok(m);
@@ -121,44 +86,48 @@ pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
 pub fn parse_manifest_string(manifest: String) -> Result<Manifest, Error> {
     let mut m = Manifest::new();
     for (line_nr, line) in manifest.lines().enumerate() {
-        match determine_action_kind(&line) {
-            ActionKind::Attr => {
-                let attr = parse_attr_action(String::from(line))?;
-                m.attributes.push(attr)
-            }
-            ActionKind::Dir => {
-
-            }
-            ActionKind::File => {
-
-            }
-            ActionKind::Dependency => {
-
-            }
-            ActionKind::User => {
-
-            }
-            ActionKind::Group => {
-
-            }
-            ActionKind::Driver => {
-
-            }
-            ActionKind::License => {
-
-            }
-            ActionKind::Link => {
-
-            }
-            ActionKind::Legacy => {
-
-            }
-            ActionKind::Unknown{action} => {
-                Err(ManifestError::UnknownAction {action, line: line_nr})?;
-            }
-        }
+        handle_manifest_line(&mut m, line.trim_start(), line_nr)?;
     }
     return Ok(m);
+}
+
+fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> Result<(), Error> {
+    match determine_action_kind(&line) {
+        ActionKind::Attr => {
+            manifest.attributes.push(parse_attr_action(String::from(line))?);
+        }
+        ActionKind::Dir => {
+
+        }
+        ActionKind::File => {
+
+        }
+        ActionKind::Dependency => {
+
+        }
+        ActionKind::User => {
+
+        }
+        ActionKind::Group => {
+
+        }
+        ActionKind::Driver => {
+
+        }
+        ActionKind::License => {
+
+        }
+        ActionKind::Link => {
+
+        }
+        ActionKind::Legacy => {
+
+        }
+        ActionKind::Unknown{action} => {
+            Err(ManifestError::UnknownAction {action, line: line_nr})?;
+        }
+    }
+    Ok(())
 }
 
 fn determine_action_kind(line: &str) -> ActionKind {
