@@ -3,7 +3,7 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use regex::{Regex, Captures};
+use regex::{RegexSet, Regex};
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
@@ -18,6 +18,15 @@ pub struct Dir {
     pub group: String,
     pub owner: String,
     pub mode: String, //TODO implement as bitmask
+    pub revert_tag: String,
+    pub salvage_from: String,
+    pub facets: HashSet<Facet>,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Default)]
+pub struct Facet {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Default)]
@@ -27,7 +36,7 @@ pub struct Attr {
     pub properties: HashSet<Property>,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Default)]
 pub struct Property {
     pub key: String,
     pub value: String,
@@ -36,12 +45,14 @@ pub struct Property {
 #[derive(Debug, Default)]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
+    pub directories: Vec<Dir>,
 }
 
 impl Manifest {
     pub fn new() -> Manifest {
         return Manifest {
             attributes: Vec::new(),
+            directories: Vec::new(),
         };
     }
 }
@@ -67,6 +78,12 @@ pub enum ManifestError {
     UnknownAction {
         line: usize,
         action: String,
+    },
+    #[fail(display = "action string \"{}\" at line {} is invalid: {}", action, line, message)]
+    InvalidAction {
+        line: usize,
+        action: String,
+        message: String,
     },
 }
 
@@ -97,7 +114,7 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
             manifest.attributes.push(parse_attr_action(String::from(line))?);
         }
         ActionKind::Dir => {
-
+            manifest.directories.push(parse_dir_action(String::from(line), line_nr)?);
         }
         ActionKind::File => {
 
@@ -155,7 +172,47 @@ fn determine_action_kind(line: &str) -> ActionKind {
     }
 }
 
-pub fn parse_attr_action(line: String) -> Result<Attr, Error> {
+fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
+    let mut act = Dir::default();
+    let regex = Regex::new(r#"(([^ ]+)=([^"][^ ]+[^"])|([^ ]+)=([^"][^ ]+[^"]))"#)?;
+
+    for cap in regex.captures_iter(line.trim_start()) {
+        match &cap[1] {
+            "path" => act.path = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            "owner" => act.owner = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            "group" => act.group = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            "mode" => act.mode = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            "revert-tag" => act.revert_tag = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            "salvage-from" => act.salvage_from = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
+            _ => {
+                let key_val_string = String::from(&cap[1]).replace(&['"', '\\'][..], "");
+                if key_val_string.contains("facet.") {
+                    let key = match key_val_string.find(".") {
+                        Some(idx) => {
+                            key_val_string.clone().split_off(idx+1)
+                        },
+                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
+                    };
+
+                    let value = match key_val_string.find("=") {
+                        Some(idx) => {
+                            key_val_string.clone().split_off(idx+1)
+                        },
+                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+                    };
+
+                    if !act.facets.insert(Facet{name: key, value: value}) {
+                        return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(act)
+}
+
+fn parse_attr_action(line: String) -> Result<Attr, Error> {
     // Do a full line match to see if we can fast path this.
     // This also catches values with spaces, that have not been properly escaped.
     // Note: values with spaces must be properly escaped or the rest here will fail. Strings with
