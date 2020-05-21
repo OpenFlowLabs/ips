@@ -151,8 +151,8 @@ mod tests {
         let manifest_string = String::from("dir group=bin mode=0755 owner=root path=etc/nginx
         dir group=bin mode=0755 owner=root path=usr/share/nginx
         dir group=bin mode=0755 owner=root path=usr/share/nginx/html
-        dir group=bin mode=0755 owner=root path=\"var/nginx\"
-        dir group=bin mode=0755 owner=webservd path=var/nginx/logs");
+        dir group=bin mode=0755 owner=webservd path=var/nginx/logs
+        dir group=bin mode=0755 owner=root path=\"var/nginx\"");
 
         let test_results = vec![
             Dir{
@@ -176,14 +176,14 @@ mod tests {
             },Dir{
                 group: String::from("bin"),
                 mode: String::from("0755"),
-                owner: String::from("root"),
-                path: String::from("\"var/nginx\""),
+                owner: String::from("webservd"),
+                path: String::from("var/nginx/logs"),
                 ..Dir::default()
             },Dir{
                 group: String::from("bin"),
                 mode: String::from("0755"),
                 owner: String::from("root"),
-                path: String::from("var/nginx/logs"),
+                path: String::from("var/nginx"),
                 ..Dir::default()
             },
         ];

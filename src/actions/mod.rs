@@ -174,40 +174,53 @@ fn determine_action_kind(line: &str) -> ActionKind {
 
 fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
     let mut act = Dir::default();
-    let regex = Regex::new(r#"(([^ ]+)=([^"][^ ]+[^"])|([^ ]+)=([^"][^ ]+[^"]))"#)?;
+    let regex_set = RegexSet::new(&[
+        r#"([^ ]+)=([^"][^ ]+[^"])"#,
+        r#"([^ ]+)="(.+)"#
+    ])?;
 
-    for cap in regex.captures_iter(line.trim_start()) {
-        match &cap[1] {
-            "path" => act.path = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            "owner" => act.owner = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            "group" => act.group = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            "mode" => act.mode = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            "revert-tag" => act.revert_tag = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            "salvage-from" => act.salvage_from = String::from(&cap[2]).replace(&['"', '\\'][..], ""),
-            _ => {
-                let key_val_string = String::from(&cap[1]).replace(&['"', '\\'][..], "");
-                if key_val_string.contains("facet.") {
-                    let key = match key_val_string.find(".") {
-                        Some(idx) => {
-                            key_val_string.clone().split_off(idx+1)
-                        },
-                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
-                    };
+    for pat in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| &regex_set.patterns()[match_idx]) {
+        let regex = Regex::new(&pat)?;
 
-                    let value = match key_val_string.find("=") {
-                        Some(idx) => {
-                            key_val_string.clone().split_off(idx+1)
-                        },
-                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-                    };
+        for cap in regex.captures_iter(line.trim_start()) {
+            let full_cap_idx = 0;
+            let key_cap_idx = 1;
+            let val_cap_idx = 2;
 
-                    if !act.facets.insert(Facet{name: key, value: value}) {
-                        return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+
+            match &cap[key_cap_idx] {
+                "path" => act.path = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "owner" => act.owner = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "group" => act.group = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "mode" => act.mode = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "revert-tag" => act.revert_tag = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "salvage-from" => act.salvage_from = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                _ => {
+                    let key_val_string = String::from(&cap[full_cap_idx]).trim_end().replace(&['"', '\\'][..], "");
+                    if key_val_string.contains("facet.") {
+                        let key = match key_val_string.find(".") {
+                            Some(idx) => {
+                                key_val_string.clone().split_off(idx+1)
+                            },
+                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
+                        };
+
+                        let value = match key_val_string.find("=") {
+                            Some(idx) => {
+                                key_val_string.clone().split_off(idx+1)
+                            },
+                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+                        };
+
+                        if !act.facets.insert(Facet{name: key, value }) {
+                            return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+                        }
                     }
                 }
             }
         }
     }
+
 
     Ok(act)
 }
@@ -239,7 +252,7 @@ fn parse_attr_action(line: String) -> Result<Attr, Error> {
                 }
 
                 val = val.replace(&['"', '\\'][..], "");
-                //TODO knock out single quotes somehow
+                //TODO knock out single quotes somehow without
 
                 if !fast_path_fail{
                     return Ok(Attr{
