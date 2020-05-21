@@ -7,7 +7,7 @@ use regex::{RegexSet, Regex};
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
-use std::fs::File;
+use std::fs::File as OsFile;
 use std::io::BufRead;
 use std::io::BufReader;
 use failure::Error;
@@ -20,6 +20,22 @@ pub struct Dir {
     pub mode: String, //TODO implement as bitmask
     pub revert_tag: String,
     pub salvage_from: String,
+    pub facets: HashSet<Facet>,
+}
+
+#[derive(Debug, Default)]
+pub struct File {
+    pub payload: String,
+    pub path: String,
+    pub group: String,
+    pub owner: String,
+    pub mode: String, //TODO implement as bitmask
+    pub preserve: bool,
+    pub overlay: bool,
+    pub original_name: String,
+    pub revert_tag: String,
+    pub sys_attr: String,
+    pub properties: Vec<Property>,
     pub facets: HashSet<Facet>,
 }
 
@@ -46,6 +62,7 @@ pub struct Property {
 pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,
+    pub files: Vec<File>,
 }
 
 impl Manifest {
@@ -53,6 +70,7 @@ impl Manifest {
         return Manifest {
             attributes: Vec::new(),
             directories: Vec::new(),
+            files: Vec::new(),
         };
     }
 }
@@ -89,7 +107,7 @@ pub enum ManifestError {
 
 pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
     let mut m = Manifest::new();
-    let f = File::open(filename)?;
+    let f = OsFile::open(filename)?;
 
     let file = BufReader::new(&f);
 
@@ -117,7 +135,7 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
             manifest.directories.push(parse_dir_action(String::from(line), line_nr)?);
         }
         ActionKind::File => {
-
+            manifest.files.push(parse_file_action(String::from(line), line_nr)?);
         }
         ActionKind::Dependency => {
 
@@ -170,6 +188,99 @@ fn determine_action_kind(line: &str) -> ActionKind {
         "legacy" => ActionKind::Legacy,
         _ => ActionKind::Unknown{action: act},
     }
+}
+
+fn clean_string_value(orig: &str) -> String {
+    return String::from(orig).trim_end().replace(&['"', '\\'][..], "")
+}
+
+fn string_to_bool(orig: &str) -> Result<bool, String> {
+    match &String::from(orig).trim().to_lowercase()[..] {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        "t" => Ok(true),
+        "f" => Ok(false),
+        _ => Err(String::from("not a boolean like value"))
+    }
+}
+
+fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
+    let mut act = File::default();
+    let regex_set = RegexSet::new(&[
+        r"file ([a-zA-Z0-9]+) ",
+        r#"([^ ]+)=([^"][^ ]+[^"])"#,
+        r#"([^ ]+)="(.+)"#
+    ])?;
+
+    for (pat, idx) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
+        let regex = Regex::new(&pat)?;
+
+        for cap in regex.captures_iter(line.trim_start()) {
+            if idx == 0 {
+                act.payload = String::from(&cap[1]);
+                continue;
+            }
+
+            let full_cap_idx = 0;
+            let key_cap_idx = 1;
+            let val_cap_idx = 2;
+
+            match &cap[key_cap_idx] {
+                "path" => act.path = clean_string_value(&cap[val_cap_idx]),
+                "owner" => act.owner = clean_string_value(&cap[val_cap_idx]),
+                "group" => act.group = clean_string_value(&cap[val_cap_idx]),
+                "mode" => act.mode = clean_string_value(&cap[val_cap_idx]),
+                "revert-tag" => act.revert_tag = clean_string_value(&cap[val_cap_idx]),
+                "original_name" => act.original_name = clean_string_value(&cap[val_cap_idx]),
+                "sysattr" => act.sys_attr = clean_string_value(&cap[val_cap_idx]),
+                "overlay" => act.overlay = match string_to_bool(&cap[val_cap_idx]) {
+                    Ok(b) => b,
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e})?
+                },
+                "preserve" => act.preserve = match string_to_bool(&cap[val_cap_idx]) {
+                    Ok(b) => b,
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e})?
+                },
+                _ => {
+                    let key_val_string = clean_string_value(&cap[full_cap_idx]);
+
+                    if key_val_string.contains("facet.") {
+                        let facet_key = match key_val_string.find(".") {
+                            Some(idx) => {
+                                key_val_string.clone().split_off(idx+1)
+                            },
+                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
+                        };
+
+                        let value = match key_val_string.find("=") {
+                            Some(idx) => {
+                                key_val_string.clone().split_off(idx+1)
+                            },
+                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+                        };
+
+                        if !act.facets.insert(Facet{name: facet_key, value}) {
+                            return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+                        }
+
+                    } else {
+                        let mut key = key_val_string.clone();
+                        let value = match key.find("=") {
+                            Some(idx) => {
+                                key.split_off(idx+1)
+                            },
+                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+                        };
+                        key = key.replace("=", "");
+                        act.properties.push(Property{key, value});
+                    }
+                }
+            }
+        }
+    }
+
+
+    Ok(act)
 }
 
 fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {

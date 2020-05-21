@@ -10,7 +10,7 @@ mod actions;
 #[cfg(test)]
 mod tests {
 
-    use crate::actions::{Manifest, Property, Dir};
+    use crate::actions::{Manifest, Property, Dir, File};
     use crate::actions::{parse_manifest_string, Attr};
     use std::collections::HashSet;
 
@@ -208,6 +208,431 @@ mod tests {
             //for (vpos, val) in attr.facets.iter().enumerate() {
             //    assert_eq!(val, &test_results[pos].facets.);
             //}
+        }
+    }
+
+    #[test]
+    fn parse_file_actions() {
+        let manifest_string = String::from("file 4b76e83bb4bb7c87176b72ef805fe78ecae60d2c chash=7288afc78233791bb8e13b3e13aa4f0b4b1d6ee8 group=bin mode=555 owner=root path=lib/svc/method/http-nginx pkg.content-hash=file:sha512t_256:42007aaee6bd54977eb33f91db28f931ab11c39787ba9f7851b6baf0d142185b pkg.content-hash=gzip:sha512t_256:ec144533fa077af1d5b152d8c7549f113902021d71808adb12ea3f92bda9fd66 pkg.csize=975 pkg.size=1855
+file 72e0496a02e72e7380b0b62cdc8410108302876f chash=2f82b51db9cbba0705cb680e5aa0f11ff237009b group=sys mode=0444 owner=root path=lib/svc/manifest/network/http-nginx.xml pkg.content-hash=file:sha512t_256:c0c3640d6e61b53a3dc4228adff7532ec6b5d09bf1847991a3aaa5eb3e04d19a pkg.content-hash=gzip:sha512t_256:e1999bae58ef887d81dc686b794429a9dea0e7674b631c2a08f07fb9b34440e2 pkg.csize=1067 pkg.size=2844 restart_fmri=svc:/system/manifest-import:default
+file 95de71d58b37f9f74bede0e91bc381d6059fc2d7 chash=c2e2e4cf82ec527800a2170d9e2565b75d557012 group=bin mode=0444 owner=root path=usr/share/nginx/html/50x.html pkg.content-hash=file:sha512t_256:b592728ea1dcd6dd0924e1e6767e217ad70ec6973086911d8bc07d44695b9f0e pkg.content-hash=gzip:sha512t_256:8407d82b497c4a865841ab8874207cc5a4d581ba574d66074ef5f92f05ee13cf pkg.csize=327 pkg.size=494
+file 7dd71afcfb14e105e80b0c0d7fce370a28a41f0a chash=50b7bcf6c555b8e9bde1eacd2c3d5c34a757c312 group=bin mode=0444 owner=root path=usr/share/nginx/html/index.html pkg.content-hash=file:sha512t_256:204038cd5fbbcdd2c3d24acb7f41b1e861c51d689f53202ec69b43bdba01cb60 pkg.content-hash=gzip:sha512t_256:34bad6066578cf03289b0c957cb4f01a9353f91b3b95079d69bf9e12dd569279 pkg.csize=381 pkg.size=612
+file cbf596ddb3433a8e0d325f3c188bec9c1bb746b3 chash=2df27ca83841b9c8e38c5aa30760372773166928 group=bin mode=0644 owner=root path=etc/nginx/fastcgi.conf pkg.content-hash=file:sha512t_256:d260c064680ec58135d9a290ed3cfd64274db769701ab3df2bfdeb653a864518 pkg.content-hash=gzip:sha512t_256:4924c0f4bdc37b832afd281ad07b0bf339c8c3a0e2d95e076998d46fab76a084 pkg.csize=448 pkg.size=1077 preserve=true
+file da38e2a0dded838afbe0eade6cb837ac30fd8046 chash=530616dc345f6acf0aea26db06e56aa41b2f510d group=bin mode=0644 owner=root path=etc/nginx/fastcgi_params pkg.content-hash=file:sha512t_256:baeeb2df301f8764568a86884c127e90faf39bee4ff0e53fb4a890955e605cee pkg.content-hash=gzip:sha512t_256:5c6f541692556eacbde4ea1536de3c1af2cd8e9980fc4edca36851a97ed671ba pkg.csize=430 pkg.size=1007 preserve=true
+file 407cb51b397ba4ad90a2246640a81af18e2e917a chash=00d285c15dd65f24c4c89d5790094c38432a1ac6 group=bin mode=0644 owner=root path=etc/nginx/koi-utf pkg.content-hash=file:sha512t_256:06381b2c4a28fe88c0d908f1cd81453c9482358c8195163e294b8def8924b366 pkg.content-hash=gzip:sha512t_256:d66022b08971eaf9ddf3230a991b0d8352fcefe0f797305a94b5ca0574d70ff5 pkg.csize=938 pkg.size=2837 preserve=true
+file 19ec7fb71e7f00d7e8a1cfc1013490f0cfee572b chash=0f2588ac25780698ea7ebeac3ea0e9041502d501 group=bin mode=0644 owner=root path=etc/nginx/koi-win pkg.content-hash=file:sha512t_256:92d4df1df754d3e2cd8c52aba7415680c86097803b437bf0edcd8d022ab6aa8c pkg.content-hash=gzip:sha512t_256:2ad3bb0540d800f2115691c96e8ed35b9b91eb5c248bea199da22ffd102cc847 pkg.csize=749 pkg.size=2223 preserve=true
+file e39dbc36680b717ec902fadc805a302f1cf62245 chash=325af5a4b735284a3cdfd3b04bd249ff22334965 group=bin mode=0644 owner=root path=etc/nginx/mime.types pkg.content-hash=file:sha512t_256:8217c6955d644400707c4ecf1539ece4ee2fd1be4838654860f2ef2ecacdebd4 pkg.content-hash=gzip:sha512t_256:46566d205da4d67a6e12a1d3d2f78e3602770ce42ef2c117ee95b821aec90100 pkg.csize=990 pkg.size=5231 preserve=true
+file d143ca7a6aac765d28724af54d969a4bd2202383 chash=adacb374c514459417f07cacd4f8bf60644c9651 group=bin mode=0644 owner=root path=etc/nginx/nginx.conf pkg.content-hash=file:sha512t_256:cc9263a836b4db441340d2e041adf10136c9a8aa31259b868000f88c84032ba1 pkg.content-hash=gzip:sha512t_256:cf0cd12b5f3f1d9d15378e1a1bacaaff7589bf2c129312b277b66ea3418acc54 pkg.csize=997 pkg.size=2798 preserve=true
+file 379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd chash=2c75c59e0de9208a9b96460d0566e5686708310c group=bin mode=0644 owner=root path=etc/nginx/scgi_params pkg.content-hash=file:sha512t_256:e6dd7076b6319abc3fcd04554fede95c8cc40f1e21a83772c36577f939e81cb6 pkg.content-hash=gzip:sha512t_256:48efb28df3607f1a8b67eab95d4ca19526e8351d10529d97cb4af05250f8ee95 pkg.csize=275 pkg.size=636 preserve=true
+file cc2fcdb4605dcac23d59f667889ccbdfdc6e3668 chash=62320c6c207a26bf9c68c39d0372f4d4b97b905f group=bin mode=0644 owner=root path=etc/nginx/uwsgi_params pkg.content-hash=file:sha512t_256:eb133ae0a357df02b4b02615bc47dc2e5328105dac2dbcbd647667e9bbc3b2fd pkg.content-hash=gzip:sha512t_256:e5a2625a67f5502c5911d7e7a850030b6af89929e182b2da74ecf6e79df0e9d2 pkg.csize=284 pkg.size=664 preserve=true
+file e10f2d42c9e581901d810928d01a3bf8f3372838 chash=fd231cdd1a726fcb2abeba90b31cbf4c7df6df4d group=bin mode=0644 owner=root path=etc/nginx/win-utf pkg.content-hash=file:sha512t_256:7620f21db4c06f3eb863c0cb0a8b3f62c435abd2f8f47794c42f08ad434d90dd pkg.content-hash=gzip:sha512t_256:ca16a95ddd6ef2043969db20915935829b8ccb6134588e1710b24baf45afd7bb pkg.csize=1197 pkg.size=3610 preserve=true
+file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd700b5139d70b2 elfarch=i386 elfbits=64 elfhash=25b0cdd7736cddad78ce91b61385a8fdde91f7b2 group=bin mode=0555 owner=root path=usr/sbin/nginx pkg.content-hash=gelf:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=gelf.unsigned:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=file:sha512t_256:3d87b058a8e69b3a8dfab142f5e856549dcd531a371e3ca4d2be391655b0d076 pkg.content-hash=gzip:sha512t_256:7f93c48194b3e164ea35a9d2ddff310215769dbd27b45e9ab72beef1cce0d4f6 pkg.csize=657230 pkg.size=1598048");
+
+        let test_results = vec![
+            File{
+                payload: "4b76e83bb4bb7c87176b72ef805fe78ecae60d2c".to_string(),
+                group: "bin".to_string(),
+                mode: "555".to_string(),
+                owner: "root".to_string(),
+                path: "lib/svc/method/http-nginx".to_string(),
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "7288afc78233791bb8e13b3e13aa4f0b4b1d6ee8".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:42007aaee6bd54977eb33f91db28f931ab11c39787ba9f7851b6baf0d142185b".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:ec144533fa077af1d5b152d8c7549f113902021d71808adb12ea3f92bda9fd66".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "975".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "1855".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "72e0496a02e72e7380b0b62cdc8410108302876f".to_string(),
+                group: "sys".to_string(),
+                mode: "0444".to_string(),
+                owner: "root".to_string(),
+                path: "lib/svc/manifest/network/http-nginx.xml".to_string(),
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "2f82b51db9cbba0705cb680e5aa0f11ff237009b".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:c0c3640d6e61b53a3dc4228adff7532ec6b5d09bf1847991a3aaa5eb3e04d19a".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:e1999bae58ef887d81dc686b794429a9dea0e7674b631c2a08f07fb9b34440e2".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "1067".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "2844".to_string(),
+                    },Property{
+                        key: "restart_fmri".to_string(),
+                        value: "svc:/system/manifest-import:default".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "95de71d58b37f9f74bede0e91bc381d6059fc2d7".to_string(),
+                group: "bin".to_string(),
+                mode: "0444".to_string(),
+                owner: "root".to_string(),
+                path: "usr/share/nginx/html/50x.html".to_string(),
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "c2e2e4cf82ec527800a2170d9e2565b75d557012".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:b592728ea1dcd6dd0924e1e6767e217ad70ec6973086911d8bc07d44695b9f0e".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:8407d82b497c4a865841ab8874207cc5a4d581ba574d66074ef5f92f05ee13cf".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "327".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "494".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "7dd71afcfb14e105e80b0c0d7fce370a28a41f0a".to_string(),
+                group: "bin".to_string(),
+                mode: "0444".to_string(),
+                owner: "root".to_string(),
+                path: "usr/share/nginx/html/index.html".to_string(),
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "50b7bcf6c555b8e9bde1eacd2c3d5c34a757c312".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:204038cd5fbbcdd2c3d24acb7f41b1e861c51d689f53202ec69b43bdba01cb60".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:34bad6066578cf03289b0c957cb4f01a9353f91b3b95079d69bf9e12dd569279".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "381".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "612".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "cbf596ddb3433a8e0d325f3c188bec9c1bb746b3".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/fastcgi.conf".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "2df27ca83841b9c8e38c5aa30760372773166928".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:d260c064680ec58135d9a290ed3cfd64274db769701ab3df2bfdeb653a864518".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:4924c0f4bdc37b832afd281ad07b0bf339c8c3a0e2d95e076998d46fab76a084".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "448".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "1077".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "da38e2a0dded838afbe0eade6cb837ac30fd8046".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/fastcgi_params".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "530616dc345f6acf0aea26db06e56aa41b2f510d".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:baeeb2df301f8764568a86884c127e90faf39bee4ff0e53fb4a890955e605cee".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:5c6f541692556eacbde4ea1536de3c1af2cd8e9980fc4edca36851a97ed671ba".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "430".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "1007".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "407cb51b397ba4ad90a2246640a81af18e2e917a".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/koi-utf".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "00d285c15dd65f24c4c89d5790094c38432a1ac6".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:06381b2c4a28fe88c0d908f1cd81453c9482358c8195163e294b8def8924b366".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:d66022b08971eaf9ddf3230a991b0d8352fcefe0f797305a94b5ca0574d70ff5".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "938".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "2837".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "19ec7fb71e7f00d7e8a1cfc1013490f0cfee572b".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/koi-win".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "0f2588ac25780698ea7ebeac3ea0e9041502d501".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:92d4df1df754d3e2cd8c52aba7415680c86097803b437bf0edcd8d022ab6aa8c".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:2ad3bb0540d800f2115691c96e8ed35b9b91eb5c248bea199da22ffd102cc847".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "749".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "2223".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "e39dbc36680b717ec902fadc805a302f1cf62245".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/mime.types".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "325af5a4b735284a3cdfd3b04bd249ff22334965".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:8217c6955d644400707c4ecf1539ece4ee2fd1be4838654860f2ef2ecacdebd4".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:46566d205da4d67a6e12a1d3d2f78e3602770ce42ef2c117ee95b821aec90100".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "990".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "5231".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "d143ca7a6aac765d28724af54d969a4bd2202383".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/nginx.conf".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "adacb374c514459417f07cacd4f8bf60644c9651".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:cc9263a836b4db441340d2e041adf10136c9a8aa31259b868000f88c84032ba1".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:cf0cd12b5f3f1d9d15378e1a1bacaaff7589bf2c129312b277b66ea3418acc54".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "997".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "2798".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/scgi_params".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "2c75c59e0de9208a9b96460d0566e5686708310c".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:e6dd7076b6319abc3fcd04554fede95c8cc40f1e21a83772c36577f939e81cb6".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:48efb28df3607f1a8b67eab95d4ca19526e8351d10529d97cb4af05250f8ee95".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "275".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "636".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "cc2fcdb4605dcac23d59f667889ccbdfdc6e3668".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/uwsgi_params".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "62320c6c207a26bf9c68c39d0372f4d4b97b905f".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:eb133ae0a357df02b4b02615bc47dc2e5328105dac2dbcbd647667e9bbc3b2fd".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:e5a2625a67f5502c5911d7e7a850030b6af89929e182b2da74ecf6e79df0e9d2".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "284".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "664".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "e10f2d42c9e581901d810928d01a3bf8f3372838".to_string(),
+                group: "bin".to_string(),
+                mode: "0644".to_string(),
+                owner: "root".to_string(),
+                path: "etc/nginx/win-utf".to_string(),
+                preserve: true,
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "fd231cdd1a726fcb2abeba90b31cbf4c7df6df4d".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:7620f21db4c06f3eb863c0cb0a8b3f62c435abd2f8f47794c42f08ad434d90dd".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:ca16a95ddd6ef2043969db20915935829b8ccb6134588e1710b24baf45afd7bb".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "1197".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "3610".to_string(),
+                    },
+                ],
+                ..File::default()
+            }, File{
+                payload: "6d5f820bb1d67594c7b757c79ef6f9242df49e98".to_string(),
+                group: "bin".to_string(),
+                mode: "0555".to_string(),
+                owner: "root".to_string(),
+                path: "usr/sbin/nginx".to_string(),
+                properties: vec![
+                    Property{
+                        key: "chash".to_string(),
+                        value: "3ab17dde089f1eac7abd37d8efd700b5139d70b2".to_string(),
+                    },Property{
+                        key: "elfarch".to_string(),
+                        value: "i386".to_string(),
+                    },Property{
+                        key: "elfbits".to_string(),
+                        value: "64".to_string(),
+                    },Property{
+                        key: "elfhash".to_string(),
+                        value: "25b0cdd7736cddad78ce91b61385a8fdde91f7b2".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gelf:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gelf.unsigned:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "file:sha512t_256:3d87b058a8e69b3a8dfab142f5e856549dcd531a371e3ca4d2be391655b0d076".to_string(),
+                    },Property{
+                        key: "pkg.content-hash".to_string(),
+                        value: "gzip:sha512t_256:7f93c48194b3e164ea35a9d2ddff310215769dbd27b45e9ab72beef1cce0d4f6".to_string(),
+                    },Property{
+                        key: "pkg.csize".to_string(),
+                        value: "657230".to_string(),
+                    },Property{
+                        key: "pkg.size".to_string(),
+                        value: "1598048".to_string(),
+                    },
+                ],
+                ..File::default()
+            },
+        ];
+
+        let mut manifest = Manifest::new();
+        match parse_manifest_string(manifest_string) {
+            Ok(m) => manifest = m,
+            Err(e) => {
+                println!("{}", e);
+                assert!(false, "caught error");
+            }
+        };
+
+        assert_eq!(manifest.files.len(), test_results.len());
+
+        for (pos, file) in manifest.files.iter().enumerate() {
+            println!("action: {}", file.payload);
+            assert_eq!(file.group, test_results[pos].group);
+            assert_eq!(file.mode, test_results[pos].mode);
+            assert_eq!(file.owner, test_results[pos].owner);
+            assert_eq!(file.path, test_results[pos].path);
+            assert_eq!(file.preserve, test_results[pos].preserve);
+            assert_eq!(file.payload, test_results[pos].payload);
+
+            for (vpos, val) in file.properties.iter().enumerate() {
+                assert_eq!(val.key, test_results[pos].properties[vpos].key);
+                assert_eq!(val.value, test_results[pos].properties[vpos].value);
+            }
         }
     }
 }
