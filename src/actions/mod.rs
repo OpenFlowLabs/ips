@@ -5,12 +5,38 @@
 
 use regex::{RegexSet, Regex};
 use std::collections::HashSet;
-use std::error;
-use std::fmt;
 use std::fs::File as OsFile;
 use std::io::BufRead;
 use std::io::BufReader;
 use failure::Error;
+use crate::payload::Payload;
+use std::clone::Clone;
+
+trait FacetedAction {
+    // Add a facet to the action if the facet is already present the function returns false.
+    fn add_facet(&mut self, facet: Facet) -> bool;
+
+    // Remove a facet from the action.
+    fn remove_facet(&mut self, facet: Facet) -> bool;
+}
+
+#[derive(Debug)]
+pub struct Action {
+    kind: ActionKind,
+    payload_reference: String,
+    properties: Vec<Property>,
+    facets: HashSet<Facet>,
+}
+
+impl FacetedAction for Action {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.insert(facet)
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.remove(&facet)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Dir {
@@ -23,9 +49,19 @@ pub struct Dir {
     pub facets: HashSet<Facet>,
 }
 
+impl FacetedAction for Dir {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.insert(facet)
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.remove(&facet)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct File {
-    pub payload: String,
+    pub payload: Payload,
     pub path: String,
     pub group: String,
     pub owner: String,
@@ -37,6 +73,16 @@ pub struct File {
     pub sys_attr: String,
     pub properties: Vec<Property>,
     pub facets: HashSet<Facet>,
+}
+
+impl FacetedAction for File {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.insert(facet)
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.remove(&facet)
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Default)]
@@ -75,6 +121,7 @@ impl Manifest {
     }
 }
 
+#[derive(Debug)]
 enum ActionKind {
     Attr,
     Dir,
@@ -165,6 +212,28 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
     Ok(())
 }
 
+fn add_facet_to_action<T: FacetedAction>(action: &mut T, facet_string: String, line: String, line_nr: usize) -> Result<(), ManifestError> {
+    let facet_key = match facet_string.find(".") {
+        Some(idx) => {
+            facet_string.clone().split_off(idx+1)
+        },
+        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
+    };
+
+    let value = match facet_string.find("=") {
+        Some(idx) => {
+            facet_string.clone().split_off(idx+1)
+        },
+        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+    };
+
+    if !action.add_facet(Facet{name: facet_key, value}) {
+        return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+    }
+
+    Ok(())
+}
+
 fn determine_action_kind(line: &str) -> ActionKind {
     let mut act = String::new();
     for c in line.trim_start().chars() {
@@ -245,35 +314,21 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
                     let key_val_string = clean_string_value(&cap[full_cap_idx]);
 
                     if key_val_string.contains("facet.") {
-                        let facet_key = match key_val_string.find(".") {
-                            Some(idx) => {
-                                key_val_string.clone().split_off(idx+1)
-                            },
-                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
-                        };
-
-                        let value = match key_val_string.find("=") {
-                            Some(idx) => {
-                                key_val_string.clone().split_off(idx+1)
-                            },
-                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-                        };
-
-                        if !act.facets.insert(Facet{name: facet_key, value}) {
-                            return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+                        match add_facet_to_action(&mut act, key_val_string, line, line_nr) {
+                            Ok(_) => continue,
+                            Err(e) => return Err(e)?,
                         }
-
-                    } else {
-                        let mut key = key_val_string.clone();
-                        let value = match key.find("=") {
-                            Some(idx) => {
-                                key.split_off(idx+1)
-                            },
-                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-                        };
-                        key = key.replace("=", "");
-                        act.properties.push(Property{key, value});
                     }
+
+                    let mut key = key_val_string.clone();
+                    let value = match key.find("=") {
+                        Some(idx) => {
+                            key.split_off(idx+1)
+                        },
+                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
+                    };
+                    key = key.replace("=", "");
+                    act.properties.push(Property{key, value});
                 }
             }
         }
@@ -300,31 +355,18 @@ fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
 
 
             match &cap[key_cap_idx] {
-                "path" => act.path = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
-                "owner" => act.owner = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
-                "group" => act.group = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
-                "mode" => act.mode = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
-                "revert-tag" => act.revert_tag = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
-                "salvage-from" => act.salvage_from = String::from(&cap[val_cap_idx]).trim_end().replace(&['"', '\\'][..], ""),
+                "path" => act.path = clean_string_value(&cap[val_cap_idx]),
+                "owner" => act.owner = clean_string_value(&cap[val_cap_idx]),
+                "group" => act.group = clean_string_value(&cap[val_cap_idx]),
+                "mode" => act.mode = clean_string_value(&cap[val_cap_idx]),
+                "revert-tag" => act.revert_tag = clean_string_value(&cap[val_cap_idx]),
+                "salvage-from" => act.salvage_from = clean_string_value(&cap[val_cap_idx]),
                 _ => {
-                    let key_val_string = String::from(&cap[full_cap_idx]).trim_end().replace(&['"', '\\'][..], "");
+                    let key_val_string = clean_string_value(&cap[full_cap_idx]);
                     if key_val_string.contains("facet.") {
-                        let key = match key_val_string.find(".") {
-                            Some(idx) => {
-                                key_val_string.clone().split_off(idx+1)
-                            },
-                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
-                        };
-
-                        let value = match key_val_string.find("=") {
-                            Some(idx) => {
-                                key_val_string.clone().split_off(idx+1)
-                            },
-                            None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-                        };
-
-                        if !act.facets.insert(Facet{name: key, value }) {
-                            return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
+                        match add_facet_to_action(&mut act, key_val_string, line, line_nr) {
+                            Ok(_) => continue,
+                            Err(e) => return Err(e)?,
                         }
                     }
                 }

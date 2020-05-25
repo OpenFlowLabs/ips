@@ -4,6 +4,8 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 mod actions;
+mod digest;
+mod payload;
 
 #[macro_use] extern crate failure;
 
