@@ -11,6 +11,8 @@ use std::io::BufReader;
 use failure::Error;
 use crate::payload::Payload;
 use std::clone::Clone;
+use crate::digest::Digest;
+use std::str::FromStr;
 
 trait FacetedAction {
     // Add a facet to the action if the facet is already present the function returns false.
@@ -70,7 +72,7 @@ impl FacetedAction for Dir {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct File {
     pub payload: Payload,
     pub path: String,
@@ -145,6 +147,10 @@ enum ActionKind {
     Link,
     Legacy,
     Unknown{action: String},
+}
+
+impl Default for ActionKind {
+    fn default() -> Self { ActionKind::Unknown {action: String::new()} }
 }
 
 //TODO Multierror and no failure for these cases
@@ -295,9 +301,9 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
     for (pat, idx) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
         let regex = Regex::new(&pat)?;
 
-        for cap in regex.captures_iter(line.trim_start()) {
+        for cap in regex.captures_iter(line.clone().trim_start()) {
             if idx == 0 {
-                act.payload = String::from(&cap[1]);
+                act.payload.primary_identifier = Digest::from_str(&cap[1])?;
                 continue;
             }
 
@@ -325,7 +331,7 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
                     let key_val_string = clean_string_value(&cap[full_cap_idx]);
 
                     if key_val_string.contains("facet.") {
-                        match add_facet_to_action(&mut act, key_val_string, line, line_nr) {
+                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
                             Ok(_) => continue,
                             Err(e) => return Err(e)?,
                         }
@@ -359,7 +365,7 @@ fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
     for pat in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| &regex_set.patterns()[match_idx]) {
         let regex = Regex::new(&pat)?;
 
-        for cap in regex.captures_iter(line.trim_start()) {
+        for cap in regex.captures_iter(line.clone().trim_start()) {
             let full_cap_idx = 0;
             let key_cap_idx = 1;
             let val_cap_idx = 2;
@@ -375,7 +381,7 @@ fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
                 _ => {
                     let key_val_string = clean_string_value(&cap[full_cap_idx]);
                     if key_val_string.contains("facet.") {
-                        match add_facet_to_action(&mut act, key_val_string, line, line_nr) {
+                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
                             Ok(_) => continue,
                             Err(e) => return Err(e)?,
                         }

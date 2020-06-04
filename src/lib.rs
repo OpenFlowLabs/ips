@@ -15,6 +15,9 @@ mod tests {
     use crate::actions::{Manifest, Property, Dir, File};
     use crate::actions::{parse_manifest_string, Attr};
     use std::collections::HashSet;
+    use crate::payload::Payload;
+    use crate::digest::Digest;
+    use std::str::FromStr;
 
     #[test]
     fn parse_attributes() {
@@ -232,7 +235,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
 
         let test_results = vec![
             File{
-                payload: "4b76e83bb4bb7c87176b72ef805fe78ecae60d2c".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("4b76e83bb4bb7c87176b72ef805fe78ecae60d2c"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "555".to_string(),
                 owner: "root".to_string(),
@@ -257,7 +266,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "72e0496a02e72e7380b0b62cdc8410108302876f".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("72e0496a02e72e7380b0b62cdc8410108302876f"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "sys".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -285,7 +300,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "95de71d58b37f9f74bede0e91bc381d6059fc2d7".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("95de71d58b37f9f74bede0e91bc381d6059fc2d7"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -310,7 +331,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "7dd71afcfb14e105e80b0c0d7fce370a28a41f0a".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("7dd71afcfb14e105e80b0c0d7fce370a28a41f0a"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -335,7 +362,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "cbf596ddb3433a8e0d325f3c188bec9c1bb746b3".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("cbf596ddb3433a8e0d325f3c188bec9c1bb746b3"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -361,7 +394,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "da38e2a0dded838afbe0eade6cb837ac30fd8046".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("da38e2a0dded838afbe0eade6cb837ac30fd8046"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -387,7 +426,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "407cb51b397ba4ad90a2246640a81af18e2e917a".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("407cb51b397ba4ad90a2246640a81af18e2e917a"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -413,7 +458,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "19ec7fb71e7f00d7e8a1cfc1013490f0cfee572b".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("19ec7fb71e7f00d7e8a1cfc1013490f0cfee572b"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -439,7 +490,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "e39dbc36680b717ec902fadc805a302f1cf62245".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("e39dbc36680b717ec902fadc805a302f1cf62245"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -465,7 +522,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "d143ca7a6aac765d28724af54d969a4bd2202383".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("d143ca7a6aac765d28724af54d969a4bd2202383"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -491,7 +554,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -517,7 +586,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "cc2fcdb4605dcac23d59f667889ccbdfdc6e3668".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("cc2fcdb4605dcac23d59f667889ccbdfdc6e3668"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -543,7 +618,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "e10f2d42c9e581901d810928d01a3bf8f3372838".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("e10f2d42c9e581901d810928d01a3bf8f3372838"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -569,7 +650,13 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: "6d5f820bb1d67594c7b757c79ef6f9242df49e98".to_string(),
+                payload: Payload{
+                    primary_identifier: Digest {
+                        hash: String::from("6d5f820bb1d67594c7b757c79ef6f9242df49e98"),
+                        ..Digest::default()
+                    },
+                    ..Payload::default()
+                },
                 group: "bin".to_string(),
                 mode: "0555".to_string(),
                 owner: "root".to_string(),
@@ -612,24 +699,20 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
         ];
 
         let mut manifest = Manifest::new();
-        match parse_manifest_string(manifest_string) {
-            Ok(m) => manifest = m,
-            Err(e) => {
-                println!("{}", e);
-                assert!(false, "caught error");
-            }
-        };
+        let res = parse_manifest_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
 
         assert_eq!(manifest.files.len(), test_results.len());
 
         for (pos, file) in manifest.files.iter().enumerate() {
-            println!("action: {}", file.payload);
+            println!("action: {}", file.payload.primary_identifier.hash);
             assert_eq!(file.group, test_results[pos].group);
             assert_eq!(file.mode, test_results[pos].mode);
             assert_eq!(file.owner, test_results[pos].owner);
             assert_eq!(file.path, test_results[pos].path);
             assert_eq!(file.preserve, test_results[pos].preserve);
-            assert_eq!(file.payload, test_results[pos].payload);
+            assert_eq!(file.payload.primary_identifier.hash, test_results[pos].payload.primary_identifier.hash);
 
             for (vpos, val) in file.properties.iter().enumerate() {
                 assert_eq!(val.key, test_results[pos].properties[vpos].key);

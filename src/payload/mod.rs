@@ -4,7 +4,6 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::digest::Digest;
-use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum PayloadCompressionAlgorithm {
@@ -42,9 +41,9 @@ impl Default for PayloadArchitecture {
 
 #[derive(Debug, Default)]
 pub struct Payload {
-    primary_identifier: Digest,
-    additional_identifiers: Vec<Digest>,
-    compression_algorithm: PayloadCompressionAlgorithm,
-    bitness: PayloadBits,
-    architecture: PayloadArchitecture,
+    pub primary_identifier: Digest,
+    pub additional_identifiers: Vec<Digest>,
+    pub compression_algorithm: PayloadCompressionAlgorithm,
+    pub bitness: PayloadBits,
+    pub architecture: PayloadArchitecture,
 }
