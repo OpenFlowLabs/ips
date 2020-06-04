@@ -9,7 +9,6 @@ version = "0.0.1-placeholder"
 authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
 edition = "2018"
 license-file = "LICENSE"
-license = "Mozilla Public License, v. 2.0"
 description = "The core library for the rust version of the Image Packaging System. Includes Python bindings."
 repository = "https://github.com/OpenFlowLabs/libips"
 readme = "README.md"
