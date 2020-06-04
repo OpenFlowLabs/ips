@@ -14,7 +14,6 @@ pub enum DigestAlgorithm {
     SHA3256, // Sha3 version of sha256t
     SHA3512Half, // Sha3 version of sha512t_256
     SHA3512, // Sha3 version of sha512t
-    Unknown,
 }
 
 impl Default for DigestAlgorithm {
