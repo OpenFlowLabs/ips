@@ -20,12 +20,23 @@ trait FacetedAction {
     fn remove_facet(&mut self, facet: Facet) -> bool;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Action {
     kind: ActionKind,
-    payload_reference: String,
+    payload: Payload,
     properties: Vec<Property>,
     facets: HashSet<Facet>,
+}
+
+impl Action {
+    fn new(kind: ActionKind) -> Action{
+        Action{
+            kind,
+            payload: Payload::default(),
+            properties: Vec::new(),
+            facets: HashSet::new(),
+        }
+    }
 }
 
 impl FacetedAction for Action {
@@ -59,7 +70,7 @@ impl FacetedAction for Dir {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct File {
     pub payload: Payload,
     pub path: String,

@@ -37,10 +37,44 @@ pub struct Digest {
     source: DigestSource,
 }
 
+
+
+impl FromStr for Digest {
+
+    fn from_str(s: &str) -> Result<Self, failure::Error> {
+        if !s.contains(":") {
+            Ok(Digest{
+                hash: String::from(s),
+                algorithm: DigestAlgorithm::SHA1,
+                source: "primary".to_string(),
+            })
+        }
+
+        let parts = String::from(s).split(':').collect();
+        if parts.len() < 3 {
+            Err(DigestError::InvalidDigestFormat{
+                digest: String::from(s),
+                details: "cannot split into 3 parts".to_string(),
+            });
+        }
+
+        Ok(Digest{
+            source: String::from(&parts[0]),
+            algorithm: String::from(&parts[1]),
+            hash: String::from(&parts[2]),
+        })
+    }
+}
+
 #[derive(Debug, Fail)]
 pub enum DigestError {
     #[fail(display = "hashing algorithm {} is not known by this library", algorithm)]
     UnknownAlgorithm {
         algorithm: String,
+    },
+    #[fail(display = "digest {} is not formatted properly: {}", digest, details)]
+    InvalidDigestFormat{
+        digest: String,
+        details: String,
     },
 }

@@ -4,6 +4,7 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::digest::Digest;
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum PayloadCompressionAlgorithm {
