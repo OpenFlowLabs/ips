@@ -79,7 +79,7 @@ impl FromStr for Digest {
                 "sha3256t" => DigestAlgorithm::SHA3256,
                 "sha3512t_256" => DigestAlgorithm::SHA3512Half,
                 "sha3512t" => DigestAlgorithm::SHA3512,
-                _ => DigestAlgorithm::Unknown,
+                _ => return Err(DigestError::UnknownAlgorithm {algorithm: String::from(parts[1])}),
             },
             hash: String::from(parts[2]),
         })
