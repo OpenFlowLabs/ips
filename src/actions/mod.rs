@@ -327,25 +327,20 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
                     Ok(b) => b,
                     Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e})?
                 },
+                "chash" | "pkg.content-hash" => act.payload.additional_identifiers.push(match Digest::from_str(clean_string_value(&cap[val_cap_idx]).as_str()) {
+                    Ok(d) => d,
+                    Err(e) => return Err(e)?
+                }),
                 _ => {
-                    let key_val_string = clean_string_value(&cap[full_cap_idx]);
-
+                    let key_val_string = String::from(&cap[full_cap_idx]);
                     if key_val_string.contains("facet.") {
                         match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
                             Ok(_) => continue,
                             Err(e) => return Err(e)?,
                         }
+                    } else {
+                        act.properties.push(Property{key: clean_string_value(&cap[key_cap_idx]), value: clean_string_value(&cap[val_cap_idx])});
                     }
-
-                    let mut key = key_val_string.clone();
-                    let value = match key.find("=") {
-                        Some(idx) => {
-                            key.split_off(idx+1)
-                        },
-                        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-                    };
-                    key = key.replace("=", "");
-                    act.properties.push(Property{key, value});
                 }
             }
         }

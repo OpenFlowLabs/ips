@@ -5,7 +5,7 @@
 
 use std::str::FromStr;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DigestAlgorithm {
     SHA1, //Default, sadly
     SHA256, //sha256t
@@ -20,7 +20,7 @@ impl Default for DigestAlgorithm {
     fn default() -> Self { DigestAlgorithm::SHA1 }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DigestSource {
     GzipCompressed,
     GNUElf,
