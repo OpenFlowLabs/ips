@@ -8,16 +8,18 @@ mod digest;
 mod payload;
 
 #[macro_use] extern crate failure;
+#[macro_use] extern crate maplit;
 
 #[cfg(test)]
 mod tests {
 
-    use crate::actions::{Manifest, Property, Dir, File};
+    use crate::actions::{Manifest, Property, Dir, File, Dependency, Facet};
     use crate::actions::{parse_manifest_string, Attr};
     use std::collections::HashSet;
     use crate::payload::Payload;
     use crate::digest::{Digest, DigestAlgorithm, DigestSource};
     use std::str::FromStr;
+    use failure::_core::ptr::hash;
 
     #[test]
     fn parse_attributes() {
@@ -828,4 +830,80 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
             }
         }
     }
+
+    #[test]
+    fn parse_dependency_actions() {
+        let manifest_string = String::from("depend fmri=pkg:/system/library@0.5.11-2020.0.1.19563 type=require
+depend fmri=pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951 type=incorporate
+depend facet.version-lock.system/data/hardware-registry=true fmri=pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951 type=incorporate
+depend facet.version-lock.xvm=true fmri=xvm@0.5.11-2015.0.2.0 type=incorporate
+depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1-2020.0.1.0 type=incorporate");
+
+        let test_results = vec![
+            Dependency{
+                fmri: "pkg:/system/library@0.5.11-2020.0.1.19563".to_string(),
+                dependency_type: "require".to_string(),
+                ..Dependency::default()
+            },
+            Dependency{
+                fmri: "pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951".to_string(),
+                dependency_type: "incorporate".to_string(),
+                ..Dependency::default()
+            },
+            Dependency{
+                fmri: "pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951".to_string(),
+                dependency_type: "incorporate".to_string(),
+                facets: hashset!{
+                    Facet{
+                        name: "version-lock.system/data/hardware-registry".to_string(),
+                        value: "true".to_string(),
+                    }
+                },
+                ..Dependency::default()
+            },
+            Dependency{
+                fmri: "xvm@0.5.11-2015.0.2.0".to_string(),
+                dependency_type: "incorporate".to_string(),
+                facets: hashset!{
+                    Facet{
+                        name: "version-lock.xvm".to_string(),
+                        value: "true".to_string(),
+                    }
+                },
+                ..Dependency::default()
+            },
+            Dependency{
+                fmri: "system/mozilla-nss@3.51.1-2020.0.1.0".to_string(),
+                dependency_type: "incorporate".to_string(),
+                facets: hashset!{
+                    Facet{
+                        name: "version-lock.system/mozilla-nss".to_string(),
+                        value: "true".to_string(),
+                    }
+                },
+                ..Dependency::default()
+            },
+        ];
+
+        let mut manifest = Manifest::new();
+        let res = parse_manifest_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
+
+        assert_eq!(manifest.dependencies.len(), test_results.len());
+        for (pos, dependency) in manifest.dependencies.iter().enumerate() {
+            assert_eq!(dependency.fmri, test_results[pos].fmri);
+            assert_eq!(dependency.dependency_type, test_results[pos].dependency_type);
+            for (vpos, facet) in dependency.facets.iter().enumerate() {
+                let fres = test_results[pos].facets.get(facet);
+                assert!(fres.is_some(), "error no facet with name: {:?} found", facet.name);
+                let f = fres.unwrap();
+                assert_eq!(facet.name, f.name);
+                assert_eq!(facet.value, f.value);
+            }
+        }
+
+    }
 }
+
+

@@ -3,6 +3,8 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
+// Source https://docs.oracle.com/cd/E23824_01/html/E21796/pkg-5.html
+
 use regex::{RegexSet, Regex};
 use std::collections::HashSet;
 use std::fs::File as OsFile;
@@ -98,6 +100,27 @@ impl FacetedAction for File {
     }
 }
 
+//TODO implement multiple FMRI for require-any
+#[derive(Debug, Default)]
+pub struct Dependency {
+    pub fmri: String, //TODO make FMRI
+    pub dependency_type: String, //TODO make enum
+    pub predicate: String,  //TODO make FMRI
+    pub root_image: String, //TODO make boolean
+    pub optional: Vec<Property>,
+    pub facets: HashSet<Facet>,
+}
+
+impl FacetedAction for Dependency {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.insert(facet)
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        return self.facets.remove(&facet)
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Debug, Default)]
 pub struct Facet {
     pub name: String,
@@ -122,6 +145,7 @@ pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,
     pub files: Vec<File>,
+    pub dependencies: Vec<Dependency>,
 }
 
 impl Manifest {
@@ -130,6 +154,7 @@ impl Manifest {
             attributes: Vec::new(),
             directories: Vec::new(),
             files: Vec::new(),
+            dependencies: Vec::new(),
         };
     }
 }
@@ -202,7 +227,7 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
             manifest.files.push(parse_file_action(String::from(line), line_nr)?);
         }
         ActionKind::Dependency => {
-
+            manifest.dependencies.push(parse_depend_action(String::from(line),line_nr)?);
         }
         ActionKind::User => {
 
@@ -230,21 +255,23 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
 }
 
 fn add_facet_to_action<T: FacetedAction>(action: &mut T, facet_string: String, line: String, line_nr: usize) -> Result<(), ManifestError> {
-    let facet_key = match facet_string.find(".") {
+    let mut facet_key = match facet_string.find(".") {
         Some(idx) => {
             facet_string.clone().split_off(idx+1)
         },
         None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
     };
 
-    let value = match facet_string.find("=") {
+    let value = match facet_key.find("=") {
         Some(idx) => {
-            facet_string.clone().split_off(idx+1)
+            facet_key.split_off(idx+1)
         },
         None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
     };
 
-    if !action.add_facet(Facet{name: facet_key, value}) {
+    facet_key.truncate(facet_key.len() - 1);
+
+    if !action.add_facet(Facet{name: clean_string_value(facet_key.as_str()), value: clean_string_value(value.as_str())}) {
         return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
     }
 
@@ -288,6 +315,43 @@ fn string_to_bool(orig: &str) -> Result<bool, String> {
         "f" => Ok(false),
         _ => Err(String::from("not a boolean like value"))
     }
+}
+
+fn parse_depend_action(line: String, line_nr: usize) -> Result<Dependency, Error> {
+    let mut act = Dependency::default();
+    let regex_set = RegexSet::new(&[
+        r#"([^ ]+)=([^"][^ ]+[^"])"#,
+        r#"([^ ]+)="(.+)"#
+    ])?;
+
+    for (pat, _) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
+        let regex = Regex::new(&pat)?;
+        for cap in regex.captures_iter(line.clone().trim_start()) {
+            let full_cap_idx = 0;
+            let key_cap_idx = 1;
+            let val_cap_idx = 2;
+
+            match &cap[key_cap_idx] {
+                "fmri" => act.fmri = clean_string_value(&cap[val_cap_idx]),
+                "type" => act.dependency_type = clean_string_value(&cap[val_cap_idx]),
+                "predicate" => act.predicate = clean_string_value(&cap[val_cap_idx]),
+                "root-image" => act.root_image = clean_string_value(&cap[val_cap_idx]),
+                _ => {
+                    let key_val_string = String::from(&cap[full_cap_idx]);
+                    if key_val_string.contains("facet.") {
+                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
+                            Ok(_) => continue,
+                            Err(e) => return Err(e)?,
+                        }
+                    } else {
+                        act.optional.push(Property{key: clean_string_value(&cap[key_cap_idx]), value: clean_string_value(&cap[val_cap_idx])});
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(act)
 }
 
 fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
