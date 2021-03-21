@@ -1,0 +1,14 @@
+[package]
+name = "pkg6depotd"
+version = "0.0.1-placeholder"
+authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
+edition = "2018"
+license-file = "LICENSE"
+description = "The repository server for IPS written in rust"
+repository = "https://github.com/OpenFlowLabs/pkg6depotd"
+readme = "README.md"
+keywords = ["packaging", "illumos"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
