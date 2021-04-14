@@ -15,8 +15,9 @@ use crate::payload::Payload;
 use std::clone::Clone;
 use crate::digest::Digest;
 use std::str::FromStr;
+use std::path::{Path, PathBuf};
 
-trait FacetedAction {
+pub trait FacetedAction {
     // Add a facet to the action if the facet is already present the function returns false.
     fn add_facet(&mut self, facet: Facet) -> bool;
 
@@ -33,7 +34,7 @@ pub struct Action {
 }
 
 impl Action {
-    fn new(kind: ActionKind) -> Action{
+    pub fn new(kind: ActionKind) -> Action{
         Action{
             kind,
             payload: Payload::default(),
@@ -90,6 +91,21 @@ pub struct File {
     pub facets: HashSet<Facet>,
 }
 
+impl File {
+    pub fn read_from_path(p: &Path) -> Result<File, Error> {
+        let mut f = File::default();
+        f.payload = Payload::compute_payload(p)?;
+        match p.to_str() {
+            Some(str) => f.path = str.to_string(),
+            None => return Err(FileError::FilePathIsNoStringError)?,
+        }
+
+        //TODO group owner mode
+
+        Ok(f)
+    }
+}
+
 impl FacetedAction for File {
     fn add_facet(&mut self, facet: Facet) -> bool {
         return self.facets.insert(facet)
@@ -98,6 +114,12 @@ impl FacetedAction for File {
     fn remove_facet(&mut self, facet: Facet) -> bool {
         return self.facets.remove(&facet)
     }
+}
+
+#[derive(Debug, Fail)]
+pub enum FileError {
+    #[fail(display = "file path is not a string")]
+    FilePathIsNoStringError,
 }
 
 //TODO implement multiple FMRI for require-any
@@ -157,10 +179,14 @@ impl Manifest {
             dependencies: Vec::new(),
         };
     }
+
+    pub fn add_file(&mut self, f: File) {
+        self.files.push(f);
+    }
 }
 
 #[derive(Debug)]
-enum ActionKind {
+pub enum ActionKind {
     Attr,
     Dir,
     File,

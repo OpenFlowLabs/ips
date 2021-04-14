@@ -4,6 +4,10 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use std::str::FromStr;
+use sha2::{Digest as Sha2Digest};
+use sha3::{Digest as Sha3Digest};
+
+static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
 #[derive(Debug, PartialEq)]
 pub enum DigestAlgorithm {
@@ -81,6 +85,35 @@ impl FromStr for Digest {
                 _ => return Err(DigestError::UnknownAlgorithm {algorithm: String::from(parts[1])}),
             },
             hash: String::from(parts[2]),
+        })
+    }
+}
+
+impl Digest {
+    pub fn from_bytes(b: &[u8], algo: DigestAlgorithm, src: DigestSource) -> Result<Self, failure::Error> {
+        let hash = match algo {
+            DigestAlgorithm::SHA256=> {
+                format!("{:x}", sha2::Sha256::digest(b))
+            }
+            DigestAlgorithm::SHA512Half => {
+                format!("{:x}", sha2::Sha512Trunc256::digest(b))
+            }
+            DigestAlgorithm::SHA512 => {
+                format!("{:x}", sha2::Sha512::digest(b))
+            }
+            DigestAlgorithm::SHA3512Half | DigestAlgorithm::SHA3256 => {
+                format!("{:x}", sha3::Sha3_256::digest(b))
+            }
+            DigestAlgorithm::SHA3512 | _ => {
+                format!("{:x}", sha3::Sha3_512::digest(b))
+            }
+        };
+
+
+        Ok(Digest{
+            source: src,
+            algorithm: algo,
+            hash,
         })
     }
 }
