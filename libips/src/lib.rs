@@ -7,8 +7,18 @@ pub mod actions;
 pub mod digest;
 pub mod payload;
 
-#[macro_use] extern crate failure;
-#[macro_use] extern crate maplit;
+mod errors {
+    use failure::Error;
+    use std::result::Result as StdResult;
+
+    pub type Result<T> = StdResult<T, Error>;
+}
+
+use errors::Result;
+
+#[macro_use]
+extern crate failure;
+extern crate maplit;
 
 #[cfg(test)]
 mod tests {

@@ -8,7 +8,7 @@ use failure::Error;
 use object::Object;
 use std::path::Path;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PayloadCompressionAlgorithm {
     Gzip,
     LZ4
@@ -18,7 +18,7 @@ impl Default for PayloadCompressionAlgorithm {
     fn default() -> Self { PayloadCompressionAlgorithm::LZ4 }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PayloadBits {
     Independent,
     Bits32,
@@ -29,7 +29,7 @@ impl Default for PayloadBits {
     fn default() -> Self { PayloadBits::Independent }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PayloadArchitecture {
     NOARCH,
     I386,
@@ -42,7 +42,7 @@ impl Default for PayloadArchitecture {
     fn default() -> Self { PayloadArchitecture::NOARCH }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Payload {
     pub primary_identifier: Digest,
     pub additional_identifiers: Vec<Digest>,

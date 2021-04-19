@@ -6,7 +6,7 @@
 // Source https://docs.oracle.com/cd/E23824_01/html/E21796/pkg-5.html
 
 use regex::{RegexSet, Regex};
-use std::collections::HashSet;
+use std::collections::{HashMap};
 use std::fs::File as OsFile;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -15,7 +15,10 @@ use crate::payload::Payload;
 use std::clone::Clone;
 use crate::digest::Digest;
 use std::str::FromStr;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
+use std::fmt;
+use pest::Parser;
+use crate::errors::Result;
 
 pub trait FacetedAction {
     // Add a facet to the action if the facet is already present the function returns false.
@@ -30,7 +33,7 @@ pub struct Action {
     kind: ActionKind,
     payload: Payload,
     properties: Vec<Property>,
-    facets: HashSet<Facet>,
+    facets: HashMap<String, Facet>,
 }
 
 impl Action {
@@ -39,22 +42,22 @@ impl Action {
             kind,
             payload: Payload::default(),
             properties: Vec::new(),
-            facets: HashSet::new(),
+            facets: HashMap::new(),
         }
     }
 }
 
 impl FacetedAction for Action {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet)
+        return self.facets.insert(facet.name.clone(), facet.clone()) == None
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet)
+        return self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Dir {
     pub path: String,
     pub group: String,
@@ -62,22 +65,22 @@ pub struct Dir {
     pub mode: String, //TODO implement as bitmask
     pub revert_tag: String,
     pub salvage_from: String,
-    pub facets: HashSet<Facet>,
+    pub facets: HashMap<String, Facet>,
 }
 
 impl FacetedAction for Dir {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet)
+        return self.facets.insert(facet.name.clone(), facet.clone()) == None
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet)
+        return self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct File {
-    pub payload: Payload,
+    pub payload: Option<Payload>,
     pub path: String,
     pub group: String,
     pub owner: String,
@@ -88,15 +91,17 @@ pub struct File {
     pub revert_tag: String,
     pub sys_attr: String,
     pub properties: Vec<Property>,
-    pub facets: HashSet<Facet>,
+    pub facets: HashMap<String, Facet>,
 }
 
 impl File {
-    pub fn read_from_path(p: &Path) -> Result<File, Error> {
+    pub fn read_from_path(p: &Path) -> Result<File> {
         let mut f = File::default();
-        f.payload = Payload::compute_payload(p)?;
         match p.to_str() {
-            Some(str) => f.path = str.to_string(),
+            Some(str) => {
+                f.path = str.to_string();
+                f.payload = Some(Payload::compute_payload(p)?);
+            },
             None => return Err(FileError::FilePathIsNoStringError)?,
         }
 
@@ -108,11 +113,11 @@ impl File {
 
 impl FacetedAction for File {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet)
+        return self.facets.insert(facet.name.clone(), facet.clone()) == None
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet)
+        return self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
@@ -123,37 +128,37 @@ pub enum FileError {
 }
 
 //TODO implement multiple FMRI for require-any
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Dependency {
     pub fmri: String, //TODO make FMRI
     pub dependency_type: String, //TODO make enum
     pub predicate: String,  //TODO make FMRI
     pub root_image: String, //TODO make boolean
     pub optional: Vec<Property>,
-    pub facets: HashSet<Facet>,
+    pub facets: HashMap<String, Facet>,
 }
 
 impl FacetedAction for Dependency {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet)
+        return self.facets.insert(facet.name.clone(), facet.clone()) == None
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet)
+        return self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Default)]
+#[derive(Hash, Eq, PartialEq, Debug, Default, Clone)]
 pub struct Facet {
     pub name: String,
     pub value: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Attr {
     pub key: String,
     pub values: Vec<String>,
-    pub properties: HashSet<Property>,
+    pub properties: HashMap<String, Property>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Default)]
@@ -162,7 +167,7 @@ pub struct Property {
     pub value: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,
@@ -183,6 +188,10 @@ impl Manifest {
     pub fn add_file(&mut self, f: File) {
         self.files.push(f);
     }
+
+    pub fn parse_file(&mut self, f: Path) -> Result<Manifest> {
+
+    }
 }
 
 #[derive(Debug)]
@@ -198,6 +207,7 @@ pub enum ActionKind {
     Link,
     Legacy,
     Unknown{action: String},
+    Transform,
 }
 
 impl Default for ActionKind {
@@ -220,20 +230,27 @@ pub enum ManifestError {
     },
 }
 
-pub fn parse_manifest_file(filename: String) -> Result<Manifest, Error> {
+#[derive(Parser)]
+#[grammar = "manifest.pest"]
+struct ManifestParser;
+
+pub fn parse_manifest_file(filename: String) -> Result<Manifest> {
     let mut m = Manifest::new();
     let f = OsFile::open(filename)?;
 
     let file = BufReader::new(&f);
 
     for (line_nr, line_read) in file.lines().enumerate() {
-        handle_manifest_line(&mut m, line_read?.trim_start(), line_nr)?;
+        let line = line_read?;
+        if !line.starts_with("#") {
+            handle_manifest_line(&mut m, line.trim_start(), line_nr)?;
+        }
     }
 
     return Ok(m);
 }
 
-pub fn parse_manifest_string(manifest: String) -> Result<Manifest, Error> {
+pub fn parse_manifest_string(manifest: String) -> Result<Manifest> {
     let mut m = Manifest::new();
     for (line_nr, line) in manifest.lines().enumerate() {
         handle_manifest_line(&mut m, line.trim_start(), line_nr)?;
@@ -241,7 +258,7 @@ pub fn parse_manifest_string(manifest: String) -> Result<Manifest, Error> {
     return Ok(m);
 }
 
-fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> Result<(), Error> {
+fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> Result<()> {
     match determine_action_kind(&line) {
         ActionKind::Attr => {
             manifest.attributes.push(parse_attr_action(String::from(line))?);
@@ -273,14 +290,19 @@ fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> 
         ActionKind::Legacy => {
 
         }
+        ActionKind::Transform => {
+
+        }
         ActionKind::Unknown{action} => {
-            Err(ManifestError::UnknownAction {action, line: line_nr})?;
+            if !action.is_empty() {
+                Err(ManifestError::UnknownAction {action, line: line_nr})?;
+            }
         }
     }
     Ok(())
 }
 
-fn add_facet_to_action<T: FacetedAction>(action: &mut T, facet_string: String, line: String, line_nr: usize) -> Result<(), ManifestError> {
+fn add_facet_to_action<T: FacetedAction>(action: &mut T, facet_string: String, line: String, line_nr: usize) -> Result<()> {
     let mut facet_key = match facet_string.find(".") {
         Some(idx) => {
             facet_string.clone().split_off(idx+1)
@@ -325,6 +347,7 @@ fn determine_action_kind(line: &str) -> ActionKind {
         "group" => ActionKind::Group,
         "user" => ActionKind::User,
         "legacy" => ActionKind::Legacy,
+        "<transform" => ActionKind::Transform,
         _ => ActionKind::Unknown{action: act},
     }
 }
@@ -333,17 +356,17 @@ fn clean_string_value(orig: &str) -> String {
     return String::from(orig).trim_end().replace(&['"', '\\'][..], "")
 }
 
-fn string_to_bool(orig: &str) -> Result<bool, String> {
+fn string_to_bool(orig: &str) -> Result<bool> {
     match &String::from(orig).trim().to_lowercase()[..] {
         "true" => Ok(true),
         "false" => Ok(false),
         "t" => Ok(true),
         "f" => Ok(false),
-        _ => Err(String::from("not a boolean like value"))
+        _ => Err(failure::err_msg("not a boolean like value"))
     }
 }
 
-fn parse_depend_action(line: String, line_nr: usize) -> Result<Dependency, Error> {
+fn parse_depend_action(line: String, line_nr: usize) -> Result<Dependency> {
     let mut act = Dependency::default();
     let regex_set = RegexSet::new(&[
         r#"([^ ]+)=([^"][^ ]+[^"])"#,
@@ -380,7 +403,7 @@ fn parse_depend_action(line: String, line_nr: usize) -> Result<Dependency, Error
     Ok(act)
 }
 
-fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
+fn parse_file_action(line: String, line_nr: usize) -> Result<File> {
     let mut act = File::default();
     let regex_set = RegexSet::new(&[
         r"file ([a-zA-Z0-9]+) ",
@@ -411,11 +434,11 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
                 "sysattr" => act.sys_attr = clean_string_value(&cap[val_cap_idx]),
                 "overlay" => act.overlay = match string_to_bool(&cap[val_cap_idx]) {
                     Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e})?
-                },
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e?})?
+                },/
                 "preserve" => act.preserve = match string_to_bool(&cap[val_cap_idx]) {
                     Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e})?
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e?})?
                 },
                 "chash" | "pkg.content-hash" => act.payload.additional_identifiers.push(match Digest::from_str(clean_string_value(&cap[val_cap_idx]).as_str()) {
                     Ok(d) => d,
@@ -440,7 +463,7 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File, Error> {
     Ok(act)
 }
 
-fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
+fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir> {
     let mut act = Dir::default();
     let regex_set = RegexSet::new(&[
         r#"([^ ]+)=([^"][^ ]+[^"])"#,
@@ -480,7 +503,7 @@ fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir, Error> {
     Ok(act)
 }
 
-fn parse_attr_action(line: String) -> Result<Attr, Error> {
+fn parse_attr_action(line: String) -> Result<Attr> {
     // Do a full line match to see if we can fast path this.
     // This also catches values with spaces, that have not been properly escaped.
     // Note: values with spaces must be properly escaped or the rest here will fail. Strings with
@@ -534,7 +557,7 @@ fn parse_attr_action(line: String) -> Result<Attr, Error> {
 
     let value_space_regex = Regex::new(r#"value=([^"][^ ]+[^"])"#)?;
 
-    let mut properties = HashSet::new();
+    let mut properties = HashMap::new();
     let optionals_regex_no_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
 
     let optionals_regex_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
@@ -552,7 +575,7 @@ fn parse_attr_action(line: String) -> Result<Attr, Error> {
             continue;
         }
 
-        properties.insert(Property {
+        properties.insert(String::from(cap[1].trim()), Property {
             key: String::from(cap[1].trim()),
             value: String::from(cap[2].trim()),
         });
@@ -563,7 +586,7 @@ fn parse_attr_action(line: String) -> Result<Attr, Error> {
             continue;
         }
 
-        properties.insert(Property {
+        properties.insert(String::from(cap[1].trim()), Property {
             key: String::from(cap[1].trim()),
             value: String::from(cap[2].trim()),
         });

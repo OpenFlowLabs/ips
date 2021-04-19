@@ -1,0 +1,69 @@
+//
+// Created by intellij-pest on 2021-04-18
+// manifest
+// Author: Till Wegmueller
+//
+
+action_set = @{"set"}
+action_depend = @{"depend"}
+action_dir = @{"dir"}
+action_file = @{"file"}
+action_license = @{"license"}
+action_hardlink = @{"hardlink"}
+action_link = @{"link"}
+action_driver = @{"driver"}
+action_group = @{"group"}
+action_user = @{"user"}
+action_legacy = @{"legacy"}
+action_name = @{
+                action_set |
+                action_depend |
+                action_dir |
+                action_file |
+                action_license |
+                action_hardlink |
+                action_link |
+                action_driver |
+                action_group |
+                action_user |
+                action_legacy
+            }
+quoted_string = @{
+    "\""
+    ~ quoted_character*
+    ~ "\""
+}
+quoted_character = {
+    !"\""        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+payload_character = {
+    !" "        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+comment_string = @{
+    "#"
+    ~ comment_character*
+    ~ NEWLINE
+}
+comment_character = {
+    !NEWLINE        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+transform_character = {
+    !">"        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+transform_action = @{ transform_character*}
+transform = {"<transform " ~ action_name ~ property+ ~ " "? ~ "->" ~ " "? ~ transform_action  ~ ">" }
+
+property_name = @{ ( ASCII_ALPHANUMERIC | "." | "_" )+ }
+property_value = @{ ( ASCII_ALPHANUMERIC | "/" | "," | "." | "_" | "-" | "%" | "*" | "@" | "(" | ")" | "$" | ":" | "+" )+ | quoted_string }
+payload = @{ payload_character* }
+property = { " "? ~ property_name ~ "=" ~  property_value }
+action = { action_name ~ " " ~ payload? ~ property+  ~ " "? ~ (NEWLINE | EOI) }
+manifest = { SOI ~ ( NEWLINE | comment_string | transform | action )+ ~ EOI }

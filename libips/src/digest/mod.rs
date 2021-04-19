@@ -9,7 +9,7 @@ use sha3::{Digest as Sha3Digest};
 
 static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DigestAlgorithm {
     SHA1, //Default, sadly
     SHA256, //sha256t
@@ -24,7 +24,7 @@ impl Default for DigestAlgorithm {
     fn default() -> Self { DigestAlgorithm::SHA1 }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DigestSource {
     GzipCompressed,
     GNUElf,
@@ -38,7 +38,7 @@ impl Default for DigestSource {
     fn default() -> Self { DigestSource::PrimaryPayloadHash }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Digest {
     pub hash: String,
     pub algorithm: DigestAlgorithm,
@@ -115,6 +115,24 @@ impl Digest {
             algorithm: algo,
             hash,
         })
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}:{}:{}", match self.source {
+            DigestSource::UncompressedFile => "file",
+            DigestSource::GzipCompressed => "gzip",
+            DigestSource::GNUElf => "gelf",
+            DigestSource::GNUElfUnsigned => "gelf.unsigned",
+            DigestSource::Unknown | _ => "unknown",
+        }, match self.algorithm {
+            DigestAlgorithm::SHA1 => "sha1",
+            DigestAlgorithm::SHA256 => "sha256t",
+            DigestAlgorithm::SHA512Half => "sha512t_256",
+            DigestAlgorithm::SHA512 => "sha512t",
+            DigestAlgorithm::SHA3256 => "sha3256t",
+            DigestAlgorithm::SHA3512Half => "sha3512t_256",
+            DigestAlgorithm::SHA3512 => "sha3512t",
+        }, self.hash)
     }
 }
 
