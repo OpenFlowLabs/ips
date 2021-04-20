@@ -72,17 +72,26 @@ pub struct Dir {
 impl From<Action> for Dir {
     fn from(act: Action) -> Self {
         let mut dir = Dir::default();
-        for prop in act.properties {
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property{
+                key: p_str.0,
+                value: p_str.1.replace("\"", ""),
+            })
+        }
+        for prop in props {
+            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "path" => dir.path = prop.value,
-                "owner" => dir.owner = prop.value,
-                "group" => dir.group = prop.value,
-                "mode" => dir.mode = prop.value,
-                "revert-tag" => dir.revert_tag = prop.value,
-                "salvage-from" => dir.salvage_from = prop.value,
+                "path" => dir.path = cleaned_value,
+                "owner" => dir.owner = cleaned_value,
+                "group" => dir.group = cleaned_value,
+                "mode" => dir.mode = cleaned_value,
+                "revert-tag" => dir.revert_tag = cleaned_value,
+                "salvage-from" => dir.salvage_from = cleaned_value,
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        dir.add_facet(Facet::from_key_value(prop.key, prop.value));
+                        dir.add_facet(Facet::from_key_value(prop.key, cleaned_value));
                     }
                 }
             }
@@ -142,39 +151,44 @@ impl From<Action> for File {
             if act.payload_string.contains("/") {
                 file.properties.push(Property{
                     key: "original-path".to_string(),
-                    value: act.payload_string
+                    value: act.payload_string.replace("\"", "")
                 });
             } else {
                 p.primary_identifier = Digest::from_str(&act.payload_string).unwrap();
             }
         }
         for prop in act.properties {
+            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "path" => file.path = prop.value,
-                "owner" => file.owner = prop.value,
-                "group" => file.group = prop.value,
-                "mode" => file.mode = prop.value,
-                "revert-tag" => file.revert_tag = prop.value,
-                "original_name" => file.original_name = prop.value,
-                "sysattr" => file.sys_attr = prop.value,
-                "overlay" => file.overlay = match string_to_bool(&prop.value) {
+                "path" => file.path = cleaned_value,
+                "owner" => file.owner = cleaned_value,
+                "group" => file.group = cleaned_value,
+                "mode" => file.mode = cleaned_value,
+                "revert-tag" => file.revert_tag = cleaned_value,
+                "original_name" => file.original_name = cleaned_value,
+                "sysattr" => file.sys_attr = cleaned_value,
+                "overlay" => file.overlay = match string_to_bool(&cleaned_value) {
                     Ok(b) => b,
                     _ => false,
                 },
-                "preserve" => file.preserve = match string_to_bool(&prop.value) {
+                "preserve" => file.preserve = match string_to_bool(&cleaned_value) {
                     Ok(b) => b,
                     _ => false,
                 },
-                "chash" | "pkg.content-hash" => p.additional_identifiers.push(Digest::from_str(&prop.value).unwrap()),
+                "chash" | "pkg.content-hash" => p.additional_identifiers.push(Digest::from_str(&cleaned_value).unwrap()),
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        file.add_facet(Facet::from_key_value(prop.key, prop.value));
+                        file.add_facet(Facet::from_key_value(prop.key, cleaned_value));
                     } else {
-                        file.properties.push(prop.clone());
+                        file.properties.push(Property{
+                            key: prop.key,
+                            value: prop.value.replace("\"", "")
+                        });
                     }
                 }
             }
         }
+        file.payload = Some(p);
         file
     }
 }
@@ -209,15 +223,24 @@ pub struct Dependency {
 impl From<Action> for Dependency {
     fn from(act: Action) -> Self {
         let mut dep = Dependency::default();
-        for prop in act.properties {
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property{
+                key: p_str.0,
+                value: p_str.1.replace("\"", ""),
+            })
+        }
+        for prop in props {
+            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "fmri" => dep.fmri = prop.value,
-                "type" => dep.dependency_type = prop.value,
-                "predicate" => dep.predicate = prop.value,
-                "root-image" => dep.root_image = prop.value,
+                "fmri" => dep.fmri = cleaned_value,
+                "type" => dep.dependency_type = cleaned_value,
+                "predicate" => dep.predicate = cleaned_value,
+                "root-image" => dep.root_image = cleaned_value,
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        dep.add_facet(Facet::from_key_value(prop.key, prop.value));
+                        dep.add_facet(Facet::from_key_value(prop.key, cleaned_value));
                     } else {
                         dep.optional.push(prop.clone());
                     }
@@ -263,14 +286,23 @@ pub struct Attr {
 impl From<Action> for Attr {
     fn from(act: Action) -> Self {
         let mut attr = Attr::default();
-        for prop in act.properties {
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property{
+                key: p_str.0,
+                value: p_str.1.replace("\"", ""),
+            })
+        }
+        for prop in props {
+            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "name" => attr.key = prop.value,
-                "value" => attr.values.push(prop.value),
+                "name" => attr.key = cleaned_value,
+                "value" => attr.values.push(cleaned_value),
                 _ => {
                     attr.properties.insert(prop.key.clone(), Property{
                         key: prop.key,
-                        value: prop.value
+                        value: cleaned_value
                     });
                 }
             }
@@ -473,6 +505,16 @@ fn get_facet_key(facet_string: String) -> String {
             facet_string.clone().split_off(idx+1)
         },
         None => facet_string.clone()
+    }
+}
+
+fn split_property(property_string: String) -> (String, String) {
+    match property_string.find("=") {
+        Some(_) => {
+            let v :Vec <_> = property_string.split("=").collect();
+            (String::from(v[0]), String::from(v[1]))
+        },
+        None => (property_string.clone(), String::new())
     }
 }
 

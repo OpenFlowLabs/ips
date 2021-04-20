@@ -165,10 +165,10 @@ mod tests {
     #[test]
     fn parse_direcory_actions() {
         let manifest_string = String::from("dir group=bin mode=0755 owner=root path=etc/nginx
-        dir group=bin mode=0755 owner=root path=usr/share/nginx
-        dir group=bin mode=0755 owner=root path=usr/share/nginx/html
-        dir group=bin mode=0755 owner=webservd path=var/nginx/logs
-        dir group=bin mode=0755 owner=root path=\"var/nginx\"");
+dir group=bin mode=0755 owner=root path=usr/share/nginx
+dir group=bin mode=0755 owner=root path=usr/share/nginx/html
+dir group=bin mode=0755 owner=webservd path=var/nginx/logs
+dir group=bin mode=0755 owner=root path=\"var/nginx\"");
 
         let test_results = vec![
             Dir{
@@ -204,14 +204,10 @@ mod tests {
             },
         ];
 
-        let mut manifest = Manifest::new();
-        match parse_manifest_string(manifest_string) {
-            Ok(m) => manifest = m,
-            Err(e) => {
-                println!("{}", e);
-                assert!(false, "caught error");
-            }
-        };
+
+        let res = Manifest::parse_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
 
         assert_eq!(manifest.directories.len(), test_results.len());
 
@@ -811,7 +807,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
             },
         ];
 
-        let res = parse_manifest_string(manifest_string);
+        let res = Manifest::parse_string(manifest_string);
         assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
         let manifest = res.unwrap();
 
