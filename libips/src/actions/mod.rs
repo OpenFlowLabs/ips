@@ -10,14 +10,12 @@ use std::collections::{HashMap};
 use std::fs::File as OsFile;
 use std::io::BufRead;
 use std::io::BufReader;
-use failure::Error;
 use crate::payload::Payload;
 use std::clone::Clone;
 use crate::digest::Digest;
 use std::str::FromStr;
 use std::path::{Path};
 use std::fmt;
-use pest::Parser;
 use crate::errors::Result;
 
 pub trait FacetedAction {
@@ -189,8 +187,9 @@ impl Manifest {
         self.files.push(f);
     }
 
-    pub fn parse_file(&mut self, f: Path) -> Result<Manifest> {
+    pub fn parse_file(&mut self, f: String) -> Result<()> {
 
+        Ok(())
     }
 }
 
@@ -231,7 +230,7 @@ pub enum ManifestError {
 }
 
 #[derive(Parser)]
-#[grammar = "manifest.pest"]
+#[grammar = "actions/manifest.pest"]
 struct ManifestParser;
 
 pub fn parse_manifest_file(filename: String) -> Result<Manifest> {
@@ -411,12 +410,14 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File> {
         r#"([^ ]+)="(.+)"#
     ])?;
 
+    let mut p = Payload::default();
+
     for (pat, idx) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
         let regex = Regex::new(&pat)?;
 
         for cap in regex.captures_iter(line.clone().trim_start()) {
             if idx == 0 {
-                act.payload.primary_identifier = Digest::from_str(&cap[1])?;
+                p.primary_identifier = Digest::from_str(&cap[1])?;
                 continue;
             }
 
@@ -434,13 +435,13 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File> {
                 "sysattr" => act.sys_attr = clean_string_value(&cap[val_cap_idx]),
                 "overlay" => act.overlay = match string_to_bool(&cap[val_cap_idx]) {
                     Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e?})?
-                },/
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e.to_string()})?
+                },
                 "preserve" => act.preserve = match string_to_bool(&cap[val_cap_idx]) {
                     Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e?})?
+                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e.to_string()})?
                 },
-                "chash" | "pkg.content-hash" => act.payload.additional_identifiers.push(match Digest::from_str(clean_string_value(&cap[val_cap_idx]).as_str()) {
+                "chash" | "pkg.content-hash" => p.additional_identifiers.push(match Digest::from_str(clean_string_value(&cap[val_cap_idx]).as_str()) {
                     Ok(d) => d,
                     Err(e) => return Err(e)?
                 }),
@@ -459,6 +460,7 @@ fn parse_file_action(line: String, line_nr: usize) -> Result<File> {
         }
     }
 
+    act.payload = Some(p);
 
     Ok(act)
 }

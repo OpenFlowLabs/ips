@@ -14,10 +14,9 @@ mod errors {
     pub type Result<T> = StdResult<T, Error>;
 }
 
-use errors::Result;
-
-#[macro_use]
-extern crate failure;
+extern crate pest;
+#[macro_use] extern crate pest_derive;
+#[macro_use] extern crate failure;
 extern crate maplit;
 
 #[cfg(test)]
@@ -25,11 +24,11 @@ mod tests {
 
     use crate::actions::{Manifest, Property, Dir, File, Dependency, Facet};
     use crate::actions::{parse_manifest_string, Attr};
-    use std::collections::HashSet;
+    use std::collections::{HashMap};
     use crate::payload::Payload;
     use crate::digest::{Digest, DigestAlgorithm, DigestSource};
     use std::str::FromStr;
-    use failure::_core::ptr::hash;
+    use maplit::hashmap;
 
     #[test]
     fn parse_attributes() {
@@ -51,80 +50,80 @@ mod tests {
         set name=info.source-url value=http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz
         set name=pkg.summary value=\\\"'XZ Utils - loss-less file compression application and library.'\\\"");
 
-        let mut optional_hash = HashSet::new();
-        optional_hash.insert(Property{key: String::from("optional"), value:String::from("testing")});
-        optional_hash.insert(Property{key: String::from("optionalWithString"), value:String::from("test ing")});
+        let mut optional_hash = HashMap::new();
+        optional_hash.insert(String::from("optional"), Property{key: String::from("optional"), value:String::from("testing")});
+        optional_hash.insert(String::from("optionalWithString"), Property{key: String::from("optionalWithString"), value:String::from("test ing")});
 
         let test_results = vec![
             Attr{
                 key: String::from("pkg.fmri"),
                 values: vec![String::from("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("com.oracle.info.name"),
                 values: vec![String::from("nginx"), String::from("test")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("userland.info.git-remote"),
                 values: vec![String::from("git://github.com/OpenIndiana/oi-userland.git")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("userland.info.git-branch"),
                 values: vec![String::from("HEAD")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("userland.info.git-rev"),
                 values: vec![String::from("1665491ba61bd494bf73e2916cd2250f3024260e")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("pkg.summary"),
                 values: vec![String::from("Nginx Webserver")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("info.classification"),
                 values: vec![String::from("org.opensolaris.category.2008:Web Services/Application and Web Servers")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("info.upstream-url"),
                 values: vec![String::from("http://nginx.net/")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("info.source-url"),
                 values: vec![String::from("http://nginx.org/download/nginx-1.18.0.tar.gz")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("org.opensolaris.consolidation"),
                 values: vec![String::from("userland")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("com.oracle.info.version"),
                 values: vec![String::from("1.18.0")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("pkg.summary"),
                 values: vec![String::from("provided mouse accessibility enhancements")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("info.upstream"),
                 values: vec![String::from("X.Org Foundation")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("pkg.description"),
                 values: vec![String::from("Latvian language support's extra files")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("variant.arch"),
@@ -134,12 +133,12 @@ mod tests {
             Attr{
                 key: String::from("info.source-url"),
                 values: vec![String::from("http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz")],
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             },
             Attr{
                 key: String::from("pkg.summary"),
                 values: vec![String::from("'XZ Utils - loss-less file compression application and library.'")], //TODO knock out the single quotes
-                properties: HashSet::new(),
+                properties: HashMap::new(),
             }
         ];
 
@@ -247,7 +246,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
 
         let test_results = vec![
             File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("4b76e83bb4bb7c87176b72ef805fe78ecae60d2c"),
                         ..Digest::default()
@@ -269,7 +268,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "555".to_string(),
                 owner: "root".to_string(),
@@ -285,7 +284,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("72e0496a02e72e7380b0b62cdc8410108302876f"),
                         ..Digest::default()
@@ -307,7 +306,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "sys".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -326,7 +325,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("95de71d58b37f9f74bede0e91bc381d6059fc2d7"),
                         ..Digest::default()
@@ -348,7 +347,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -364,7 +363,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("7dd71afcfb14e105e80b0c0d7fce370a28a41f0a"),
                         ..Digest::default()
@@ -386,7 +385,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0444".to_string(),
                 owner: "root".to_string(),
@@ -402,7 +401,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("cbf596ddb3433a8e0d325f3c188bec9c1bb746b3"),
                         ..Digest::default()
@@ -424,7 +423,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -441,7 +440,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("da38e2a0dded838afbe0eade6cb837ac30fd8046"),
                         ..Digest::default()
@@ -463,7 +462,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -480,7 +479,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("407cb51b397ba4ad90a2246640a81af18e2e917a"),
                         ..Digest::default()
@@ -502,7 +501,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -519,7 +518,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("19ec7fb71e7f00d7e8a1cfc1013490f0cfee572b"),
                         ..Digest::default()
@@ -541,7 +540,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -558,7 +557,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("e39dbc36680b717ec902fadc805a302f1cf62245"),
                         ..Digest::default()
@@ -580,7 +579,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -597,7 +596,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("d143ca7a6aac765d28724af54d969a4bd2202383"),
                         ..Digest::default()
@@ -619,7 +618,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -636,7 +635,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd"),
                         ..Digest::default()
@@ -658,7 +657,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -675,7 +674,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("cc2fcdb4605dcac23d59f667889ccbdfdc6e3668"),
                         ..Digest::default()
@@ -697,7 +696,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -714,7 +713,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("e10f2d42c9e581901d810928d01a3bf8f3372838"),
                         ..Digest::default()
@@ -736,7 +735,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0644".to_string(),
                 owner: "root".to_string(),
@@ -753,7 +752,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             }, File{
-                payload: Payload{
+                payload: Some(Payload{
                     primary_identifier: Digest {
                         hash: String::from("6d5f820bb1d67594c7b757c79ef6f9242df49e98"),
                         ..Digest::default()
@@ -785,7 +784,7 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                         }
                     ],
                     ..Payload::default()
-                },
+                }),
                 group: "bin".to_string(),
                 mode: "0555".to_string(),
                 owner: "root".to_string(),
@@ -812,7 +811,6 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
             },
         ];
 
-        let mut manifest = Manifest::new();
         let res = parse_manifest_string(manifest_string);
         assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
         let manifest = res.unwrap();
@@ -820,23 +818,23 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
         assert_eq!(manifest.files.len(), test_results.len());
 
         for (pos, file) in manifest.files.iter().enumerate() {
-            println!("action: {}", file.payload.primary_identifier.hash);
+            println!("action: {}", file.payload.as_ref().unwrap().primary_identifier.hash);
             assert_eq!(file.group, test_results[pos].group);
             assert_eq!(file.mode, test_results[pos].mode);
             assert_eq!(file.owner, test_results[pos].owner);
             assert_eq!(file.path, test_results[pos].path);
             assert_eq!(file.preserve, test_results[pos].preserve);
-            assert_eq!(file.payload.primary_identifier.hash, test_results[pos].payload.primary_identifier.hash);
+            assert_eq!(file.payload.as_ref().unwrap().primary_identifier.hash, test_results[pos].payload.as_ref().unwrap().primary_identifier.hash);
 
             for (vpos, val) in file.properties.iter().enumerate() {
                 assert_eq!(val.key, test_results[pos].properties[vpos].key);
                 assert_eq!(val.value, test_results[pos].properties[vpos].value);
             }
 
-            for (vpos, val) in file.payload.additional_identifiers.iter().enumerate() {
-                assert_eq!(val.hash, test_results[pos].payload.additional_identifiers[vpos].hash);
-                assert_eq!(val.source, test_results[pos].payload.additional_identifiers[vpos].source);
-                assert_eq!(val.algorithm, test_results[pos].payload.additional_identifiers[vpos].algorithm);
+            for (vpos, val) in file.payload.as_ref().unwrap().additional_identifiers.iter().enumerate() {
+                assert_eq!(val.hash, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].hash);
+                assert_eq!(val.source, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].source);
+                assert_eq!(val.algorithm, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].algorithm);
             }
         }
     }
@@ -863,8 +861,8 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             Dependency{
                 fmri: "pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951".to_string(),
                 dependency_type: "incorporate".to_string(),
-                facets: hashset!{
-                    Facet{
+                facets: hashmap!{
+                    "version-lock.system/data/hardware-registry".to_string() => Facet{
                         name: "version-lock.system/data/hardware-registry".to_string(),
                         value: "true".to_string(),
                     }
@@ -874,8 +872,8 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             Dependency{
                 fmri: "xvm@0.5.11-2015.0.2.0".to_string(),
                 dependency_type: "incorporate".to_string(),
-                facets: hashset!{
-                    Facet{
+                facets: hashmap!{
+                    "version-lock.xvm".to_string() => Facet{
                         name: "version-lock.xvm".to_string(),
                         value: "true".to_string(),
                     }
@@ -885,8 +883,8 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             Dependency{
                 fmri: "system/mozilla-nss@3.51.1-2020.0.1.0".to_string(),
                 dependency_type: "incorporate".to_string(),
-                facets: hashset!{
-                    Facet{
+                facets: hashmap!{
+                    "version-lock.system/mozilla-nss".to_string() => Facet{
                         name: "version-lock.system/mozilla-nss".to_string(),
                         value: "true".to_string(),
                     }
@@ -895,7 +893,6 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             },
         ];
 
-        let mut manifest = Manifest::new();
         let res = parse_manifest_string(manifest_string);
         assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
         let manifest = res.unwrap();
@@ -904,8 +901,8 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
         for (pos, dependency) in manifest.dependencies.iter().enumerate() {
             assert_eq!(dependency.fmri, test_results[pos].fmri);
             assert_eq!(dependency.dependency_type, test_results[pos].dependency_type);
-            for (vpos, facet) in dependency.facets.iter().enumerate() {
-                let fres = test_results[pos].facets.get(facet);
+            for (_, (key, facet)) in dependency.facets.iter().enumerate() {
+                let fres = test_results[pos].facets.get(key);
                 assert!(fres.is_some(), "error no facet with name: {:?} found", facet.name);
                 let f = fres.unwrap();
                 assert_eq!(facet.name, f.name);
