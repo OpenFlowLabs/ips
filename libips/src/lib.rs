@@ -893,7 +893,7 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             },
         ];
 
-        let res = parse_manifest_string(manifest_string);
+        let res = Manifest::parse_string(manifest_string);
         assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
         let manifest = res.unwrap();
 
