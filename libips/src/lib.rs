@@ -23,7 +23,7 @@ extern crate maplit;
 mod tests {
 
     use crate::actions::{Manifest, Property, Dir, File, Dependency, Facet};
-    use crate::actions::{parse_manifest_string, Attr};
+    use crate::actions::{Attr};
     use std::collections::{HashMap};
     use crate::payload::Payload;
     use crate::digest::{Digest, DigestAlgorithm, DigestSource};
@@ -33,22 +33,22 @@ mod tests {
     #[test]
     fn parse_attributes() {
         let manifest_string = String::from("set name=pkg.fmri value=pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z
-        set name=com.oracle.info.name value=nginx value=test
-        set name=userland.info.git-remote value=git://github.com/OpenIndiana/oi-userland.git
-        set name=userland.info.git-branch value=HEAD
-        set name=userland.info.git-rev value=1665491ba61bd494bf73e2916cd2250f3024260e
-        set name=pkg.summary value=\"Nginx Webserver\"
-        set name=info.classification value=\"org.opensolaris.category.2008:Web Services/Application and Web Servers\"
-        set name=info.upstream-url value=http://nginx.net/
-        set name=info.source-url value=http://nginx.org/download/nginx-1.18.0.tar.gz
-        set name=org.opensolaris.consolidation value=userland
-        set name=com.oracle.info.version value=1.18.0
-        set name=pkg.summary value=\\\"provided mouse accessibility enhancements\\\"
-        set name=info.upstream value=X.Org Foundation
-        set name=pkg.description value=Latvian language support's extra files
-        set name=variant.arch value=i386 optional=testing optionalWithString=\"test ing\"
-        set name=info.source-url value=http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz
-        set name=pkg.summary value=\\\"'XZ Utils - loss-less file compression application and library.'\\\"");
+set name=com.oracle.info.name value=nginx value=test
+set name=userland.info.git-remote value=git://github.com/OpenIndiana/oi-userland.git
+set name=userland.info.git-branch value=HEAD
+set name=userland.info.git-rev value=1665491ba61bd494bf73e2916cd2250f3024260e
+set name=pkg.summary value=\"Nginx Webserver\"
+set name=info.classification value=\"org.opensolaris.category.2008:Web Services/Application and Web Servers\"
+set name=info.upstream-url value=http://nginx.net/
+set name=info.source-url value=http://nginx.org/download/nginx-1.18.0.tar.gz
+set name=org.opensolaris.consolidation value=userland
+set name=com.oracle.info.version value=1.18.0
+set name=pkg.summary value=\"provided mouse accessibility enhancements\"
+set name=info.upstream value=\"X.Org Foundation\"
+set name=pkg.description value=\"Latvian language support's extra files\"
+set name=variant.arch value=i386 optional=testing optionalWithString=\"test ing\"
+set name=info.source-url value=\"http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz\"
+set name=pkg.summary value=\"'XZ Utils - loss-less file compression application and library.'\"");
 
         let mut optional_hash = HashMap::new();
         optional_hash.insert(String::from("optional"), Property{key: String::from("optional"), value:String::from("testing")});
@@ -142,14 +142,9 @@ mod tests {
             }
         ];
 
-        let mut manifest = Manifest::new();
-        match parse_manifest_string(manifest_string) {
-            Ok(m) => manifest = m,
-            Err(e) => {
-                println!("{}", e);
-                assert!(false, "caught error");
-            }
-        };
+        let res = Manifest::parse_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
 
         assert_eq!(manifest.attributes.len(), 17);
 

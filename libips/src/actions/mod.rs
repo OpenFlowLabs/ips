@@ -486,8 +486,7 @@ impl Manifest {
                                                         let str_val: String =  prop.as_str().clone().into();
                                                         property.value = str_val
                                                             .replace("\"", "")
-                                                            .replace("\\", "")
-                                                            .replace("\'", "");
+                                                            .replace("\\", "");
                                                     }
                                                     _ => panic!("unexpected rule {:?} inside action expected property_name or property_value", prop.as_rule())
                                                 }
@@ -595,7 +594,6 @@ fn split_property(property_string: String) -> (String, String) {
                 String::from(v[1])
                     .replace("\"", "")
                     .replace("\\", "")
-                    .replace("\'", "")
             )
         },
         None => (property_string.clone(), String::new())

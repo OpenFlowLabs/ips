@@ -61,7 +61,7 @@ transform_character = {
 transform_action = @{ transform_character*}
 transform = {"<transform " ~ action_name ~ " " ~ property+ ~ " "? ~ "->" ~ " "? ~ transform_action  ~ ">" }
 
-property_name = @{ ( ASCII_ALPHANUMERIC | "." | "_" | "-" )+ }
+property_name = @{ ( ASCII_ALPHANUMERIC | "." | "_" | "-"  | "/" )+ }
 property_value = @{ ( ASCII_ALPHANUMERIC | "/" | "," | "." | "_" | "-" | "%" | "*" | "@" | "(" | ")" | "$" | ":" | "+" | "'" | "\\" )+ | quoted_string }
 payload = @{ property_value }
 property = { property_name ~ "=" ~  property_value }
