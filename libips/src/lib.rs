@@ -809,7 +809,6 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
         assert_eq!(manifest.files.len(), test_results.len());
 
         for (pos, file) in manifest.files.iter().enumerate() {
-            println!("action: {}", file.payload.as_ref().unwrap().primary_identifier.hash);
             assert_eq!(file.group, test_results[pos].group);
             assert_eq!(file.mode, test_results[pos].mode);
             assert_eq!(file.owner, test_results[pos].owner);
