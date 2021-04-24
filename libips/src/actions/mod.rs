@@ -5,11 +5,8 @@
 
 // Source https://docs.oracle.com/cd/E23824_01/html/E21796/pkg-5.html
 
-use regex::{RegexSet, Regex};
 use std::collections::{HashMap};
-use std::fs::{File as OsFile, read_to_string};
-use std::io::BufRead;
-use std::io::BufReader;
+use std::fs::{read_to_string};
 use crate::payload::Payload;
 use std::clone::Clone;
 use crate::digest::Digest;
@@ -77,21 +74,20 @@ impl From<Action> for Dir {
             let p_str = split_property(act.payload_string);
             props.push(Property{
                 key: p_str.0,
-                value: p_str.1.replace("\"", ""),
+                value: p_str.1,
             })
         }
         for prop in props {
-            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "path" => dir.path = cleaned_value,
-                "owner" => dir.owner = cleaned_value,
-                "group" => dir.group = cleaned_value,
-                "mode" => dir.mode = cleaned_value,
-                "revert-tag" => dir.revert_tag = cleaned_value,
-                "salvage-from" => dir.salvage_from = cleaned_value,
+                "path" => dir.path = prop.value,
+                "owner" => dir.owner = prop.value,
+                "group" => dir.group = prop.value,
+                "mode" => dir.mode = prop.value,
+                "revert-tag" => dir.revert_tag = prop.value,
+                "salvage-from" => dir.salvage_from = prop.value,
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        dir.add_facet(Facet::from_key_value(prop.key, cleaned_value));
+                        dir.add_facet(Facet::from_key_value(prop.key, prop.value));
                     }
                 }
             }
@@ -147,48 +143,60 @@ impl From<Action> for File {
     fn from(act: Action) -> Self {
         let mut file = File::default();
         let mut p = act.payload.clone();
+        let mut props = act.properties;
         if !act.payload_string.is_empty() {
             if act.payload_string.contains("/") {
-                file.properties.push(Property{
-                    key: "original-path".to_string(),
-                    value: act.payload_string.replace("\"", "")
-                });
+                if act.payload_string.contains("=") {
+                    let p_str = split_property(act.payload_string);
+                    props.push(Property{
+                        key: p_str.0,
+                        value: p_str.1,
+                    })
+                } else {
+                    file.properties.push(Property{
+                        key: "original-path".to_string(),
+                        value: act.payload_string.replace("\"", "")
+                    });
+                }
             } else {
                 p.primary_identifier = Digest::from_str(&act.payload_string).unwrap();
             }
         }
-        for prop in act.properties {
-            let cleaned_value = prop.value.replace("\"", "");
+        for prop in props {
             match prop.key.as_str() {
-                "path" => file.path = cleaned_value,
-                "owner" => file.owner = cleaned_value,
-                "group" => file.group = cleaned_value,
-                "mode" => file.mode = cleaned_value,
-                "revert-tag" => file.revert_tag = cleaned_value,
-                "original_name" => file.original_name = cleaned_value,
-                "sysattr" => file.sys_attr = cleaned_value,
-                "overlay" => file.overlay = match string_to_bool(&cleaned_value) {
+                "path" => file.path = prop.value,
+                "owner" => file.owner = prop.value,
+                "group" => file.group = prop.value,
+                "mode" => file.mode = prop.value,
+                "revert-tag" => file.revert_tag = prop.value,
+                "original_name" => file.original_name = prop.value,
+                "sysattr" => file.sys_attr = prop.value,
+                "overlay" => file.overlay = match string_to_bool(&prop.value) {
                     Ok(b) => b,
                     _ => false,
                 },
-                "preserve" => file.preserve = match string_to_bool(&cleaned_value) {
+                "preserve" => file.preserve = match string_to_bool(&prop.value) {
                     Ok(b) => b,
                     _ => false,
                 },
-                "chash" | "pkg.content-hash" => p.additional_identifiers.push(Digest::from_str(&cleaned_value).unwrap()),
+                "chash" | "pkg.content-hash" => p.additional_identifiers.push(Digest::from_str(&prop.value).unwrap()),
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        file.add_facet(Facet::from_key_value(prop.key, cleaned_value));
+                        file.add_facet(Facet::from_key_value(prop.key, prop.value));
                     } else {
                         file.properties.push(Property{
                             key: prop.key,
-                            value: prop.value.replace("\"", "")
+                            value: prop.value,
                         });
                     }
                 }
             }
         }
-        file.payload = Some(p);
+        if p.primary_identifier.hash.is_empty() {
+            file.payload = None;
+        } else {
+            file.payload = Some(p);
+        }
         file
     }
 }
@@ -228,19 +236,18 @@ impl From<Action> for Dependency {
             let p_str = split_property(act.payload_string);
             props.push(Property{
                 key: p_str.0,
-                value: p_str.1.replace("\"", ""),
+                value: p_str.1,
             })
         }
         for prop in props {
-            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "fmri" => dep.fmri = cleaned_value,
-                "type" => dep.dependency_type = cleaned_value,
-                "predicate" => dep.predicate = cleaned_value,
-                "root-image" => dep.root_image = cleaned_value,
+                "fmri" => dep.fmri = prop.value,
+                "type" => dep.dependency_type = prop.value,
+                "predicate" => dep.predicate = prop.value,
+                "root-image" => dep.root_image = prop.value,
                 _ => {
                     if is_facet(prop.key.clone()) {
-                        dep.add_facet(Facet::from_key_value(prop.key, cleaned_value));
+                        dep.add_facet(Facet::from_key_value(prop.key, prop.value));
                     } else {
                         dep.optional.push(prop.clone());
                     }
@@ -291,23 +298,82 @@ impl From<Action> for Attr {
             let p_str = split_property(act.payload_string);
             props.push(Property{
                 key: p_str.0,
-                value: p_str.1.replace("\"", ""),
+                value: p_str.1,
             })
         }
         for prop in props {
-            let cleaned_value = prop.value.replace("\"", "");
             match prop.key.as_str() {
-                "name" => attr.key = cleaned_value,
-                "value" => attr.values.push(cleaned_value),
+                "name" => attr.key = prop.value,
+                "value" => attr.values.push(prop.value),
                 _ => {
                     attr.properties.insert(prop.key.clone(), Property{
                         key: prop.key,
-                        value: cleaned_value
+                        value: prop.value,
                     });
                 }
             }
         }
         attr
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Default, Clone)]
+pub struct License {
+    pub payload: String,
+    pub properties: HashMap<String, Property>,
+}
+
+impl From<Action> for License {
+    fn from(act: Action) -> Self {
+        let mut license = License::default();
+        if !act.payload_string.is_empty() {
+            license.payload = act.payload_string;
+        }
+        for prop in act.properties {
+            match prop.key.as_str() {
+                _ => {
+                    license.properties.insert(prop.key.clone(), Property{
+                        key: prop.key,
+                        value: prop.value,
+                    });
+                }
+            }
+        }
+        license
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Default, Clone)]
+pub struct Link {
+    pub path: String,
+    pub target: String,
+    pub properties: HashMap<String, Property>,
+}
+
+impl From<Action> for Link {
+    fn from(act: Action) -> Self {
+        let mut link = Link::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property{
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "path" => link.path = prop.value,
+                "target" => link.target = prop.value,
+                _ => {
+                    link.properties.insert(prop.key.clone(), Property{
+                        key: prop.key,
+                        value: prop.value,
+                    });
+                }
+            }
+        }
+        link
     }
 }
 
@@ -323,6 +389,8 @@ pub struct Manifest {
     pub directories: Vec<Dir>,
     pub files: Vec<File>,
     pub dependencies: Vec<Dependency>,
+    pub licenses: Vec<License>,
+    pub links: Vec<Link>
 }
 
 impl Manifest {
@@ -332,6 +400,8 @@ impl Manifest {
             directories: Vec::new(),
             files: Vec::new(),
             dependencies: Vec::new(),
+            licenses: Vec::new(),
+            links: Vec::new(),
         };
     }
 
@@ -354,27 +424,29 @@ impl Manifest {
                 self.dependencies.push(act.into());
             }
             ActionKind::User => {
-
+                todo!()
             }
             ActionKind::Group => {
-
+                todo!()
             }
             ActionKind::Driver => {
-
+                todo!()
             }
             ActionKind::License => {
-
+                self.licenses.push(act.into());
             }
             ActionKind::Link => {
-
+                self.links.push(act.into());
             }
             ActionKind::Legacy => {
-
+                todo!()
             }
             ActionKind::Transform => {
-
+                todo!()
             }
-            ActionKind::Unknown{action} => (),
+            ActionKind::Unknown{action} => {
+                panic!("action {:?} not known", action)
+            },
         }
     }
 
@@ -411,7 +483,11 @@ impl Manifest {
                                                         property.key = prop.as_str().clone().into();
                                                     }
                                                     Rule::property_value => {
-                                                        property.value = prop.as_str().clone().into();
+                                                        let str_val: String =  prop.as_str().clone().into();
+                                                        property.value = str_val
+                                                            .replace("\"", "")
+                                                            .replace("\\", "")
+                                                            .replace("\'", "");
                                                     }
                                                     _ => panic!("unexpected rule {:?} inside action expected property_name or property_value", prop.as_rule())
                                                 }
@@ -425,6 +501,8 @@ impl Manifest {
                                 m.add_action(act);
                             }
                             Rule::EOI => (),
+                            Rule::comment_string => (),
+                            Rule::transform => (),
                             _ => panic!("unexpected rule {:?} inside manifest expected action", manifest.as_rule()),
                         }
                     }
@@ -512,132 +590,16 @@ fn split_property(property_string: String) -> (String, String) {
     match property_string.find("=") {
         Some(_) => {
             let v :Vec <_> = property_string.split("=").collect();
-            (String::from(v[0]), String::from(v[1]))
+            (
+                String::from(v[0]),
+                String::from(v[1])
+                    .replace("\"", "")
+                    .replace("\\", "")
+                    .replace("\'", "")
+            )
         },
         None => (property_string.clone(), String::new())
     }
-}
-
-pub fn parse_manifest_file(filename: String) -> Result<Manifest> {
-    let mut m = Manifest::new();
-    let f = OsFile::open(filename)?;
-
-    let file = BufReader::new(&f);
-
-    for (line_nr, line_read) in file.lines().enumerate() {
-        let line = line_read?;
-        if !line.starts_with("#") {
-            handle_manifest_line(&mut m, line.trim_start(), line_nr)?;
-        }
-    }
-
-    return Ok(m);
-}
-
-pub fn parse_manifest_string(manifest: String) -> Result<Manifest> {
-    let mut m = Manifest::new();
-    for (line_nr, line) in manifest.lines().enumerate() {
-        handle_manifest_line(&mut m, line.trim_start(), line_nr)?;
-    }
-    return Ok(m);
-}
-
-fn handle_manifest_line(manifest: &mut Manifest, line: &str, line_nr: usize) -> Result<()> {
-    match determine_action_kind(&line) {
-        ActionKind::Attr => {
-            manifest.attributes.push(parse_attr_action(String::from(line))?);
-        }
-        ActionKind::Dir => {
-            manifest.directories.push(parse_dir_action(String::from(line), line_nr)?);
-        }
-        ActionKind::File => {
-            manifest.files.push(parse_file_action(String::from(line), line_nr)?);
-        }
-        ActionKind::Dependency => {
-            manifest.dependencies.push(parse_depend_action(String::from(line),line_nr)?);
-        }
-        ActionKind::User => {
-
-        }
-        ActionKind::Group => {
-
-        }
-        ActionKind::Driver => {
-
-        }
-        ActionKind::License => {
-
-        }
-        ActionKind::Link => {
-
-        }
-        ActionKind::Legacy => {
-
-        }
-        ActionKind::Transform => {
-
-        }
-        ActionKind::Unknown{action} => {
-            if !action.is_empty() {
-                Err(ManifestError::UnknownAction {action, line: line_nr})?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn add_facet_to_action<T: FacetedAction>(action: &mut T, facet_string: String, line: String, line_nr: usize) -> Result<()> {
-    let mut facet_key = match facet_string.find(".") {
-        Some(idx) => {
-            facet_string.clone().split_off(idx+1)
-        },
-        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("separation dot not found but string contains facet.")})?
-    };
-
-    let value = match facet_key.find("=") {
-        Some(idx) => {
-            facet_key.split_off(idx+1)
-        },
-        None => return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("no value present for facet")})?
-    };
-
-    facet_key.truncate(facet_key.len() - 1);
-
-    if !action.add_facet(Facet{name: clean_string_value(facet_key.as_str()), value: clean_string_value(value.as_str())}) {
-        return Err(ManifestError::InvalidAction{action: line, line: line_nr, message: String::from("double declaration of facet")})?
-    }
-
-    Ok(())
-}
-
-fn determine_action_kind(line: &str) -> ActionKind {
-    let mut act = String::new();
-    for c in line.trim_start().chars() {
-        if c == ' ' {
-            break
-        }
-        act.push(c)
-    }
-
-    return match act.as_str() {
-        "set" => ActionKind::Attr,
-        "depend" => ActionKind::Dependency,
-        "dir" => ActionKind::Dir,
-        "file" => ActionKind::File,
-        "license" => ActionKind::License,
-        "hardlink" => ActionKind::Link,
-        "link" => ActionKind::Link,
-        "driver" => ActionKind::Driver,
-        "group" => ActionKind::Group,
-        "user" => ActionKind::User,
-        "legacy" => ActionKind::Legacy,
-        "<transform" => ActionKind::Transform,
-        _ => ActionKind::Unknown{action: act},
-    }
-}
-
-fn clean_string_value(orig: &str) -> String {
-    return String::from(orig).trim_end().replace(&['"', '\\'][..], "")
 }
 
 fn string_to_bool(orig: &str) -> Result<bool> {
@@ -648,240 +610,4 @@ fn string_to_bool(orig: &str) -> Result<bool> {
         "f" => Ok(false),
         _ => Err(failure::err_msg("not a boolean like value"))
     }
-}
-
-fn parse_depend_action(line: String, line_nr: usize) -> Result<Dependency> {
-    let mut act = Dependency::default();
-    let regex_set = RegexSet::new(&[
-        r#"([^ ]+)=([^"][^ ]+[^"])"#,
-        r#"([^ ]+)="(.+)"#
-    ])?;
-
-    for (pat, _) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
-        let regex = Regex::new(&pat)?;
-        for cap in regex.captures_iter(line.clone().trim_start()) {
-            let full_cap_idx = 0;
-            let key_cap_idx = 1;
-            let val_cap_idx = 2;
-
-            match &cap[key_cap_idx] {
-                "fmri" => act.fmri = clean_string_value(&cap[val_cap_idx]),
-                "type" => act.dependency_type = clean_string_value(&cap[val_cap_idx]),
-                "predicate" => act.predicate = clean_string_value(&cap[val_cap_idx]),
-                "root-image" => act.root_image = clean_string_value(&cap[val_cap_idx]),
-                _ => {
-                    let key_val_string = String::from(&cap[full_cap_idx]);
-                    if key_val_string.contains("facet.") {
-                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
-                            Ok(_) => continue,
-                            Err(e) => return Err(e)?,
-                        }
-                    } else {
-                        act.optional.push(Property{key: clean_string_value(&cap[key_cap_idx]), value: clean_string_value(&cap[val_cap_idx])});
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(act)
-}
-
-fn parse_file_action(line: String, line_nr: usize) -> Result<File> {
-    let mut act = File::default();
-    let regex_set = RegexSet::new(&[
-        r"file ([a-zA-Z0-9]+) ",
-        r#"([^ ]+)=([^"][^ ]+[^"])"#,
-        r#"([^ ]+)="(.+)"#
-    ])?;
-
-    let mut p = Payload::default();
-
-    for (pat, idx) in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| (&regex_set.patterns()[match_idx], match_idx)) {
-        let regex = Regex::new(&pat)?;
-
-        for cap in regex.captures_iter(line.clone().trim_start()) {
-            if idx == 0 {
-                p.primary_identifier = Digest::from_str(&cap[1])?;
-                continue;
-            }
-
-            let full_cap_idx = 0;
-            let key_cap_idx = 1;
-            let val_cap_idx = 2;
-
-            match &cap[key_cap_idx] {
-                "path" => act.path = clean_string_value(&cap[val_cap_idx]),
-                "owner" => act.owner = clean_string_value(&cap[val_cap_idx]),
-                "group" => act.group = clean_string_value(&cap[val_cap_idx]),
-                "mode" => act.mode = clean_string_value(&cap[val_cap_idx]),
-                "revert-tag" => act.revert_tag = clean_string_value(&cap[val_cap_idx]),
-                "original_name" => act.original_name = clean_string_value(&cap[val_cap_idx]),
-                "sysattr" => act.sys_attr = clean_string_value(&cap[val_cap_idx]),
-                "overlay" => act.overlay = match string_to_bool(&cap[val_cap_idx]) {
-                    Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e.to_string()})?
-                },
-                "preserve" => act.preserve = match string_to_bool(&cap[val_cap_idx]) {
-                    Ok(b) => b,
-                    Err(e) => return Err(ManifestError::InvalidAction {action: line, line: line_nr, message: e.to_string()})?
-                },
-                "chash" | "pkg.content-hash" => p.additional_identifiers.push(match Digest::from_str(clean_string_value(&cap[val_cap_idx]).as_str()) {
-                    Ok(d) => d,
-                    Err(e) => return Err(e)?
-                }),
-                _ => {
-                    let key_val_string = String::from(&cap[full_cap_idx]);
-                    if key_val_string.contains("facet.") {
-                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
-                            Ok(_) => continue,
-                            Err(e) => return Err(e)?,
-                        }
-                    } else {
-                        act.properties.push(Property{key: clean_string_value(&cap[key_cap_idx]), value: clean_string_value(&cap[val_cap_idx])});
-                    }
-                }
-            }
-        }
-    }
-
-    act.payload = Some(p);
-
-    Ok(act)
-}
-
-fn parse_dir_action(line: String, line_nr: usize) -> Result<Dir> {
-    let mut act = Dir::default();
-    let regex_set = RegexSet::new(&[
-        r#"([^ ]+)=([^"][^ ]+[^"])"#,
-        r#"([^ ]+)="(.+)"#
-    ])?;
-
-    for pat in regex_set.matches(line.trim_start()).into_iter().map(|match_idx| &regex_set.patterns()[match_idx]) {
-        let regex = Regex::new(&pat)?;
-
-        for cap in regex.captures_iter(line.clone().trim_start()) {
-            let full_cap_idx = 0;
-            let key_cap_idx = 1;
-            let val_cap_idx = 2;
-
-
-            match &cap[key_cap_idx] {
-                "path" => act.path = clean_string_value(&cap[val_cap_idx]),
-                "owner" => act.owner = clean_string_value(&cap[val_cap_idx]),
-                "group" => act.group = clean_string_value(&cap[val_cap_idx]),
-                "mode" => act.mode = clean_string_value(&cap[val_cap_idx]),
-                "revert-tag" => act.revert_tag = clean_string_value(&cap[val_cap_idx]),
-                "salvage-from" => act.salvage_from = clean_string_value(&cap[val_cap_idx]),
-                _ => {
-                    let key_val_string = clean_string_value(&cap[full_cap_idx]);
-                    if key_val_string.contains("facet.") {
-                        match add_facet_to_action(&mut act, key_val_string, line.clone(), line_nr) {
-                            Ok(_) => continue,
-                            Err(e) => return Err(e)?,
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-
-    Ok(act)
-}
-
-fn parse_attr_action(line: String) -> Result<Attr> {
-    // Do a full line match to see if we can fast path this.
-    // This also catches values with spaces, that have not been properly escaped.
-    // Note: values with spaces must be properly escaped or the rest here will fail. Strings with
-    //  unescaped spaces are never valid but sadly present in the wild.
-    // Fast path will fail if a value has multiple values or a '=' sign in the values
-    let full_line_regex = Regex::new(r"^set name=([^ ]+) value=(.+)$")?;
-
-    if full_line_regex.is_match(line.trim_start()) {
-        match full_line_regex.captures(line.trim_start()) {
-            Some(captures) => {
-                let mut fast_path_fail = false;
-                let mut val = String::from(&captures[2]);
-
-                if val.contains("=") {
-                    fast_path_fail = true;
-                }
-
-                if val.contains("value=") {
-                    fast_path_fail = true;
-                }
-
-                if val.contains("name=") {
-                    fast_path_fail = true;
-                }
-
-                val = val.replace(&['"', '\\'][..], "");
-                //TODO knock out single quotes somehow without
-
-                if !fast_path_fail{
-                    return Ok(Attr{
-                        key: String::from(&captures[1]),
-                        values: vec![val],
-                        ..Attr::default()
-                    });
-                }
-            }
-            None => (),
-        };
-    }
-
-
-    //Todo move regex initialisation out of for loop into static area
-    let name_regex = Regex::new(r"name=([^ ]+) value=")?;
-    let mut key = String::new();
-    for cap in name_regex.captures_iter(line.trim_start()) {
-        key = String::from(&cap[1]);
-    }
-
-    let mut values = Vec::new();
-    let value_no_space_regex = Regex::new(r#"value="(.+)""#)?;
-
-    let value_space_regex = Regex::new(r#"value=([^"][^ ]+[^"])"#)?;
-
-    let mut properties = HashMap::new();
-    let optionals_regex_no_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
-
-    let optionals_regex_quotes = Regex::new(r#"([^ ]+)=([^"][^ ]+[^"])"#)?;
-
-    for cap in value_no_space_regex.captures_iter(line.trim_start()) {
-        values.push(String::from(cap[1].trim()));
-    }
-
-    for cap in value_space_regex.captures_iter(line.trim_start()) {
-        values.push(String::from(cap[1].trim()));
-    }
-
-    for cap in optionals_regex_quotes.captures_iter(line.trim_start()) {
-        if cap[1].trim().starts_with("name") || cap[1].trim().starts_with("value") {
-            continue;
-        }
-
-        properties.insert(String::from(cap[1].trim()), Property {
-            key: String::from(cap[1].trim()),
-            value: String::from(cap[2].trim()),
-        });
-    }
-
-    for cap in optionals_regex_no_quotes.captures_iter(line.trim_start()) {
-        if cap[1].trim().starts_with("name") || cap[1].trim().starts_with("value") {
-            continue;
-        }
-
-        properties.insert(String::from(cap[1].trim()), Property {
-            key: String::from(cap[1].trim()),
-            value: String::from(cap[2].trim()),
-        });
-    }
-
-    Ok(Attr {
-        key,
-        values,
-        properties,
-    })
 }

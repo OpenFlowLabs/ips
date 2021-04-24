@@ -3,7 +3,7 @@ extern crate failure_derive;
 
 use clap::app_from_crate;
 use clap::{Arg, App};
-use libips::actions::{parse_manifest_file, File};
+use libips::actions::{File, Manifest};
 
 mod errors {
     use failure::Error;
@@ -41,8 +41,8 @@ fn main() {
 }
 
 fn find_removed_files(manifest_file: String, other_manifest_file: String) -> Result<Vec<File>> {
-    let manifest = parse_manifest_file(manifest_file)?;
-    let other_manifest = parse_manifest_file(other_manifest_file)?;
+    let manifest = Manifest::parse_file(manifest_file)?;
+    let other_manifest = Manifest::parse_file(other_manifest_file)?;
 
     println!("{:#?}", manifest);
     println!("{:#?}", other_manifest);
