@@ -1,0 +1,43 @@
+//
+// Created by intellij-pest on 2021-04-25
+// makefile
+// Author: Till Wegmueller <till.wegmueller@openflowlabs.com>
+//
+
+WHITESPACE = _{ " " | "\t" }
+
+comment_string = _{
+    "#"
+    ~ comment_character*
+    ~ NEWLINE
+}
+comment_character = _{
+    !NEWLINE        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+variable_name_character = { UPPERCASE | ASCII_DIGIT | "_" }
+variable_name = @{ variable_name_character* }
+variable_value_character = {
+    !NEWLINE
+    ~ ANY
+}
+variable_value = @{ variable_value_character* }
+
+variable_set = { "=" }
+variable_add = { "+=" }
+
+variable = { variable_name ~ ( variable_set | variable_add ) ~ variable_value? }
+
+target_character = {
+    !":"
+    ~ ANY
+}
+
+target_name = { target_character+ }
+
+target = { target_name ~ ":" ~ variable_value }
+
+include = { "include" ~ variable_value }
+
+makefile = { SOI ~ (NEWLINE | comment_string | variable | include | target )+ ~ EOI }
