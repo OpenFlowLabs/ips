@@ -417,7 +417,7 @@ version = "0.0.1-placeholder"
 
 [[package]]
 name = "pkg6dev"
-version = "0.0.1-placeholder"
+version = "0.1.0"
 dependencies = [
  "clap",
  "failure",

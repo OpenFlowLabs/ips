@@ -1,11 +1,11 @@
 [package]
 name = "pkg6dev"
-version = "0.0.1-placeholder"
+version = "0.1.0"
 authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
 edition = "2018"
 license-file = "LICENSE"
-description = "The repository server for IPS written in rust"
-repository = "https://github.com/OpenFlowLabs/pkg6dev"
+description = "Helper tool for IPS package development"
+repository = "https://github.com/OpenFlowLabs/ips"
 readme = "README.md"
 keywords = ["packaging", "illumos"]
 
