@@ -22,10 +22,13 @@
 #
 # Copyright (c) 2011, 2014, Oracle and/or its affiliates. All rights reserved.
 #
+BUILD_BITS= 64_and_32
+PREFERRED_BITS= 64
 include ../../../make-rules/shared-macros.mk
 
 COMPONENT_NAME=		cups
 COMPONENT_VERSION=	2.3.3
+COMPONENT_REVISION=	1
 COMPONENT_SRC=		$(COMPONENT_NAME)-$(COMPONENT_VERSION)
 COMPONENT_PROJECT_URL=	http://www.cups.org/
 COMPONENT_ARCHIVE=	$(COMPONENT_SRC)-source.tar.gz
@@ -34,8 +37,6 @@ COMPONENT_ARCHIVE_URL=  https://github.com/apple/cups/releases/download/v$(COMPO
 COMPONENT_BUGDB=	utility/cups
 
 include $(WS_MAKE_RULES)/common.mk
-
-BUILD_BITS= 64
 
 # don't use LD_Z_IGNORE: causes linker problems
 LD_Z_IGNORE=
@@ -60,18 +61,16 @@ CONFIGURE_OPTIONS +=	--with-cups-user=lp
 CONFIGURE_OPTIONS +=	--with-cups-group=lp
 CONFIGURE_OPTIONS +=	--disable-systemd
 CONFIGURE_OPTIONS +=	--disable-static
-CONFIGURE_OPTIONS +=	--disable-gnutls
-CONFIGURE_OPTIONS +=	--enable-openssl
 CONFIGURE_OPTIONS +=	--enable-dbus
 CONFIGURE_OPTIONS +=	--enable-threads
 CONFIGURE_OPTIONS += 	--with-archflags="$(CC_BITS)"
 
-$(BUILD_DIR)/%/.installed:	ENV +=	DSTROOT="$(PROTO_DIR)"
+#$(BUILD_DIR)/%/.installed:	ENV +=	DSTROOT="$(PROTO_DIR)"
 
-COMPONENT_PRE_CONFIGURE_ACTION = \
- $(CLONEY) $(SOURCE_DIR) $(@D) ; \
- find $(@D) -name '*.in' | sed -e 's/.in$$//' | xargs $(RM) ; \
- ( cd $(SOURCE_DIR) ; autoconf -f )
+#COMPONENT_PRE_CONFIGURE_ACTION = \
+# $(CLONEY) $(SOURCE_DIR) $(@D) ; \
+# find $(@D) -name '*.in' | sed -e 's/.in$$//' | xargs $(RM) ; \
+# ( cd $(SOURCE_DIR) ; autoconf -f )
 
 # Build dependencies
 REQUIRED_PACKAGES += image/library/libpng16
@@ -80,16 +79,17 @@ REQUIRED_PACKAGES += service/network/dns/mdns
 REQUIRED_PACKAGES += service/network/slp
 
 # Auto-generated dependencies
+REQUIRED_PACKAGES += $(GCC_RUNTIME_PKG)
+REQUIRED_PACKAGES += $(GXX_RUNTIME_PKG)
 REQUIRED_PACKAGES += SUNWcs
-REQUIRED_PACKAGES += library/print/cups-libs
-REQUIRED_PACKAGES += library/security/openssl
+REQUIRED_PACKAGES += library/gnutls-3
+REQUIRED_PACKAGES += library/libusb-1
+#REQUIRED_PACKAGES += library/print/cups-libs
 REQUIRED_PACKAGES += library/zlib
 REQUIRED_PACKAGES += runtime/perl-522
-REQUIRED_PACKAGES += runtime/perl-524
 REQUIRED_PACKAGES += service/security/kerberos-5
+REQUIRED_PACKAGES += shell/ksh93
 REQUIRED_PACKAGES += system/library
-REQUIRED_PACKAGES += $(GXX_RUNTIME_PKG)
-REQUIRED_PACKAGES += $(GCC_RUNTIME_PKG)
 REQUIRED_PACKAGES += system/library/libdbus
 REQUIRED_PACKAGES += system/library/math
 REQUIRED_PACKAGES += system/library/security/gss
