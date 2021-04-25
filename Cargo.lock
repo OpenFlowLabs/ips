@@ -300,7 +300,7 @@ checksum = "ba4aede83fc3617411dc6993bc8c70919750c1c257c6ca6a502aed6e0e2394ae"
 
 [[package]]
 name = "libips"
-version = "0.0.2-placeholder"
+version = "0.1.0"
 dependencies = [
  "failure",
  "maplit 0.1.6",

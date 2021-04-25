@@ -5,7 +5,7 @@
 
 [package]
 name = "libips"
-version = "0.0.2-placeholder"
+version = "0.1.0"
 authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
 edition = "2018"
 license-file = "LICENSE"
