@@ -55,7 +55,7 @@ impl FacetedAction for Action {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Dir {
     pub path: String,
     pub group: String,
@@ -106,7 +106,7 @@ impl FacetedAction for Dir {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct File {
     pub payload: Option<Payload>,
     pub path: String,
@@ -137,6 +137,15 @@ impl File {
 
         Ok(f)
     }
+
+    pub fn get_original_path(&self) ->Option<String> {
+        for p in &self.properties {
+            if p.key.as_str() == "original-path" {
+                return Some(p.value.clone());
+            }
+        }
+        None
+    }
 }
 
 impl From<Action> for File {
@@ -155,7 +164,7 @@ impl From<Action> for File {
                 } else {
                     file.properties.push(Property{
                         key: "original-path".to_string(),
-                        value: act.payload_string.replace("\"", "")
+                        value: act.payload_string.replace("\"", "").replace("\\", "")
                     });
                 }
             } else {
@@ -218,7 +227,7 @@ pub enum FileError {
 }
 
 //TODO implement multiple FMRI for require-any
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Dependency {
     pub fmri: String, //TODO make FMRI
     pub dependency_type: String, //TODO make enum
@@ -283,7 +292,7 @@ impl Facet {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Attr {
     pub key: String,
     pub values: Vec<String>,
@@ -383,7 +392,7 @@ pub struct Property {
     pub value: String,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,
