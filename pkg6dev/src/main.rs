@@ -16,19 +16,32 @@ use errors::Result;
 use std::collections::HashMap;
 use std::fs::{read_dir};
 use std::path::Path;
+use userland::Makefile;
+use userland::repology::{find_newest_version};
 
 fn main() {
+    let component_arg = Arg::new("component")
+        .takes_value(true)
+        .default_value("../sample_data/pkgs/cups");
+
     let opts = app_from_crate!().subcommand(App::new("diff-component")
         .about("shows differences between sample-manifest and manifests")
-        .arg(Arg::new("component")
-            .takes_value(true)
-            .default_value("../sample_data/pkgs/cups")
-        )
-    ).get_matches();
-        //.get_matches_from(vec!["pkg6dev", "diff-component"]);
+        .arg(&component_arg)
+    ).subcommand(App::new("show-component")
+        .about("Show informations about the component")
+        .arg(&component_arg)
+    )//.get_matches();
+        .get_matches_from(vec!["pkg6dev", "show-component"]);
 
     if let Some(diff_component_opts) = opts.subcommand_matches("diff-component") {
         let res = diff_component(diff_component_opts);
+        if res.is_err() {
+            println!("error: {:?}", res.unwrap_err())
+        }
+    }
+
+    if let Some(show_component_opts) = opts.subcommand_matches("show-component") {
+        let res = show_component_info(show_component_opts);
         if res.is_err() {
             println!("error: {:?}", res.unwrap_err())
         }
@@ -65,6 +78,61 @@ fn diff_component(matches: &ArgMatches) -> Result<()> {
 
     for f in removed_files {
         println!("file path={} has been removed from the sample-manifest", f.path);
+    }
+
+    Ok(())
+}
+
+fn show_component_info(opts: &ArgMatches) -> Result<()> {
+    let component_path = opts.value_of("component").unwrap();
+
+    let makefile = Makefile::parse_file(Path::new(&(component_path.to_string() + "/Makefile")))?;
+
+    //println!("{:#?}", makefile);
+
+    let mut name = String::new();
+
+    if let Some(var) = makefile.variables.get("COMPONENT_NAME") {
+        println!("Name: {}", var.join(" "));
+        name = var.first().unwrap().to_string();
+    }
+
+    if let Some(var) = makefile.variables.get("COMPONENT_VERSION") {
+        println!("Version: {}", var.join(" "));
+        let latest_version = find_newest_version(&name);
+        if latest_version.is_ok() {
+            println!("Latest Version: {}", latest_version?);
+        } else {
+            eprintln!("{:?}", latest_version.unwrap_err())
+        }
+    }
+
+    if let Some(var) = makefile.variables.get("BUILD_BITS") {
+        println!("Build bits: {}", var.join(" "));
+    }
+
+    if let Some(var) = makefile.variables.get("COMPONENT_PROJECT_URL") {
+        println!("Project URl: {}", var.join("\t"));
+    }
+
+    if let Some(var) = makefile.variables.get("COMPONENT_ARCHIVE_URL") {
+        println!("Source URl: {}", var.join("\t"));
+    }
+
+    if let Some(var) = makefile.variables.get("COMPONENT_ARCHIVE_HASH") {
+        println!("Source Archive File Hash: {}", var.join(" "));
+    }
+
+    if let Some(var) = makefile.variables.get("CONFIGURE_ENV") {
+        println!("Configure Environment: {}", var.join("\n\t"));
+    }
+
+    if let Some(var) = makefile.variables.get("CONFIGURE_OPTIONS") {
+        println!("./configure {}", var.join("\n\t"));
+    }
+
+    if let Some(var) = makefile.variables.get("REQUIRED_PACKAGES") {
+        println!("Dependencies:\n\t{}", var.join("\n\t"));
     }
 
     Ok(())
