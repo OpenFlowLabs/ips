@@ -11,7 +11,7 @@ edition = "2018"
 license-file = "LICENSE"
 description = "The core library for the rust version of the Image Packaging System. Includes Python bindings."
 repository = "https://github.com/OpenFlowLabs/libips"
-readme = "README.md"
+readme = "../README.md"
 keywords = ["packaging", "illumos"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
