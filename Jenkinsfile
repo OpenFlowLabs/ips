@@ -1,5 +1,16 @@
 pipeline {
-    agent any
+    agent {
+            node {
+                label 'buildserver'
+            }
+        }
+
+    options {
+            buildDiscarder logRotator(
+                        daysToKeepStr: '1',
+                        numToKeepStr: '3'
+                )
+        }
 
     stages {
         stage('Build') {
