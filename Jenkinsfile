@@ -1,26 +1,30 @@
 pipeline {
     agent {
-            node {
-                label 'buildserver'
-            }
+        node {
+            label 'buildserver'
         }
+    }
 
     options {
-            buildDiscarder logRotator(
-                        daysToKeepStr: '1',
-                        numToKeepStr: '3'
-                )
-        }
+        buildDiscarder logRotator(
+            daysToKeepStr: '1',
+            numToKeepStr: '3'
+        )
+    }
 
     stages {
         stage('Build') {
             steps {
-                sh 'gmake'
+                sh 'source $HOME/.profile
+                cargo version
+                gmake'
             }
         }
         stage('Test') {
             steps {
-                sh 'gmake test'
+                sh 'source $HOME/.profile
+                cargo version
+                gmake test'
             }
         }
         stage('Release') {
