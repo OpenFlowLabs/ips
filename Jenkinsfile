@@ -15,16 +15,20 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh 'source $HOME/.profile
-                cargo version
-                gmake'
+                sh '''
+                    source $HOME/.profile
+                    cargo version
+                    gmake
+                '''
             }
         }
         stage('Test') {
             steps {
-                sh 'source $HOME/.profile
-                cargo version
-                gmake test'
+                sh '''
+                    source $HOME/.profile
+                    cargo version
+                    gmake test
+                '''
             }
         }
         stage('Release') {
