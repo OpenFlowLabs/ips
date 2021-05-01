@@ -14,7 +14,7 @@ release:
 	mkdir -p artifacts
 	cp target/release/pkg6dev artifacts/
 
-publish-all: publish.libips publish.pkg6dev
+publish-all: publish.libips publish.userland publish.pkg6dev
 
 publish.%: CRATE=$*
 publish.%:

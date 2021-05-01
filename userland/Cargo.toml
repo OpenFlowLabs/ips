@@ -3,6 +3,8 @@ name = "userland"
 version = "0.1.1"
 authors = ["Till Wegmueller <toasterson@gmail.com>"]
 edition = "2018"
+license-file = "LICENSE"
+description = "Helper tool for IPS package development"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
