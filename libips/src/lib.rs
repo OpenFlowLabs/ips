@@ -233,7 +233,8 @@ file d143ca7a6aac765d28724af54d969a4bd2202383 chash=adacb374c514459417f07cacd4f8
 file 379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd chash=2c75c59e0de9208a9b96460d0566e5686708310c group=bin mode=0644 owner=root path=etc/nginx/scgi_params pkg.content-hash=file:sha512t_256:e6dd7076b6319abc3fcd04554fede95c8cc40f1e21a83772c36577f939e81cb6 pkg.content-hash=gzip:sha512t_256:48efb28df3607f1a8b67eab95d4ca19526e8351d10529d97cb4af05250f8ee95 pkg.csize=275 pkg.size=636 preserve=true
 file cc2fcdb4605dcac23d59f667889ccbdfdc6e3668 chash=62320c6c207a26bf9c68c39d0372f4d4b97b905f group=bin mode=0644 owner=root path=etc/nginx/uwsgi_params pkg.content-hash=file:sha512t_256:eb133ae0a357df02b4b02615bc47dc2e5328105dac2dbcbd647667e9bbc3b2fd pkg.content-hash=gzip:sha512t_256:e5a2625a67f5502c5911d7e7a850030b6af89929e182b2da74ecf6e79df0e9d2 pkg.csize=284 pkg.size=664 preserve=true
 file e10f2d42c9e581901d810928d01a3bf8f3372838 chash=fd231cdd1a726fcb2abeba90b31cbf4c7df6df4d group=bin mode=0644 owner=root path=etc/nginx/win-utf pkg.content-hash=file:sha512t_256:7620f21db4c06f3eb863c0cb0a8b3f62c435abd2f8f47794c42f08ad434d90dd pkg.content-hash=gzip:sha512t_256:ca16a95ddd6ef2043969db20915935829b8ccb6134588e1710b24baf45afd7bb pkg.csize=1197 pkg.size=3610 preserve=true
-file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd700b5139d70b2 elfarch=i386 elfbits=64 elfhash=25b0cdd7736cddad78ce91b61385a8fdde91f7b2 group=bin mode=0555 owner=root path=usr/sbin/nginx pkg.content-hash=gelf:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=gelf.unsigned:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=file:sha512t_256:3d87b058a8e69b3a8dfab142f5e856549dcd531a371e3ca4d2be391655b0d076 pkg.content-hash=gzip:sha512t_256:7f93c48194b3e164ea35a9d2ddff310215769dbd27b45e9ab72beef1cce0d4f6 pkg.csize=657230 pkg.size=1598048");
+file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd700b5139d70b2 elfarch=i386 elfbits=64 elfhash=25b0cdd7736cddad78ce91b61385a8fdde91f7b2 group=bin mode=0555 owner=root path=usr/sbin/nginx pkg.content-hash=gelf:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=gelf.unsigned:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=file:sha512t_256:3d87b058a8e69b3a8dfab142f5e856549dcd531a371e3ca4d2be391655b0d076 pkg.content-hash=gzip:sha512t_256:7f93c48194b3e164ea35a9d2ddff310215769dbd27b45e9ab72beef1cce0d4f6 pkg.csize=657230 pkg.size=1598048
+file path=usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt");
 
         let test_results = vec![
             File{
@@ -800,6 +801,10 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
                 ],
                 ..File::default()
             },
+            File{
+                path: "usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt".into(),
+                    ..File::default()
+            }
         ];
 
         let res = Manifest::parse_string(manifest_string);
@@ -814,17 +819,22 @@ file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd7
             assert_eq!(file.owner, test_results[pos].owner);
             assert_eq!(file.path, test_results[pos].path);
             assert_eq!(file.preserve, test_results[pos].preserve);
-            assert_eq!(file.payload.as_ref().unwrap().primary_identifier.hash, test_results[pos].payload.as_ref().unwrap().primary_identifier.hash);
+            if let Some(payload_expected) = &test_results[pos].payload {
+                assert_ne!(file.payload, None);
+                assert_eq!(file.payload.as_ref().unwrap().primary_identifier.hash, payload_expected.primary_identifier.hash);
+            }
 
             for (vpos, val) in file.properties.iter().enumerate() {
                 assert_eq!(val.key, test_results[pos].properties[vpos].key);
                 assert_eq!(val.value, test_results[pos].properties[vpos].value);
             }
 
-            for (vpos, val) in file.payload.as_ref().unwrap().additional_identifiers.iter().enumerate() {
-                assert_eq!(val.hash, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].hash);
-                assert_eq!(val.source, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].source);
-                assert_eq!(val.algorithm, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].algorithm);
+            if let Some(payload) = &file.payload {
+                for (vpos, val) in payload.additional_identifiers.iter().enumerate() {
+                    assert_eq!(val.hash, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].hash);
+                    assert_eq!(val.source, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].source);
+                    assert_eq!(val.algorithm, test_results[pos].payload.as_ref().unwrap().additional_identifiers[vpos].algorithm);
+                }
             }
         }
     }
