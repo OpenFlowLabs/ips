@@ -22,16 +22,16 @@ use userland::repology::{find_newest_version};
 fn main() {
     let component_arg = Arg::new("component")
         .takes_value(true)
-        .default_value("../sample_data/pkgs/cups");
-
+        //.default_value("../sample_data/pkgs/cups");
+        .default_value("./");
     let opts = app_from_crate!().subcommand(App::new("diff-component")
         .about("shows differences between sample-manifest and manifests")
         .arg(&component_arg)
     ).subcommand(App::new("show-component")
         .about("Show informations about the component")
         .arg(&component_arg)
-    )//.get_matches();
-        .get_matches_from(vec!["pkg6dev", "show-component"]);
+    ).get_matches();
+        //.get_matches_from(vec!["pkg6dev", "show-component"]);
 
     if let Some(diff_component_opts) = opts.subcommand_matches("diff-component") {
         let res = diff_component(diff_component_opts);

@@ -1,6 +1,6 @@
 [package]
 name = "pkg6dev"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
 edition = "2018"
 license-file = "LICENSE"
@@ -12,7 +12,7 @@ keywords = ["packaging", "illumos"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libips = {path = "../libips", version = "0.1.0"}
+libips = {path = "../libips", version = "0.1.1"}
 userland = {path = "../userland"}
 failure = "0.1.8"
 failure_derive = "0.1.8"
