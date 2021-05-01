@@ -13,7 +13,7 @@ keywords = ["packaging", "illumos"]
 
 [dependencies]
 libips = {path = "../libips", version = "0.1.1"}
-userland = {path = "../userland"}
+userland = {path = "../userland", version = "0.1.1"}
 failure = "0.1.8"
 failure_derive = "0.1.8"
 clap = "~3.0.0-beta.2"

@@ -1,4 +1,4 @@
-.PHONY: all release test clean
+.PHONY: all release test clean publish-all
 
 
 all: clean release
@@ -13,3 +13,9 @@ release:
 	cargo build --release
 	mkdir -p artifacts
 	cp target/release/pkg6dev artifacts/
+
+publish-all: publish.libips publish.pkg6dev
+
+publish.%: CRATE=$*
+publish.%:
+	cd $(CRATE); cargo publish

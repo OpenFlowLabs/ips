@@ -1,6 +1,6 @@
 [package]
 name = "userland"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Till Wegmueller <toasterson@gmail.com>"]
 edition = "2018"
 
