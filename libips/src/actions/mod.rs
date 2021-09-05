@@ -509,12 +509,12 @@ impl Manifest {
                                 m.add_action(act);
                             }
                             Rule::EOI => (),
-                            Rule::comment_string => (),
                             Rule::transform => (),
                             _ => panic!("unexpected rule {:?} inside manifest expected action", manifest.as_rule()),
                         }
                     }
                 }
+                Rule::WHITESPACE => (),
                 _ => panic!("unexpected rule {:?} inside pair expected manifest", p.as_rule()),
             }
         }

@@ -22,7 +22,7 @@ extern crate maplit;
 #[cfg(test)]
 mod tests {
 
-    use crate::actions::{Manifest, Property, Dir, File, Dependency, Facet};
+    use crate::actions::{Manifest, Property, Dir, File, Dependency, Facet, Link};
     use crate::actions::{Attr};
     use std::collections::{HashMap};
     use crate::payload::Payload;
@@ -234,7 +234,8 @@ file 379c1e2a2a5ffb8c91a07328d4c9be2bc58799fd chash=2c75c59e0de9208a9b96460d0566
 file cc2fcdb4605dcac23d59f667889ccbdfdc6e3668 chash=62320c6c207a26bf9c68c39d0372f4d4b97b905f group=bin mode=0644 owner=root path=etc/nginx/uwsgi_params pkg.content-hash=file:sha512t_256:eb133ae0a357df02b4b02615bc47dc2e5328105dac2dbcbd647667e9bbc3b2fd pkg.content-hash=gzip:sha512t_256:e5a2625a67f5502c5911d7e7a850030b6af89929e182b2da74ecf6e79df0e9d2 pkg.csize=284 pkg.size=664 preserve=true
 file e10f2d42c9e581901d810928d01a3bf8f3372838 chash=fd231cdd1a726fcb2abeba90b31cbf4c7df6df4d group=bin mode=0644 owner=root path=etc/nginx/win-utf pkg.content-hash=file:sha512t_256:7620f21db4c06f3eb863c0cb0a8b3f62c435abd2f8f47794c42f08ad434d90dd pkg.content-hash=gzip:sha512t_256:ca16a95ddd6ef2043969db20915935829b8ccb6134588e1710b24baf45afd7bb pkg.csize=1197 pkg.size=3610 preserve=true
 file 6d5f820bb1d67594c7b757c79ef6f9242df49e98 chash=3ab17dde089f1eac7abd37d8efd700b5139d70b2 elfarch=i386 elfbits=64 elfhash=25b0cdd7736cddad78ce91b61385a8fdde91f7b2 group=bin mode=0555 owner=root path=usr/sbin/nginx pkg.content-hash=gelf:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=gelf.unsigned:sha512t_256:add9bfb171c2a173b8f12d375884711527f40e592d100a337a9fae078c8beabd pkg.content-hash=file:sha512t_256:3d87b058a8e69b3a8dfab142f5e856549dcd531a371e3ca4d2be391655b0d076 pkg.content-hash=gzip:sha512t_256:7f93c48194b3e164ea35a9d2ddff310215769dbd27b45e9ab72beef1cce0d4f6 pkg.csize=657230 pkg.size=1598048
-file path=usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt");
+file path=usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt
+file path=usr/lib/golang/1.16/src/runtime/runtime-gdb_test.go.~1~");
 
         let test_results = vec![
             File{
@@ -803,8 +804,12 @@ file path=usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt")
             },
             File{
                 path: "usr/lib/golang/1.16/src/cmd/go/testdata/mod/rsc.io_!c!g!o_v1.0.0.txt".into(),
-                    ..File::default()
-            }
+                ..File::default()
+            },
+            File{
+                path: "usr/lib/golang/1.16/src/runtime/runtime-gdb_test.go.~1~".into(),
+                ..File::default()
+            },
         ];
 
         let res = Manifest::parse_string(manifest_string);
@@ -908,6 +913,140 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
                 assert_eq!(facet.name, f.name);
                 assert_eq!(facet.value, f.value);
             }
+        }
+
+    }
+
+    #[test]
+    fn parse_line_breaks() {
+        let manifest_string = String::from("link \
+    path=usr/lib/cups/backend/http \
+    target=ipp
+file Solaris/desktop-print-management mode=0555 \
+     path=usr/lib/cups/bin/desktop-print-management
+file Solaris/desktop-print-management-applet mode=0555 \
+     path=usr/lib/cups/bin/desktop-print-management-applet
+file Solaris/smb mode=0555 \
+     path=usr/lib/cups/backend/smb
+# SMF service start method script
+file Solaris/svc-cupsd mode=0644 path=lib/svc/method/svc-cupsd
+
+# SMF help
+file Solaris/ManageCUPS.html mode=0444 \
+     path=usr/lib/help/auths/locale/C/ManageCUPS.html");
+
+        let file_results = vec![
+            File{
+                path: "usr/lib/cups/bin/desktop-print-management".to_string(),
+                mode: "0555".to_string(),
+                properties: vec![
+                    Property{
+                        key: "original-path".to_string(),
+                        value: "Solaris/desktop-print-management".to_string(),
+                    }
+                ],
+                ..File::default()
+            },
+            File{
+                path: "usr/lib/cups/bin/desktop-print-management-applet".to_string(),
+                mode: "0555".to_string(),
+                properties: vec![
+                    Property{
+                        key: "original-path".to_string(),
+                        value: "Solaris/desktop-print-management-applet".to_string(),
+                    }
+                ],
+                ..File::default()
+            },
+            File{
+                path: "usr/lib/cups/backend/smb".to_string(),
+                mode: "0555".to_string(),
+                properties: vec![
+                    Property{
+                        key: "original-path".to_string(),
+                        value: "Solaris/smb".to_string(),
+                    }
+                ],
+                ..File::default()
+            },
+            File{
+                path: "lib/svc/method/svc-cupsd".to_string(),
+                mode: "0644".to_string(),
+                properties: vec![
+                    Property{
+                        key: "original-path".to_string(),
+                        value: "Solaris/svc-cupsd".to_string(),
+                    }
+                ],
+                ..File::default()
+            },
+            File{
+                path: "usr/lib/help/auths/locale/C/ManageCUPS.html".to_string(),
+                mode: "0444".to_string(),
+                properties: vec![
+                    Property{
+                        key: "original-path".to_string(),
+                        value: "Solaris/ManageCUPS.html".to_string(),
+                    }
+                ],
+                ..File::default()
+            },
+        ];
+
+        let link_results = vec![
+            Link{
+                path: "usr/lib/cups/backend/http".to_string(),
+                target: "ipp".to_string(),
+                ..Link::default()
+            },
+        ];
+
+        let res = Manifest::parse_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
+
+        for (pos, file) in manifest.files.iter().enumerate() {
+            assert_eq!(file.path, file_results[pos].path);
+            assert_eq!(file.properties[0].key, file_results[pos].properties[0].key);
+            assert_eq!(file.properties[0].value, file_results[pos].properties[0].value);
+            assert_eq!(file.mode, file_results[pos].mode);
+        }
+
+        for (pos, link) in manifest.links.iter().enumerate() {
+            assert_eq!(link.path, link_results[pos].path);
+            assert_eq!(link.target, link_results[pos].target);
+        }
+
+    }
+
+    #[test]
+    fn parse_unicode() {
+        let manifest_string = String::from("link \
+    path=usr/lib/cups/пертинах/http \
+    target=Про
+# SMF blub
+link path=usr/lib/cups/пертинах/http target=blub");
+
+        let link_results = vec![
+            Link{
+                path: "usr/lib/cups/пертинах/http".to_string(),
+                target: "Про".to_string(),
+                ..Link::default()
+            },
+            Link{
+                path: "usr/lib/cups/пертинах/http".to_string(),
+                target: "blub".to_string(),
+                ..Link::default()
+            },
+        ];
+
+        let res = Manifest::parse_string(manifest_string);
+        assert!(res.is_ok(), "error during Manifest parsing: {:?}", res);
+        let manifest = res.unwrap();
+
+        for (pos, link) in manifest.links.iter().enumerate() {
+            assert_eq!(link.path, link_results[pos].path);
+            assert_eq!(link.target, link_results[pos].target);
         }
 
     }

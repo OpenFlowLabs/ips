@@ -33,17 +33,13 @@ quoted_string = @{
     ~ quoted_character*
     ~ "\""
 }
+
 quoted_character = {
     !"\""        // if the following text is not three apostrophes
     ~ ANY         // then consume one character
 }
 
-payload_character = {
-    !" "        // if the following text is not three apostrophes
-    ~ ANY         // then consume one character
-}
-
-comment_string = @{
+COMMENT = _{
     "#"
     ~ comment_character*
     ~ NEWLINE
@@ -58,12 +54,19 @@ transform_character = {
     ~ ANY         // then consume one character
 }
 
+unicode_character = {
+    !(WHITESPACE | NEWLINE)        // if the following text is not three apostrophes
+    ~ ANY         // then consume one character
+}
+
+WHITESPACE = _{ "\\" ~ NEWLINE | " " | "\t" }
+
 transform_action = @{ transform_character*}
-transform = {"<transform " ~ action_name ~ " " ~ property+ ~ " "? ~ "->" ~ " "? ~ transform_action  ~ ">" }
+transform = {"<transform " ~ action_name ~ property+ ~ "->" ~ transform_action ~ ">" }
 
 property_name = @{ ( ASCII_ALPHANUMERIC | "." | "_" | "-"  | "/" )+ }
-property_value = @{ ( ASCII_ALPHANUMERIC | "/" | "," | "." | "_" | "-" | "%" | "*" | "@" | "(" | ")" | "$" | ":" | "+" | "'" | "\\" | "!" )+ | quoted_string }
+property_value = @{ quoted_string | unicode_character+ }
 payload = @{ property_value }
 property = { property_name ~ "=" ~  property_value }
-action = { action_name ~ (( " " ~ payload ~ " " ) | " ")? ~ (property ~ " "?)+ ~ (" " | NEWLINE | EOI) }
-manifest = { SOI ~ ( NEWLINE | comment_string | transform | action )+ ~ EOI }
+action = { action_name ~ (property | payload) ~ property* ~ (NEWLINE | EOI) }
+manifest = { SOI ~ ( NEWLINE | transform | action )+ ~ EOI }
