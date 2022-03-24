@@ -3,10 +3,14 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
+use thiserror::Error;
+use anyhow::Result;
 use std::str::FromStr;
 use sha2::{Digest as Sha2Digest};
+#[allow(unused_imports)]
 use sha3::{Digest as Sha3Digest};
 
+#[allow(dead_code)]
 static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -90,7 +94,7 @@ impl FromStr for Digest {
 }
 
 impl Digest {
-    pub fn from_bytes(b: &[u8], algo: DigestAlgorithm, src: DigestSource) -> Result<Self, failure::Error> {
+    pub fn from_bytes(b: &[u8], algo: DigestAlgorithm, src: DigestSource) -> Result<Self> {
         let hash = match algo {
             DigestAlgorithm::SHA256=> {
                 format!("{:x}", sha2::Sha256::digest(b))
@@ -136,13 +140,13 @@ impl Digest {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum DigestError {
-    #[fail(display = "hashing algorithm {} is not known by this library", algorithm)]
+    #[error("hashing algorithm {algorithm:?} is not known by this library")]
     UnknownAlgorithm {
         algorithm: String,
     },
-    #[fail(display = "digest {} is not formatted properly: {}", digest, details)]
+    #[error("digest {digest:?} is not formatted properly: {details:?}")]
     InvalidDigestFormat{
         digest: String,
         details: String,

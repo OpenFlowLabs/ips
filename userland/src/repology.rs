@@ -1,16 +1,11 @@
 extern crate reqwest;
 
 use reqwest::*;
-use crate::errors::Result as EResult;
+use anyhow::Result;
 use semver::Version;
 use serde::{Serialize, Deserialize};
 
 const BASE_URL: &str = "https://repology.org/api/v1/";
-
-#[derive(Debug, Clone)]
-pub struct RepologyClient {
-    client: reqwest::Client,
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Package {
@@ -31,7 +26,7 @@ pub struct Package {
 
 pub fn project(package: &str) -> Result<Vec<Package>> {
 
-    let url = Url::parse(&format!("{}/project/{}",BASE_URL, package)).unwrap();
+    let url = Url::parse(&format!("{}/project/{}",BASE_URL, package))?;
 
     let json = reqwest::blocking::get(url)?
         .json::<Vec<Package>>()?;
@@ -39,9 +34,9 @@ pub fn project(package: &str) -> Result<Vec<Package>> {
     return Ok(json);
 }
 
-pub fn find_newest_version(package: &str) -> EResult<String> {
+pub fn find_newest_version(package: &str) -> Result<String> {
     let pkgs = project(package)?;
-    let version_res: EResult<Vec<Version>> = pkgs.iter().map(|p| -> EResult<Version> {
+    let version_res: Result<Vec<Version>> = pkgs.iter().map(|p| -> Result<Version> {
         let v = Version::parse(&p.version);
         if v.is_ok() {
             return Ok(v?);

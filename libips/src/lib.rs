@@ -7,16 +7,8 @@ pub mod actions;
 pub mod digest;
 pub mod payload;
 
-mod errors {
-    use failure::Error;
-    use std::result::Result as StdResult;
-
-    pub type Result<T> = StdResult<T, Error>;
-}
-
 extern crate pest;
 #[macro_use] extern crate pest_derive;
-#[macro_use] extern crate failure;
 extern crate maplit;
 
 #[cfg(test)]

@@ -1,69 +1,58 @@
-//#[macro_use]
-//extern crate failure_derive;
-
-use clap::{app_from_crate, ArgMatches};
-use clap::{Arg, App};
+use clap::{Parser, Subcommand};
 use libips::actions::{File, Manifest};
 
-mod errors {
-    use failure::Error;
-    use std::result::Result as StdResult;
-
-    pub type Result<T> = StdResult<T, Error>;
-}
-
-use errors::Result;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::{read_dir};
 use std::path::Path;
 use userland::Makefile;
 use userland::repology::{find_newest_version};
 
-fn main() {
-    let component_arg = Arg::new("component")
-        .takes_value(true)
-        .default_value("../sample_data/pkgs/golang-116");
-        //.default_value("./");
-    let opts = app_from_crate!().subcommand(App::new("diff-component")
-        .about("shows differences between sample-manifest and manifests")
-        .arg(&component_arg)
-    ).subcommand(App::new("show-component")
-        .about("Show informations about the component")
-        .arg(&component_arg)
-    ).get_matches();
-        //.get_matches_from(vec!["pkg6dev", "diff-component"]);
-
-    if let Some(diff_component_opts) = opts.subcommand_matches("diff-component") {
-        let res = diff_component(diff_component_opts);
-        if res.is_err() {
-            println!("error: {:?}", res.unwrap_err())
-        }
-    }
-
-    if let Some(show_component_opts) = opts.subcommand_matches("show-component") {
-        let res = show_component_info(show_component_opts);
-        if res.is_err() {
-            println!("error: {:?}", res.unwrap_err())
-        }
-    }
-
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+#[clap(propagate_version = true)]
+struct App {
+    #[clap(subcommand)]
+    command: Commands
 }
 
-fn diff_component(matches: &ArgMatches) -> Result<()> {
-    let component_path = matches.value_of("component").unwrap();
+#[derive(Subcommand, Debug)]
+enum Commands {
+    DiffComponent{
+        component: String,
+    },
+    ShowComponent{
+        component: String,
+    },
+}
 
-    let files = read_dir(component_path)?;
+fn main() -> Result<()> {
+    let cli = App::parse();
+
+    match &cli.command {
+        Commands::ShowComponent{ component } => {
+            show_component_info(component)
+        }
+        Commands::DiffComponent{component} => {
+            diff_component(component)
+        }
+    }
+}
+
+fn diff_component(component_path: impl AsRef<Path>) -> Result<()> {
+    let files = read_dir(&component_path)?;
 
     let manifest_files: Vec<String> = files
         .filter_map(std::result::Result::ok)
         .filter(|d| if let Some(e) = d.path().extension() { e == "p5m" } else {false})
         .map(|e| e.path().into_os_string().into_string().unwrap()).collect();
 
-    let sample_manifest_file = component_path.to_string() + "/manifests/sample-manifest.p5m";
+    let sample_manifest_file = &component_path.as_ref().join("/manifests/sample-manifest.p5m");
 
     let manifests_res: Result<Vec<Manifest>> = manifest_files.iter().map(|f|{
         Manifest::parse_file(f.to_string())
     }).collect();
+
     let sample_manifest = Manifest::parse_file(sample_manifest_file)?;
 
     let manifests: Vec<Manifest> = manifests_res.unwrap();
@@ -74,7 +63,7 @@ fn diff_component(matches: &ArgMatches) -> Result<()> {
         println!("file {} is missing in the manifests", f.path);
     }
 
-    let removed_files = find_removed_files(&sample_manifest, manifests.clone(), component_path)?;
+    let removed_files = find_removed_files(&sample_manifest, manifests.clone(), &component_path)?;
 
     for f in removed_files {
         println!("file path={} has been removed from the sample-manifest", f.path);
@@ -83,12 +72,12 @@ fn diff_component(matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-fn show_component_info(opts: &ArgMatches) -> Result<()> {
-    let component_path = opts.value_of("component").unwrap();
+fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
+    let makefile_path = component_path.as_ref().join("Makefile");
 
-    let makefile = Makefile::parse_file(Path::new(&(component_path.to_string() + "/Makefile")))?;
+    println!("{:?}", makefile_path);
 
-    //println!("{:#?}", makefile);
+    let makefile = Makefile::parse_file(&makefile_path)?;
 
     let mut name = String::new();
 
@@ -139,7 +128,7 @@ fn show_component_info(opts: &ArgMatches) -> Result<()> {
 }
 
 // Show all files that have been removed in the sample-manifest
-fn find_removed_files(sample_manifest: &Manifest, manifests: Vec<Manifest>, component_path: &str) -> Result<Vec<File>> {
+fn find_removed_files<P: AsRef<Path>>(sample_manifest: &Manifest, manifests: Vec<Manifest>, component_path: P) -> Result<Vec<File>> {
     let f_map = make_file_map(sample_manifest.files.clone());
     let all_files: Vec<File> = manifests.iter().map(|m| m.files.clone()).flatten().collect();
 
@@ -149,7 +138,7 @@ fn find_removed_files(sample_manifest: &Manifest, manifests: Vec<Manifest>, comp
         match f.get_original_path() {
             Some(path) => {
                 if !f_map.contains_key(path.as_str()) {
-                    if !Path::new(&(component_path.to_string() + "/" + path.as_str())).exists() {
+                    if !component_path.as_ref().join(path).exists() {
                         removed_files.push(f)
                     }
                 }

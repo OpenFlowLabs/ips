@@ -12,9 +12,9 @@ use std::clone::Clone;
 use crate::digest::Digest;
 use std::str::FromStr;
 use std::path::{Path};
-use std::fmt;
-use crate::errors::Result;
+use anyhow::{anyhow, Result};
 use pest::Parser;
+use thiserror::Error;
 
 pub trait FacetedAction {
     // Add a facet to the action if the facet is already present the function returns false.
@@ -220,9 +220,9 @@ impl FacetedAction for File {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum FileError {
-    #[fail(display = "file path is not a string")]
+    #[error("file path is not a string")]
     FilePathIsNoStringError,
 }
 
@@ -459,8 +459,8 @@ impl Manifest {
         }
     }
 
-    pub fn parse_file(f: String) -> Result<Manifest> {
-        let content = read_to_string(Path::new(&f))?;
+    pub fn parse_file<P: AsRef<Path>>(f: P) -> Result<Manifest> {
+        let content = read_to_string(f)?;
         Manifest::parse_string(content)
     }
 
@@ -544,14 +544,14 @@ impl Default for ActionKind {
 }
 
 //TODO Multierror and no failure for these cases
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ManifestError {
-    #[fail(display = "unknown action {} at line {}", action, line)]
+    #[error("unknown action {action:?} at line {line:?}")]
     UnknownAction {
         line: usize,
         action: String,
     },
-    #[fail(display = "action string \"{}\" at line {} is invalid: {}", action, line, message)]
+    #[error("action string \"{action:?}\" at line {line:?} is invalid: {message:?}")]
     InvalidAction {
         line: usize,
         action: String,
@@ -615,6 +615,6 @@ fn string_to_bool(orig: &str) -> Result<bool> {
         "false" => Ok(false),
         "t" => Ok(true),
         "f" => Ok(false),
-        _ => Err(failure::err_msg("not a boolean like value"))
+        _ => Err(anyhow!("not a boolean like value"))
     }
 }

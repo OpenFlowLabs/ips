@@ -1,22 +1,16 @@
 pub mod repology;
 
 extern crate pest;
-#[macro_use] extern crate pest_derive;
-#[macro_use] extern crate failure;
-#[macro_use] extern crate serde;
 extern crate maplit;
 
-mod errors {
-    use failure::Error;
-    use std::result::Result as StdResult;
+#[macro_use]
+extern crate pest_derive;
 
-    pub type Result<T> = StdResult<T, Error>;
-}
 
-use errors::Result;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::read_to_string;
-use pest::iterators::{Pair, Pairs};
+use pest::iterators::{Pairs};
 use std::path::Path;
 use pest::Parser;
 

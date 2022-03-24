@@ -4,7 +4,7 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::digest::{Digest, DigestAlgorithm, DigestSource};
-use failure::Error;
+use anyhow::Error;
 use object::Object;
 use std::path::Path;
 
