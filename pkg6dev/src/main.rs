@@ -75,13 +75,14 @@ fn diff_component(component_path: impl AsRef<Path>) -> Result<()> {
 fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let makefile_path = component_path.as_ref().join("Makefile");
 
-    let makefile = Makefile::parse_file(&makefile_path)?;
+    let initial_makefile = Makefile::parse_single_file(&makefile_path)?;
+    let makefile = initial_makefile.parse_all()?;
 
     let mut name = String::new();
 
     if let Some(var) = makefile.get("COMPONENT_NAME") {
         println!("Name: {}", var.replace("\n", "\n\t"));
-        if let Some(component_name) = makefile.get_first("COMPONENT_NAME") {
+        if let Some(component_name) = makefile.get_first_value_of_variable_by_name("COMPONENT_NAME") {
             name = component_name.clone();
         }
     }

@@ -16,7 +16,7 @@ comment_character = _{
     ~ ANY         // then consume one character
 }
 
-variable_name_character = { UPPERCASE | ASCII_DIGIT | "_" }
+variable_name_character = { UPPERCASE | ASCII_DIGIT | "_" | "." }
 variable_name = @{ variable_name_character* }
 variable_value_character = {
     !NEWLINE
