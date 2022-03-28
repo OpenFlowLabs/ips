@@ -75,53 +75,61 @@ fn diff_component(component_path: impl AsRef<Path>) -> Result<()> {
 fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let makefile_path = component_path.as_ref().join("Makefile");
 
-    println!("{:?}", makefile_path);
-
     let makefile = Makefile::parse_file(&makefile_path)?;
 
     let mut name = String::new();
 
-    if let Some(var) = makefile.variables.get("COMPONENT_NAME") {
-        println!("Name: {}", var.join(" "));
-        name = var.first().unwrap().to_string();
+    if let Some(var) = makefile.get("COMPONENT_NAME") {
+        println!("Name: {}", var.replace("\n", "\n\t"));
+        if let Some(component_name) = makefile.get_first("COMPONENT_NAME") {
+            name = component_name.clone();
+        }
     }
 
-    if let Some(var) = makefile.variables.get("COMPONENT_VERSION") {
-        println!("Version: {}", var.join(" "));
+    if let Some(var) = makefile.get("COMPONENT_VERSION") {
+        println!("Version: {}", var.replace("\n", "\n\t"));
         let latest_version = find_newest_version(&name);
         if latest_version.is_ok() {
             println!("Latest Version: {}", latest_version?);
         } else {
-            eprintln!("{:?}", latest_version.unwrap_err())
+            println!("Error: Could not get latest version info: {:?}", latest_version.unwrap_err())
         }
     }
 
-    if let Some(var) = makefile.variables.get("BUILD_BITS") {
-        println!("Build bits: {}", var.join(" "));
+    if let Some(var) = makefile.get("BUILD_BITS") {
+        println!("Build bits: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("COMPONENT_PROJECT_URL") {
-        println!("Project URl: {}", var.join("\t"));
+    if let Some(var) = makefile.get("COMPONENT_BUILD_ACTION") {
+        println!("Build action: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("COMPONENT_ARCHIVE_URL") {
-        println!("Source URl: {}", var.join("\t"));
+    if let Some(var) = makefile.get("COMPONENT_PROJECT_URL") {
+        println!("Project URl: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("COMPONENT_ARCHIVE_HASH") {
-        println!("Source Archive File Hash: {}", var.join(" "));
+    if let Some(var) = makefile.get("COMPONENT_ARCHIVE_URL") {
+        println!("Source URl: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("CONFIGURE_ENV") {
-        println!("Configure Environment: {}", var.join("\n\t"));
+    if let Some(var) = makefile.get("COMPONENT_ARCHIVE_HASH") {
+        println!("Source Archive File Hash: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("CONFIGURE_OPTIONS") {
-        println!("./configure {}", var.join("\n\t"));
+    if let Some(var) = makefile.get("CONFIGURE_ENV") {
+        println!("Configure Environment: {}", var.replace("\n", "\n\t"));
     }
 
-    if let Some(var) = makefile.variables.get("REQUIRED_PACKAGES") {
-        println!("Dependencies:\n\t{}", var.join("\n\t"));
+    if let Some(var) = makefile.get("CONFIGURE_OPTIONS") {
+        println!("./configure {}", var.replace("\n", "\n\t"));
+    }
+
+    if let Some(var) = makefile.get("REQUIRED_PACKAGES") {
+        println!("Dependencies:\n\t{}", var.replace("\n", "\n\t"));
+    }
+
+    if let Some(var) = makefile.get("COMPONENT_INSTALL_ACTION") {
+        println!("Install Action:\n\t{}", var);
     }
 
     Ok(())

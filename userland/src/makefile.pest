@@ -24,8 +24,8 @@ variable_value_character = {
 }
 variable_value = @{ variable_value_character* }
 
-variable_set = { "=" }
-variable_add = { "+=" }
+variable_set = _{ "=" }
+variable_add = _{ "+=" }
 
 variable = { variable_name ~ ( variable_set | variable_add ) ~ variable_value? }
 
@@ -40,4 +40,15 @@ target = { target_name ~ ":" ~ variable_value }
 
 include = { "include" ~ variable_value }
 
-makefile = { SOI ~ (NEWLINE | comment_string | variable | include | target )+ ~ EOI }
+define_keyword = _{"define"}
+define_end_keyword = _{NEWLINE ~ "endef"}
+
+define_value_character = {
+    !define_end_keyword
+    ~ ANY
+}
+define_value = @{ define_value_character* }
+
+define = { define_keyword ~ variable_name ~ variable_set ~ NEWLINE ~ define_value ~ define_end_keyword }
+
+makefile = { SOI ~ (NEWLINE | comment_string | define | variable | include | target )+ ~ EOI }
