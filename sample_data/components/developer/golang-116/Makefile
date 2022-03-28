@@ -57,8 +57,8 @@ COMPONENT_BUILD_ENV +=	GOEXPERIMENT="$(GOEXPERIMENT)"
 COMPONENT_BUILD_ENV +=	GOOS="illumos"
 COMPONENT_BUILD_ENV +=	GOCACHE="$(SOURCE_DIR)/gocache"
 COMPONENT_BUILD_ENV +=  GOPATH="$(SOURCE_DIR)/gopath"
-# COMPONENT_BUILD_ENV +=	\
-#	GOROOT_BOOTSTRAP="/usr/lib/golang/$(COMPONENT_MAJOR_VERSION)"
+COMPONENT_BUILD_ENV +=	\
+	GOROOT_BOOTSTRAP="/usr/lib/golang/$(COMPONENT_MAJOR_VERSION)"
 
 # For convenience during installation of supplementary packages.
 COMPONENT_INSTALL_ENV += PATH="$(PROTO_DIR)$(GOROOT_FINAL)/bin:$(PATH)"
@@ -74,16 +74,16 @@ include $(WS_MAKE_RULES)/common.mk
 # We have to fiddle with the package archives to get them into the same source
 # directory so that we can use the standard build targets.  We're effectively
 # building multiple components using a single target.
-# COMPONENT_POST_UNPACK_ACTION= \
-#	$(MV) go $(COMPONENT_SRC)
+COMPONENT_POST_UNPACK_ACTION= \
+	$(MV) go $(COMPONENT_SRC)
 
 # Go doesn't have a standard Makefile-based build process, so override the
 # default.
-# COMPONENT_BUILD_ACTION=	\
-#	cd $(@D)/src; $(ENV) $(COMPONENT_BUILD_ENV) ./make.bash
+COMPONENT_BUILD_ACTION=	\
+	cd $(@D)/src; $(ENV) $(COMPONENT_BUILD_ENV) ./make.bash
 
-# COMPONENT_TARGET_DIR= \
-#	$(PROTOUSRLIBDIR)/$(COMPONENT_NAME)/$(COMPONENT_MAJOR_VERSION)
+COMPONENT_TARGET_DIR= \
+	$(PROTOUSRLIBDIR)/$(COMPONENT_NAME)/$(COMPONENT_MAJOR_VERSION)
 
 # We can't do any ASLR'ing as the Go 6l linker has no understanding of the
 # -z aslr=... option. So just override where needed in the .p5m files.
@@ -97,24 +97,24 @@ COMPONENT_TEST_TARGETS=
 
 # Use this Command to copy the Go Source tree into the proto area. In order to deliver the Go SDK under GOROOT
 # Additionally nuke all the funky binary files used for test suites. They keep bothering the packaging tools
-#define COMPONENT_INSTALL_ACTION=
-#	($(MKDIR) $(COMPONENT_TARGET_DIR)/src); \
-#	(cd $(SOURCE_DIR) && \
-#	/usr/gnu/bin/find . -maxdepth 1 -path "./$(COMPONENT_SRC_NAME)" \
-#	  -prune -o \( ! -iname ".*" \) -print \
-#	  -exec /usr/gnu/bin/cp -r \
-#	  --parents {} $(COMPONENT_TARGET_DIR) \;); \
-#	(cd $(BUILD_DIR_64) && \
-#	/usr/gnu/bin/find src -type f \
-#		-exec /usr/gnu/bin/cp --parents {} $(COMPONENT_TARGET_DIR) \;); \
-#	(cd $(BUILD_DIR_64) && $(CP) -r bin $(COMPONENT_TARGET_DIR)/); \
-#	(cd $(BUILD_DIR_64) && $(CP) -r pkg $(COMPONENT_TARGET_DIR)/); \
-#	(rm -r $(COMPONENT_TARGET_DIR)/pkg/obj); \
-#	($(MKDIR) -p $(MEDIATEDUSRSHAREMAN1DIR)); \
-#	/usr/gnu/bin/find $(COMPONENT_TARGET_DIR)/src -type f \
-#      	| egrep -v '\.go|\.s|\.bash|\.txt|\.c|\.tmpl|\.h|\.pl|\.md|\.S|\.py|\.dist|\.rc|\.bat|README|Makefile|\.awk|\.rules|\.mod|\.json|LICENSE|PATENTS'\
-#	| xargs rm;
-#endef
+define COMPONENT_INSTALL_ACTION=
+	($(MKDIR) $(COMPONENT_TARGET_DIR)/src); \
+	(cd $(SOURCE_DIR) && \
+	/usr/gnu/bin/find . -maxdepth 1 -path "./$(COMPONENT_SRC_NAME)" \
+	  -prune -o \( ! -iname ".*" \) -print \
+	  -exec /usr/gnu/bin/cp -r \
+	  --parents {} $(COMPONENT_TARGET_DIR) \;); \
+	(cd $(BUILD_DIR_64) && \
+	/usr/gnu/bin/find src -type f \
+		-exec /usr/gnu/bin/cp --parents {} $(COMPONENT_TARGET_DIR) \;); \
+	(cd $(BUILD_DIR_64) && $(CP) -r bin $(COMPONENT_TARGET_DIR)/); \
+	(cd $(BUILD_DIR_64) && $(CP) -r pkg $(COMPONENT_TARGET_DIR)/); \
+	(rm -r $(COMPONENT_TARGET_DIR)/pkg/obj); \
+	($(MKDIR) -p $(MEDIATEDUSRSHAREMAN1DIR)); \
+	/usr/gnu/bin/find $(COMPONENT_TARGET_DIR)/src -type f \
+      	| egrep -v '\.go|\.s|\.bash|\.txt|\.c|\.tmpl|\.h|\.pl|\.md|\.S|\.py|\.dist|\.rc|\.bat|README|Makefile|\.awk|\.rules|\.mod|\.json|LICENSE|PATENTS'\
+	| xargs rm;
+endef
 
 REQUIRED_PACKAGES += developer/golang-115
 # Auto-generated dependencies
