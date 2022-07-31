@@ -19,7 +19,7 @@ mod tests {
     use std::collections::{HashMap};
     use crate::payload::Payload;
     use crate::digest::{Digest, DigestAlgorithm, DigestSource};
-    use std::str::FromStr;
+
     use maplit::hashmap;
 
     #[test]
