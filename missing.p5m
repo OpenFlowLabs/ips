@@ -1,8 +1,0 @@
-file path=usr/gcc/11/bin/gcc-ar
-file path=usr/gcc/11/bin/$(GNU_TRIPLET)-c++
-file path=usr/gcc/11/bin/$(GNU_TRIPLET)-gcc-$(COMPONENT_VERSION)
-file path=usr/gcc/11/bin/$(GNU_TRIPLET)-gcc-nm
-file path=usr/gcc/11/bin/$(GNU_TRIPLET)-gcc-ranlib
-file path=usr/gcc/11/bin/$(GNU_TRIPLET)-gfortran
-file path=usr/gcc/11/lib/gcc/$(GNU_TRIPLET)/$(COMPONENT_VERSION)/include/mwaitintrin.h
-file path=usr/gcc/11/share/info/dir
