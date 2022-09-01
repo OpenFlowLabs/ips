@@ -1,0 +1,334 @@
+make all --print-data-base --no-builtin-variables --no-builtin-rules --question
+# GNU Make 4.3
+# Built for x86_64-pc-linux-gnu
+# Copyright (C) 1988-2020 Free Software Foundation, Inc.
+# License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+# This is free software: you are free to change and redistribute it.
+# There is NO WARRANTY, to the extent permitted by law.
+ 
+
+# Make data base, printed on Thu Sep  1 15:11:07 2022
+
+# Variables
+
+# environment
+GO111MODULE = on
+# environment
+LC_ALL = C
+# environment
+LC_NAME = de_CH.UTF-8
+# environment
+LC_NUMERIC = de_CH.UTF-8
+# environment
+VSCODE_CWD = /home/toast
+# environment
+LC_ADDRESS = de_CH.UTF-8
+# default
+MAKE_COMMAND := make
+# environment
+VSCODE_HANDLES_SIGPIPE = true
+# environment
+GOPATH = /home/toast/workspace/go
+# automatic
+@D = $(patsubst %/,%,$(dir $@))
+# environment
+VSCODE_HANDLES_UNCAUGHT_ERRORS = true
+# default
+.VARIABLES := 
+# environment
+PWD = /home/toast/workspace/illumos/aurora/ips
+# automatic
+%D = $(patsubst %/,%,$(dir $%))
+# environment
+LSCOLORS = Gxfxcxdxbxegedabagacad
+# environment
+OLDPWD = /home/toast
+# automatic
+^D = $(patsubst %/,%,$(dir $^))
+# automatic
+%F = $(notdir $%)
+# environment
+LANG = C
+# default
+.LOADED := 
+# default
+.INCLUDE_DIRS = /usr/local/include /usr/include /usr/include
+# makefile
+MAKEFLAGS = pqrR
+# makefile
+CURDIR := /home/toast/workspace/illumos/aurora/ips
+# environment
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
+# automatic
+*D = $(patsubst %/,%,$(dir $*))
+# environment
+MFLAGS = -pqrR
+# environment
+SSH_AUTH_SOCK = /run/user/1000/vscode-ssh-auth-sock-316701701
+# default
+.SHELLFLAGS := -c
+# automatic
++D = $(patsubst %/,%,$(dir $+))
+# makefile (from 'Makefile', line 1)
+MAKEFILE_LIST := Makefile
+# automatic
+@F = $(notdir $@)
+# environment
+ZSH = /home/toast/.oh-my-zsh
+# environment
+XDG_SESSION_TYPE = tty
+# automatic
+?D = $(patsubst %/,%,$(dir $?))
+# automatic
+*F = $(notdir $*)
+# environment
+DBUS_SESSION_BUS_ADDRESS = unix:path=/run/user/1000/bus
+# automatic
+<D = $(patsubst %/,%,$(dir $<))
+# environment
+VSCODE_NLS_CONFIG = {"locale":"en","availableLanguages":{}}
+# environment
+ANDROID_SDK_ROOT = /home/toast/Android/Sdk
+# default
+MAKE_HOST := x86_64-pc-linux-gnu
+# environment
+ANDROID_HOME = /home/toast/Android/Sdk
+# makefile
+SHELL = /bin/sh
+# default
+MAKECMDGOALS := all
+# environment
+QT_QPA_PLATFORM = xcb
+# environment
+SHLVL = 1
+# environment
+MAKELEVEL := 0
+# default
+MAKE = $(MAKE_COMMAND)
+# environment
+PATH = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/remote-cli:/home/toast/.krew/bin:/home/toast/bin:/home/toast/workspace/go/bin:/home/toast/.cargo/bin:/home/toast/.vim/bin:/home/toast/bin:/home/toast/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/toast/Android/Sdk/emulator:/home/toast/Android/Sdk/tools:/home/toast/Android/Sdk/tools/bin:/home/toast/Android/Sdk/platform-tools:/home/toast/.arkade/bin/:/home/toast/.emacs.d/bin
+# default
+MAKEFILES := 
+# environment
+MOTD_SHOWN = pam
+# environment
+LC_MONETARY = de_CH.UTF-8
+# automatic
+^F = $(notdir $^)
+# environment
+LC_TIME = de_CH.UTF-8
+# environment
+GOBIN = /home/toast/workspace/go/bin
+# environment
+SSH_CLIENT = 100.85.127.110 58934 22
+# environment
+LC_TELEPHONE = de_CH.UTF-8
+# automatic
+?F = $(notdir $?)
+# environment
+LS_COLORS = 
+# automatic
++F = $(notdir $+)
+# environment
+LESS = -R
+# 'override' directive
+GNUMAKEFLAGS := 
+# environment
+BROWSER = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/helpers/browser.sh
+# environment
+SSH_KEY_PATH = ~/.ssh/id_rsa
+# environment
+LOGNAME = toast
+# makefile
+.DEFAULT_GOAL := all
+# environment
+EDITOR = vim
+# environment
+USER = toast
+# default
+MAKE_VERSION := 4.3
+# environment
+LC_MEASUREMENT = de_CH.UTF-8
+# environment
+SSH_AGENT_PID = 4552
+# environment
+PAGER = less
+# environment
+VSCODE_AGENT_FOLDER = /home/toast/.vscode-server
+# environment
+_ = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/node
+# environment
+LC_PAPER = de_CH.UTF-8
+# environment
+XDG_RUNTIME_DIR = /run/user/1000
+# environment
+VSCODE_IPC_HOOK_CLI = /run/user/1000/vscode-ipc-ee029a89-cf7d-4f9c-850d-175e32feba2a.sock
+# environment
+XDG_SESSION_CLASS = user
+# environment
+VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
+# environment
+HOME = /home/toast
+# environment
+ELECTRON_RUN_AS_NODE = 1
+# environment
+XDG_SESSION_ID = 536
+# default
+.RECIPEPREFIX := 
+# automatic
+<F = $(notdir $<)
+# default
+SUFFIXES := 
+# default
+.FEATURES := target-specific order-only second-expansion else-if shortest-stem undefine oneshell nocomment grouped-target extra-prereqs archives jobserver output-sync check-symlink load
+# environment
+LC_IDENTIFICATION = de_CH.UTF-8
+# environment
+SSH_CONNECTION = 100.85.127.110 58934 100.74.144.68 22
+# variable set hash-table stats:
+# Load=87/1024=8%, Rehash=0, Collisions=5/121=4%
+
+# Pattern-specific Variable Values
+
+publish.% :
+# makefile (from 'Makefile', line 19)
+# CRATE := $$*
+
+# 1 pattern-specific variable values
+# Directories
+
+# . (device 64769, inode 132376): 23 files, no impossibilities.
+
+# 23 files, no impossibilities in 1 directories.
+
+# Implicit Rules
+
+publish.%:
+#  recipe to execute (from 'Makefile', line 21):
+	cd $(CRATE); cargo publish
+
+# 1 implicit rules, 0 (0.0%) terminal.
+# Files
+
+# Not a target:
+publish.userland:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# Not a target:
+Makefile:
+#  Implicit rule search has been done.
+#  Last modified 2021-05-01 16:21:48.234604484
+#  File has been updated.
+#  Successfully updated.
+
+clean:
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  Implicit/static pattern stem: ''
+#  File does not exist.
+#  File has been updated.
+#  Needs to be updated (-q is set).
+# automatic
+# @ := clean
+# automatic
+# * := 
+# automatic
+# < := 
+# automatic
+# + := 
+# automatic
+# % := 
+# automatic
+# ^ := 
+# automatic
+# ? := 
+# automatic
+# | := 
+# variable set hash-table stats:
+# Load=8/32=25%, Rehash=0, Collisions=1/11=9%
+#  recipe to execute (from 'Makefile', line 10):
+	rm -rf target artifacts
+
+# Not a target:
+publish.pkg6dev:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# Not a target:
+.DEFAULT:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+all: clean release
+#  Phony target (prerequisite of .PHONY).
+#  Command line target.
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has been updated.
+#  Needs to be updated (-q is set).
+# variable set hash-table stats:
+# Load=0/32=0%, Rehash=0, Collisions=0/3=0%
+
+# Not a target:
+publish.libips:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+test:
+#  Phony target (prerequisite of .PHONY).
+ 
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 7):
+	cargo test
+
+publish-all: publish.libips publish.userland publish.pkg6dev
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+
+release:
+#  Phony target (prerequisite of .PHONY).
+#  Implicit rule search has not been done.
+#  File does not exist.
+#  File has not been updated.
+#  recipe to execute (from 'Makefile', line 13):
+	cargo build --release
+	mkdir -p artifacts
+	cp target/release/pkg6dev artifacts/
+
+# Not a target:
+.SUFFIXES:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+.PHONY: all release test clean publish-all
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# files hash-table stats:
+# Load=12/1024=1%, Rehash=0, Collisions=0/38=0%
+# VPATH Search Paths
+
+# No 'vpath' search paths.
+
+# No general ('VPATH' variable) search path.
+
+# strcache buffers: 1 (0) / strings = 37 / storage = 350 B / avg = 9 B
+# current buf: size = 8162 B / used = 350 B / count = 37 / avg = 9 B
+
+# strcache performance: lookups = 57 / hit rate = 35%
+# hash-table stats:
+# Load=37/8192=0%, Rehash=0, Collisions=0/57=0%
+# Finished Make data base on Thu Sep  1 15:11:07 2022
+
+ 

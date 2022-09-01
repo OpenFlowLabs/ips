@@ -1,9 +1,9 @@
 extern crate reqwest;
 
-use reqwest::*;
 use anyhow::Result;
+use reqwest::*;
 use semver::Version;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 const BASE_URL: &str = "https://repology.org/api/v1/";
 
@@ -21,28 +21,29 @@ pub struct Package {
     licenses: Option<Vec<String>>,
     maintainers: Option<Vec<String>>,
     www: Option<Vec<String>>,
-    downloads: Option<Vec<String>>
+    downloads: Option<Vec<String>>,
 }
 
 pub fn project(package: &str) -> Result<Vec<Package>> {
+    let url = Url::parse(&format!("{}/project/{}", BASE_URL, package))?;
 
-    let url = Url::parse(&format!("{}/project/{}",BASE_URL, package))?;
-
-    let json = reqwest::blocking::get(url)?
-        .json::<Vec<Package>>()?;
+    let json = reqwest::blocking::get(url)?.json::<Vec<Package>>()?;
 
     return Ok(json);
 }
 
 pub fn find_newest_version(package: &str) -> Result<String> {
     let pkgs = project(package)?;
-    let version_res: Result<Vec<Version>> = pkgs.iter().map(|p| -> Result<Version> {
-        let v = Version::parse(&p.version);
-        if v.is_ok() {
-            return Ok(v?);
-        }
-        Ok(Version::new(0,0,1))
-    }).collect();
+    let version_res: Result<Vec<Version>> = pkgs
+        .iter()
+        .map(|p| -> Result<Version> {
+            let v = Version::parse(&p.version);
+            if v.is_ok() {
+                return Ok(v?);
+            }
+            Ok(Version::new(0, 0, 1))
+        })
+        .collect();
 
     let mut versions = version_res?;
 

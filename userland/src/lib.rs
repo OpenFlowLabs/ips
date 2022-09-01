@@ -1,23 +1,20 @@
+mod component;
 pub mod repology;
 
-extern crate pest;
-extern crate maplit;
-
-#[macro_use]
-extern crate pest_derive;
-
-
-use anyhow::{anyhow, Result};
-use std::collections::{HashMap};
-use std::env;
-use std::io::Error as IOError;
-use std::fs::{read_to_string, canonicalize};
-use pest::iterators::{Pairs};
-use std::path::{Path, PathBuf};
-use pest::Parser;
-use thiserror::Error;
+use anyhow::{anyhow, Context, Result};
 use lazy_static::lazy_static;
+use pest::iterators::Pairs;
+use pest::Parser;
+use pest_derive::Parser;
 use regex::Regex;
+use std::collections::HashMap;
+use std::env;
+use std::fs::{canonicalize, read_to_string};
+use std::io::Error as IOError;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+pub use component::*;
 
 #[derive(Parser)]
 #[grammar = "makefile.pest"]
@@ -41,7 +38,7 @@ pub struct MakefileVariable {
 #[derive(Debug, PartialEq, Clone)]
 pub enum VariableMode {
     Add,
-    Set
+    Set,
 }
 
 impl Default for VariableMode {
@@ -63,10 +60,12 @@ pub enum ParserError {
 
 impl Makefile {
     pub fn parse_single_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = read_to_string(&path)?;
-        let mut m = parse_string(content).map_err(|err|
-            anyhow!(ParserError::MakefileReadError{file: path.as_ref().to_path_buf(), reason: anyhow!(err)})
-        )?;
+        let content = read_to_string(&path).context(format!(
+            "cannot read {0} to string",
+            path.as_ref().display()
+        ))?;
+        let mut m =
+            parse_string(content).context(format!("cannot parse {0}", path.as_ref().display()))?;
         m.path = path.as_ref().into();
         Ok(m)
     }
@@ -149,8 +148,8 @@ impl Makefile {
             };
 
             for incl in includes {
-                let incl_path = canonicalize(&incl).map_err(|err|
-                anyhow!(ParserError::IncludeNotFound(incl, err)))?;
+                let incl_path = canonicalize(&incl)
+                    .map_err(|err| anyhow!(ParserError::IncludeNotFound(incl, err)))?;
                 let m = Self::parse_single_file(incl_path)?;
                 included_makefiles.push(m);
             }
@@ -168,14 +167,15 @@ impl Makefile {
         // Logic to resolve all the nested Variables when we access them.
         for (i, maybe_nested_var) in var.values.iter().enumerate() {
             lazy_static! {
-                    static ref VARRE: Regex = Regex::new(r"(?P<var_name>\$\(.+?\))").unwrap();
-                }
+                static ref VARRE: Regex = Regex::new(r"(?P<var_name>\$\(.+?\))").unwrap();
+            }
             for captures in VARRE.captures_iter(maybe_nested_var) {
                 if let Some(nested_var) = captures.name("var_name") {
                     let nested_var_name = nested_var.as_str().replace("$(", "").replace(")", "");
                     if let Some(resolved_nested_var) = self.get(&nested_var_name) {
                         let mut new_string = vars_copy[i].clone();
-                        new_string = new_string.replacen(nested_var.as_str(), &resolved_nested_var, 1);
+                        new_string =
+                            new_string.replacen(nested_var.as_str(), &resolved_nested_var, 1);
                         vars_copy[i] = new_string;
                     }
                 }
@@ -214,7 +214,10 @@ fn parse_string(content: String) -> Result<Makefile> {
             Rule::makefile => {
                 parse_makefile(p.into_inner(), &mut m)?;
             }
-            _ => panic!("unexpected rule {:?} inside pair expected manifest", p.as_rule()),
+            _ => panic!(
+                "unexpected rule {:?} inside pair expected manifest",
+                p.as_rule()
+            ),
         }
     }
 
@@ -249,7 +252,10 @@ fn parse_include(include_pair: Pairs<crate::Rule>, m: &mut Makefile) -> Result<(
             Rule::variable_value => {
                 m.includes.push(p.as_str().to_string());
             }
-            _ => panic!("unexpected rule {:?} inside include rule expected variable_value", p.as_rule())
+            _ => panic!(
+                "unexpected rule {:?} inside include rule expected variable_value",
+                p.as_rule()
+            ),
         }
     }
     Ok(())
@@ -265,7 +271,10 @@ fn parse_define(define_pair: Pairs<crate::Rule>, m: &mut Makefile) -> Result<()>
             Rule::define_value => {
                 var.1.values.push(p.as_str().to_string());
             }
-            _ => panic!("unexpected rule {:?} inside define rule expected variable_name, define_value", p.as_rule()),
+            _ => panic!(
+                "unexpected rule {:?} inside define rule expected variable_name, define_value",
+                p.as_rule()
+            ),
         }
     }
     m.variables.insert(var.0, var.1);
