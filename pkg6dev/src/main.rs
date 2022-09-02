@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use libips::actions::{File, Manifest};
+use libips::actions::{File, Manifest, ActionError};
 
 use anyhow::{Result};
 use std::collections::HashMap;
@@ -93,7 +93,7 @@ fn diff_component(
         .as_ref()
         .join("manifests/sample-manifest.p5m");
 
-    let manifests_res: Result<Vec<Manifest>> = manifest_files
+    let manifests_res: Result<Vec<Manifest>, ActionError> = manifest_files
         .iter()
         .map(|f| Manifest::parse_file(f.to_string()))
         .collect();

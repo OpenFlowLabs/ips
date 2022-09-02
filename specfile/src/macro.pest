@@ -1,0 +1,19 @@
+WHITESPACE = _{ " " | "\t" }
+char = { ASCII_ALPHANUMERIC | "." | "_" | "/" | "-" | "=" | ">" | "<" | "!" | "'" | "#" | "\"" }
+text = @{ char+ | WHITESPACE | NEWLINE }
+env_variable_char = { 'A'..'Z' | '0'..'9' }
+
+macro_parameter = @{char+}
+macro_name = @{char+}
+macro_parameters = _{ ("," | macro_parameter)* }
+spec_macro_without_parameters = _{"%{" ~ macro_name ~ "}" | "%" ~ macro_name}
+spec_macro_with_parameters = _{"%{" ~ macro_name ~ "("~macro_parameters~")" ~ "}" | "%" ~ macro_name ~ "("~macro_parameters~")"}
+spec_macro = { (spec_macro_with_parameters|spec_macro_without_parameters) }
+spec_optional_macro = @{ "%{?" ~ char+ ~ "}" }
+function = { "%(" ~ (spec_macro | spec_optional_macro | text)* ~ ")" }
+text_with_macros = { function | spec_macro | spec_optional_macro }
+
+file = {SOI ~ text* ~ (text | text_with_macros)+ ~ text* ~ EOI}
+
+env_variable = @{"$" ~ (env_variable_char | "_")+}
+

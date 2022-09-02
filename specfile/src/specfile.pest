@@ -1,0 +1,22 @@
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+uppercase = { 'A'..'Z' }
+char = { ASCII_ALPHANUMERIC | "," | "." | "_" | "/" | "-" | "=" | ">" | "<" | "!" | "'" | "#" | ":" | "{" | "}" | "%" | "*" | "@" | "\"" }
+WHITESPACE = _{ " " | "\t" }
+text = @{ char+ | WHITESPACE }
+variable_name = @{uppercase ~ alpha+ ~ digit*}
+variable_text = @{ text+ }
+variable = {variable_name ~ ":" ~ variable_text }
+empty_variable = {variable_name ~ ":" }
+multiline_variable = {variable_name ~ ":" ~ NEWLINE? ~ (text ~ NEWLINE)+ }
+section_text = @{ text+ }
+comment_line = @{ "#" ~ section_text }
+section_line = { comment_line ~ NEWLINE | section_text ~ NEWLINE }
+section_name = @{ (ASCII_ALPHA_LOWER | ASCII_DIGIT)+ }
+section = {"%" ~ section_name ~ NEWLINE ~ section_line+ }
+
+file = _{
+	SOI ~
+    (variable ~ NEWLINE+ | multiline_variable ~ NEWLINE+ | empty_variable ~ NEWLINE+ | section | NEWLINE )+ ~
+    EOI
+}

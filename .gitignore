@@ -90,3 +90,4 @@ Cargo.lock
 # Prototype directory 
 sample_data/**/build/prototype/i386
 
+.vagrant

@@ -1,9 +1,8 @@
 make --dry-run --always-make --keep-going --print-directory
-make: Entering directory '/home/toast/workspace/illumos/aurora/ips'
+make: Entering directory '/ws/toast/illumos/rust/ips'
 rm -rf target artifacts
- 
 cargo build --release
 mkdir -p artifacts
 cp target/release/pkg6dev artifacts/
-make: Leaving directory '/home/toast/workspace/illumos/aurora/ips'
+make: Leaving directory '/ws/toast/illumos/rust/ips'
  

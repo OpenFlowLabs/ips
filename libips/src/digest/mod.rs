@@ -4,11 +4,13 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use thiserror::Error;
-use anyhow::Result;
+use std::result::Result as StdResult;
 use std::str::FromStr;
 use sha2::{Digest as Sha2Digest};
 #[allow(unused_imports)]
 use sha3::{Digest as Sha3Digest};
+
+type Result<T> = StdResult<T, DigestError>;
 
 #[allow(dead_code)]
 static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
@@ -52,7 +54,7 @@ pub struct Digest {
 impl FromStr for Digest {
     type Err = DigestError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
         let str = String::from(s);
         if !s.contains(":") {
             return Ok(Digest{

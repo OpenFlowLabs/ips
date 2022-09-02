@@ -7,14 +7,35 @@
 
 use std::collections::{HashMap};
 use std::fs::{read_to_string};
-use crate::payload::Payload;
+use crate::payload::{Payload, PayloadError};
 use std::clone::Clone;
 use crate::digest::Digest;
 use std::str::FromStr;
 use std::path::{Path};
-use anyhow::{anyhow, Result};
 use pest::Parser;
+use pest_derive::Parser;
 use thiserror::Error;
+use std::result::Result as StdResult;
+
+type Result<T> = StdResult<T, ActionError>;
+
+#[derive(Debug, Error)]
+pub enum ActionError {
+    #[error("payload error: {0}")]
+    PayloadError(#[from] PayloadError),
+
+    #[error("file action error: {0}")]
+    FileError(#[from] FileError),
+
+    #[error("value {0} is not a boolean")]
+    NotBooleanValue(String),
+
+    #[error("io error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[error("parser error: {0}")]
+    ParserError(#[from] pest::error::Error<Rule>)
+}
 
 pub trait FacetedAction {
     // Add a facet to the action if the facet is already present the function returns false.
@@ -615,6 +636,6 @@ fn string_to_bool(orig: &str) -> Result<bool> {
         "false" => Ok(false),
         "t" => Ok(true),
         "f" => Ok(false),
-        _ => Err(anyhow!("not a boolean like value"))
+        _ => Err(ActionError::NotBooleanValue(orig.clone().to_owned()))
     }
 }

@@ -7,10 +7,6 @@ pub mod actions;
 pub mod digest;
 pub mod payload;
 
-extern crate pest;
-#[macro_use] extern crate pest_derive;
-extern crate maplit;
-
 #[cfg(test)]
 mod tests {
 

@@ -5,30 +5,19 @@ make all --print-data-base --no-builtin-variables --no-builtin-rules --question
 # License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
 # This is free software: you are free to change and redistribute it.
 # There is NO WARRANTY, to the extent permitted by law.
- 
 
-# Make data base, printed on Thu Sep  1 15:11:07 2022
+# Make data base, printed on Fri Sep  2 20:28:38 2022
 
 # Variables
 
 # environment
-GO111MODULE = on
-# environment
 LC_ALL = C
 # environment
-LC_NAME = de_CH.UTF-8
-# environment
-LC_NUMERIC = de_CH.UTF-8
-# environment
-VSCODE_CWD = /home/toast
-# environment
-LC_ADDRESS = de_CH.UTF-8
+VSCODE_CWD = /ws/toast
 # default
 MAKE_COMMAND := make
 # environment
 VSCODE_HANDLES_SIGPIPE = true
-# environment
-GOPATH = /home/toast/workspace/go
 # automatic
 @D = $(patsubst %/,%,$(dir $@))
 # environment
@@ -36,13 +25,11 @@ VSCODE_HANDLES_UNCAUGHT_ERRORS = true
 # default
 .VARIABLES := 
 # environment
-PWD = /home/toast/workspace/illumos/aurora/ips
+PWD = /ws/toast/illumos/rust/ips
 # automatic
 %D = $(patsubst %/,%,$(dir $%))
 # environment
-LSCOLORS = Gxfxcxdxbxegedabagacad
-# environment
-OLDPWD = /home/toast
+MAIL = /var/spool/mail/toast
 # automatic
 ^D = $(patsubst %/,%,$(dir $^))
 # automatic
@@ -52,19 +39,19 @@ LANG = C
 # default
 .LOADED := 
 # default
-.INCLUDE_DIRS = /usr/local/include /usr/include /usr/include
+.INCLUDE_DIRS = /usr/include /usr/local/include /usr/include
 # makefile
 MAKEFLAGS = pqrR
 # makefile
-CURDIR := /home/toast/workspace/illumos/aurora/ips
+CURDIR := /ws/toast/illumos/rust/ips
 # environment
-APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = 1
 # automatic
 *D = $(patsubst %/,%,$(dir $*))
 # environment
 MFLAGS = -pqrR
 # environment
-SSH_AUTH_SOCK = /run/user/1000/vscode-ssh-auth-sock-316701701
+SSH_AUTH_SOCK = /run/user/1000/vscode-ssh-auth-sock-643226622
 # default
 .SHELLFLAGS := -c
 # automatic
@@ -73,8 +60,6 @@ SSH_AUTH_SOCK = /run/user/1000/vscode-ssh-auth-sock-316701701
 MAKEFILE_LIST := Makefile
 # automatic
 @F = $(notdir $@)
-# environment
-ZSH = /home/toast/.oh-my-zsh
 # environment
 XDG_SESSION_TYPE = tty
 # automatic
@@ -87,92 +72,62 @@ DBUS_SESSION_BUS_ADDRESS = unix:path=/run/user/1000/bus
 <D = $(patsubst %/,%,$(dir $<))
 # environment
 VSCODE_NLS_CONFIG = {"locale":"en","availableLanguages":{}}
-# environment
-ANDROID_SDK_ROOT = /home/toast/Android/Sdk
 # default
 MAKE_HOST := x86_64-pc-linux-gnu
-# environment
-ANDROID_HOME = /home/toast/Android/Sdk
 # makefile
 SHELL = /bin/sh
 # default
 MAKECMDGOALS := all
 # environment
-QT_QPA_PLATFORM = xcb
-# environment
-SHLVL = 1
+SHLVL = 2
 # environment
 MAKELEVEL := 0
 # default
 MAKE = $(MAKE_COMMAND)
 # environment
-PATH = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/remote-cli:/home/toast/.krew/bin:/home/toast/bin:/home/toast/workspace/go/bin:/home/toast/.cargo/bin:/home/toast/.vim/bin:/home/toast/bin:/home/toast/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/toast/Android/Sdk/emulator:/home/toast/Android/Sdk/tools:/home/toast/Android/Sdk/tools/bin:/home/toast/Android/Sdk/platform-tools:/home/toast/.arkade/bin/:/home/toast/.emacs.d/bin
+PATH = /ws/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/remote-cli:/ws/toast/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl
 # default
 MAKEFILES := 
 # environment
 MOTD_SHOWN = pam
-# environment
-LC_MONETARY = de_CH.UTF-8
 # automatic
 ^F = $(notdir $^)
 # environment
-LC_TIME = de_CH.UTF-8
-# environment
-GOBIN = /home/toast/workspace/go/bin
-# environment
-SSH_CLIENT = 100.85.127.110 58934 22
-# environment
-LC_TELEPHONE = de_CH.UTF-8
+SSH_CLIENT = 45.191.210.18 63385 22
 # automatic
 ?F = $(notdir $?)
-# environment
-LS_COLORS = 
 # automatic
 +F = $(notdir $+)
-# environment
-LESS = -R
 # 'override' directive
 GNUMAKEFLAGS := 
 # environment
-BROWSER = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/helpers/browser.sh
-# environment
-SSH_KEY_PATH = ~/.ssh/id_rsa
+BROWSER = /ws/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/bin/helpers/browser.sh
 # environment
 LOGNAME = toast
 # makefile
 .DEFAULT_GOAL := all
 # environment
-EDITOR = vim
-# environment
 USER = toast
 # default
 MAKE_VERSION := 4.3
 # environment
-LC_MEASUREMENT = de_CH.UTF-8
+VSCODE_AGENT_FOLDER = /ws/toast/.vscode-server
 # environment
-SSH_AGENT_PID = 4552
-# environment
-PAGER = less
-# environment
-VSCODE_AGENT_FOLDER = /home/toast/.vscode-server
-# environment
-_ = /home/toast/.vscode-server/bin/e4503b30fc78200f846c62cf8091b76ff5547662/node
-# environment
-LC_PAPER = de_CH.UTF-8
+_ = /usr/bin/make
 # environment
 XDG_RUNTIME_DIR = /run/user/1000
 # environment
-VSCODE_IPC_HOOK_CLI = /run/user/1000/vscode-ipc-ee029a89-cf7d-4f9c-850d-175e32feba2a.sock
+VSCODE_IPC_HOOK_CLI = /run/user/1000/vscode-ipc-b3f27a57-ac5c-4725-88da-aea52f809474.sock
 # environment
 XDG_SESSION_CLASS = user
 # environment
 VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
 # environment
-HOME = /home/toast
+HOME = /ws/toast
 # environment
 ELECTRON_RUN_AS_NODE = 1
 # environment
-XDG_SESSION_ID = 536
+XDG_SESSION_ID = 168
 # default
 .RECIPEPREFIX := 
 # automatic
@@ -180,13 +135,11 @@ XDG_SESSION_ID = 536
 # default
 SUFFIXES := 
 # default
-.FEATURES := target-specific order-only second-expansion else-if shortest-stem undefine oneshell nocomment grouped-target extra-prereqs archives jobserver output-sync check-symlink load
+.FEATURES := target-specific order-only second-expansion else-if shortest-stem undefine oneshell nocomment grouped-target extra-prereqs archives jobserver output-sync check-symlink guile load
 # environment
-LC_IDENTIFICATION = de_CH.UTF-8
-# environment
-SSH_CONNECTION = 100.85.127.110 58934 100.74.144.68 22
+SSH_CONNECTION = 45.191.210.18 63385 116.202.174.254 22
 # variable set hash-table stats:
-# Load=87/1024=8%, Rehash=0, Collisions=5/121=4%
+# Load=64/1024=6%, Rehash=0, Collisions=2/98=2%
 
 # Pattern-specific Variable Values
 
@@ -197,9 +150,9 @@ publish.% :
 # 1 pattern-specific variable values
 # Directories
 
-# . (device 64769, inode 132376): 23 files, no impossibilities.
+# . (device 2306, inode 12717540): 25 files, no impossibilities.
 
-# 23 files, no impossibilities in 1 directories.
+# 25 files, no impossibilities in 1 directories.
 
 # Implicit Rules
 
@@ -219,7 +172,7 @@ publish.userland:
 # Not a target:
 Makefile:
 #  Implicit rule search has been done.
-#  Last modified 2021-05-01 16:21:48.234604484
+#  Last modified 2022-03-27 21:11:05.395373249
 #  File has been updated.
 #  Successfully updated.
 
@@ -281,7 +234,6 @@ publish.libips:
 
 test:
 #  Phony target (prerequisite of .PHONY).
- 
 #  Implicit rule search has not been done.
 #  File does not exist.
 #  File has not been updated.
@@ -323,12 +275,12 @@ release:
 
 # No general ('VPATH' variable) search path.
 
-# strcache buffers: 1 (0) / strings = 37 / storage = 350 B / avg = 9 B
-# current buf: size = 8162 B / used = 350 B / count = 37 / avg = 9 B
+# strcache buffers: 1 (0) / strings = 39 / storage = 371 B / avg = 9 B
+# current buf: size = 8162 B / used = 371 B / count = 39 / avg = 9 B
 
-# strcache performance: lookups = 57 / hit rate = 35%
+# strcache performance: lookups = 59 / hit rate = 33%
 # hash-table stats:
-# Load=37/8192=0%, Rehash=0, Collisions=0/57=0%
-# Finished Make data base on Thu Sep  1 15:11:07 2022
+# Load=39/8192=0%, Rehash=0, Collisions=0/59=0%
+# Finished Make data base on Fri Sep  2 20:28:38 2022
 
  

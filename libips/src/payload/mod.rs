@@ -3,10 +3,22 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::digest::{Digest, DigestAlgorithm, DigestSource};
-use anyhow::Error;
+use crate::digest::{Digest, DigestAlgorithm, DigestSource, DigestError};
 use object::Object;
 use std::path::Path;
+use thiserror::Error;
+use std::result::Result as StdResult;
+use std::io::Error as IOError;
+
+type Result<T> = StdResult<T, PayloadError>;
+
+#[derive(Debug, Error)]
+pub enum PayloadError {
+    #[error("io error: {0}")]
+    IOError(#[from] IOError),
+    #[error("digest error: {0}")]
+    DigestError(#[from] DigestError),
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum PayloadCompressionAlgorithm {
@@ -56,7 +68,7 @@ impl Payload {
         self.architecture == PayloadArchitecture::NOARCH && self.bitness == PayloadBits::Independent
     }
 
-    pub fn compute_payload(path: &Path) -> Result<Self, Error> {
+    pub fn compute_payload(path: &Path) -> Result<Self> {
         let f = std::fs::read(path)?;
 
         let (bitness, architecture) = match object::File::parse(f.as_slice()) {
