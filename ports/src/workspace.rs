@@ -90,14 +90,17 @@ impl Workspace {
         Ok(ws)
     }
 
+    #[allow(dead_code)]
     pub fn expand_source_path(&self, fname: &str) -> PathBuf {
         self.source_dir.join(fname)
     }
 
+    #[allow(dead_code)]
     pub fn get_proto_dir(&self) -> PathBuf {
         self.proto_dir.clone()
     }
 
+    #[allow(dead_code)]
     pub fn get_build_dir(&self) -> PathBuf {
         self.build_dir.clone()
     }

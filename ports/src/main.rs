@@ -69,7 +69,7 @@ fn main() -> Result<()> {
 fn run_package_command<P: AsRef<Path>>(spec_file: P, _target: P) -> Result<()> {
     let content_string = fs::read_to_string(spec_file)?;
     let spec = parse(content_string)?;
-    let mut ws = Workspace::new("")?;
+    let ws = Workspace::new("")?;
     let downloaded = ws.get_sources(spec.sources)?;
     ws.unpack_all_sources(downloaded)?;
 
