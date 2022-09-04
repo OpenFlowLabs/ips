@@ -1,5 +1,3 @@
-[![Run on Repl.it](https://repl.it/badge/github/openflowlabs/libips)](https://repl.it/github/openflowlabs/libips)
-
 # Image Packaging System for illumos
 
 ## libips
