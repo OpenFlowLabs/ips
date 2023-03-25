@@ -40,9 +40,6 @@ jobs:
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt
 
-      - name: Patch target path
-        run: rm .cargo/config.toml
-
       - name: Run rust-clippy
         run:
           cargo clippy
