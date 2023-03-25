@@ -19,11 +19,11 @@ static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
 #[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default)]
 pub enum DigestAlgorithm {
+    #[default]
     #[strum(serialize = "sha1")]
     SHA1, //Default, sadly
     #[strum(serialize = "sha256t")]
     SHA256, //sha256t
-    #[default]
     #[strum(serialize = "sha512t")]
     SHA512, //sha512t
     #[strum(serialize = "sha512t_256")]
