@@ -5,36 +5,36 @@
 
 // Source https://docs.oracle.com/cd/E23824_01/html/E21796/pkg-5.html
 
-use std::collections::{HashMap};
-use std::fs::{read_to_string};
-use crate::payload::{Payload, PayloadError};
-use std::clone::Clone;
 use crate::digest::Digest;
-use std::str::FromStr;
-use std::path::{Path};
+use crate::payload::{Payload, PayloadError};
 use pest::Parser;
 use pest_derive::Parser;
-use thiserror::Error;
+use std::clone::Clone;
+use std::collections::HashMap;
+use std::fs::read_to_string;
+use std::path::Path;
 use std::result::Result as StdResult;
+use std::str::FromStr;
+use thiserror::Error;
 
 type Result<T> = StdResult<T, ActionError>;
 
 #[derive(Debug, Error)]
 pub enum ActionError {
-    #[error("payload error: {0}")]
+    #[error(transparent)]
     PayloadError(#[from] PayloadError),
 
-    #[error("file action error: {0}")]
+    #[error(transparent)]
     FileError(#[from] FileError),
 
     #[error("value {0} is not a boolean")]
     NotBooleanValue(String),
 
-    #[error("io error: {0}")]
+    #[error(transparent)]
     IOError(#[from] std::io::Error),
 
-    #[error("parser error: {0}")]
-    ParserError(#[from] pest::error::Error<Rule>)
+    #[error(transparent)]
+    ParserError(#[from] pest::error::Error<Rule>),
 }
 
 pub trait FacetedAction {
@@ -55,8 +55,8 @@ pub struct Action {
 }
 
 impl Action {
-    pub fn new(kind: ActionKind) -> Action{
-        Action{
+    pub fn new(kind: ActionKind) -> Action {
+        Action {
             kind,
             payload: Payload::default(),
             payload_string: String::new(),
@@ -68,11 +68,11 @@ impl Action {
 
 impl FacetedAction for Action {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet.name.clone(), facet.clone()) == None
+        self.facets.insert(facet.name.clone(), facet).is_none()
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet.name) == Some(facet)
+        self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
@@ -93,7 +93,7 @@ impl From<Action> for Dir {
         let mut props = act.properties;
         if !act.payload_string.is_empty() {
             let p_str = split_property(act.payload_string);
-            props.push(Property{
+            props.push(Property {
                 key: p_str.0,
                 value: p_str.1,
             })
@@ -119,11 +119,11 @@ impl From<Action> for Dir {
 
 impl FacetedAction for Dir {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet.name.clone(), facet.clone()) == None
+        self.facets.insert(facet.name.clone(), facet).is_none()
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet.name) == Some(facet)
+        self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
@@ -150,7 +150,7 @@ impl File {
             Some(str) => {
                 f.path = str.to_string();
                 f.payload = Some(Payload::compute_payload(p)?);
-            },
+            }
             None => return Err(FileError::FilePathIsNoStringError)?,
         }
 
@@ -159,7 +159,7 @@ impl File {
         Ok(f)
     }
 
-    pub fn get_original_path(&self) ->Option<String> {
+    pub fn get_original_path(&self) -> Option<String> {
         for p in &self.properties {
             if p.key.as_str() == "original-path" {
                 return Some(p.value.clone());
@@ -175,17 +175,17 @@ impl From<Action> for File {
         let mut p = act.payload.clone();
         let mut props = act.properties;
         if !act.payload_string.is_empty() {
-            if act.payload_string.contains("/") {
-                if act.payload_string.contains("=") {
+            if act.payload_string.contains('/') {
+                if act.payload_string.contains('=') {
                     let p_str = split_property(act.payload_string);
-                    props.push(Property{
+                    props.push(Property {
                         key: p_str.0,
                         value: p_str.1,
                     })
                 } else {
-                    file.properties.push(Property{
+                    file.properties.push(Property {
                         key: "original-path".to_string(),
-                        value: act.payload_string.replace("\"", "").replace("\\", "")
+                        value: act.payload_string.replace(['\"', '\\'], ""),
                     });
                 }
             } else {
@@ -201,20 +201,26 @@ impl From<Action> for File {
                 "revert-tag" => file.revert_tag = prop.value,
                 "original_name" => file.original_name = prop.value,
                 "sysattr" => file.sys_attr = prop.value,
-                "overlay" => file.overlay = match string_to_bool(&prop.value) {
-                    Ok(b) => b,
-                    _ => false,
-                },
-                "preserve" => file.preserve = match string_to_bool(&prop.value) {
-                    Ok(b) => b,
-                    _ => false,
-                },
-                "chash" | "pkg.content-hash" => p.additional_identifiers.push(Digest::from_str(&prop.value).unwrap()),
+                "overlay" => {
+                    file.overlay = match string_to_bool(&prop.value) {
+                        Ok(b) => b,
+                        _ => false,
+                    }
+                }
+                "preserve" => {
+                    file.preserve = match string_to_bool(&prop.value) {
+                        Ok(b) => b,
+                        _ => false,
+                    }
+                }
+                "chash" | "pkg.content-hash" => p
+                    .additional_identifiers
+                    .push(Digest::from_str(&prop.value).unwrap()),
                 _ => {
                     if is_facet(prop.key.clone()) {
                         file.add_facet(Facet::from_key_value(prop.key, prop.value));
                     } else {
-                        file.properties.push(Property{
+                        file.properties.push(Property {
                             key: prop.key,
                             value: prop.value,
                         });
@@ -233,11 +239,11 @@ impl From<Action> for File {
 
 impl FacetedAction for File {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet.name.clone(), facet.clone()) == None
+        self.facets.insert(facet.name.clone(), facet).is_none()
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet.name) == Some(facet)
+        self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
@@ -250,10 +256,10 @@ pub enum FileError {
 //TODO implement multiple FMRI for require-any
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Dependency {
-    pub fmri: String, //TODO make FMRI
+    pub fmri: String,            //TODO make FMRI
     pub dependency_type: String, //TODO make enum
-    pub predicate: String,  //TODO make FMRI
-    pub root_image: String, //TODO make boolean
+    pub predicate: String,       //TODO make FMRI
+    pub root_image: String,      //TODO make boolean
     pub optional: Vec<Property>,
     pub facets: HashMap<String, Facet>,
 }
@@ -264,7 +270,7 @@ impl From<Action> for Dependency {
         let mut props = act.properties;
         if !act.payload_string.is_empty() {
             let p_str = split_property(act.payload_string);
-            props.push(Property{
+            props.push(Property {
                 key: p_str.0,
                 value: p_str.1,
             })
@@ -290,11 +296,11 @@ impl From<Action> for Dependency {
 
 impl FacetedAction for Dependency {
     fn add_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.insert(facet.name.clone(), facet.clone()) == None
+        self.facets.insert(facet.name.clone(), facet).is_none()
     }
 
     fn remove_facet(&mut self, facet: Facet) -> bool {
-        return self.facets.remove(&facet.name) == Some(facet)
+        self.facets.remove(&facet.name) == Some(facet)
     }
 }
 
@@ -306,7 +312,7 @@ pub struct Facet {
 
 impl Facet {
     fn from_key_value(key: String, value: String) -> Facet {
-        Facet{
+        Facet {
             name: get_facet_key(key),
             value,
         }
@@ -326,7 +332,7 @@ impl From<Action> for Attr {
         let mut props = act.properties;
         if !act.payload_string.is_empty() {
             let p_str = split_property(act.payload_string);
-            props.push(Property{
+            props.push(Property {
                 key: p_str.0,
                 value: p_str.1,
             })
@@ -336,10 +342,13 @@ impl From<Action> for Attr {
                 "name" => attr.key = prop.value,
                 "value" => attr.values.push(prop.value),
                 _ => {
-                    attr.properties.insert(prop.key.clone(), Property{
-                        key: prop.key,
-                        value: prop.value,
-                    });
+                    attr.properties.insert(
+                        prop.key.clone(),
+                        Property {
+                            key: prop.key,
+                            value: prop.value,
+                        },
+                    );
                 }
             }
         }
@@ -360,13 +369,15 @@ impl From<Action> for License {
             license.payload = act.payload_string;
         }
         for prop in act.properties {
-            match prop.key.as_str() {
-                _ => {
-                    license.properties.insert(prop.key.clone(), Property{
+            let key = prop.key.as_str();
+            {
+                license.properties.insert(
+                    key.to_owned(),
+                    Property {
                         key: prop.key,
                         value: prop.value,
-                    });
-                }
+                    },
+                );
             }
         }
         license
@@ -386,7 +397,7 @@ impl From<Action> for Link {
         let mut props = act.properties;
         if !act.payload_string.is_empty() {
             let p_str = split_property(act.payload_string);
-            props.push(Property{
+            props.push(Property {
                 key: p_str.0,
                 value: p_str.1,
             })
@@ -396,10 +407,13 @@ impl From<Action> for Link {
                 "path" => link.path = prop.value,
                 "target" => link.target = prop.value,
                 _ => {
-                    link.properties.insert(prop.key.clone(), Property{
-                        key: prop.key,
-                        value: prop.value,
-                    });
+                    link.properties.insert(
+                        prop.key.clone(),
+                        Property {
+                            key: prop.key,
+                            value: prop.value,
+                        },
+                    );
                 }
             }
         }
@@ -420,19 +434,19 @@ pub struct Manifest {
     pub files: Vec<File>,
     pub dependencies: Vec<Dependency>,
     pub licenses: Vec<License>,
-    pub links: Vec<Link>
+    pub links: Vec<Link>,
 }
 
 impl Manifest {
     pub fn new() -> Manifest {
-        return Manifest {
+        Manifest {
             attributes: Vec::new(),
             directories: Vec::new(),
             files: Vec::new(),
             dependencies: Vec::new(),
             licenses: Vec::new(),
             links: Vec::new(),
-        };
+        }
     }
 
     pub fn add_file(&mut self, f: File) {
@@ -474,9 +488,9 @@ impl Manifest {
             ActionKind::Transform => {
                 todo!()
             }
-            ActionKind::Unknown{action} => {
+            ActionKind::Unknown { action } => {
                 panic!("action {:?} not known", action)
-            },
+            }
         }
     }
 
@@ -503,20 +517,19 @@ impl Manifest {
                                             act.kind = get_action_kind(action.as_str());
                                         }
                                         Rule::payload => {
-                                            act.payload_string = action.as_str().clone().into();
+                                            act.payload_string = action.as_str().to_owned();
                                         }
                                         Rule::property => {
                                             let mut property = Property::default();
                                             for prop in action.clone().into_inner() {
                                                 match prop.as_rule() {
                                                     Rule::property_name => {
-                                                        property.key = prop.as_str().clone().into();
+                                                        property.key = prop.as_str().to_owned();
                                                     }
                                                     Rule::property_value => {
-                                                        let str_val: String =  prop.as_str().clone().into();
+                                                        let str_val: String =  prop.as_str().to_owned();
                                                         property.value = str_val
-                                                            .replace("\"", "")
-                                                            .replace("\\", "");
+                                                            .replace(['\"', '\\'], "");
                                                     }
                                                     _ => panic!("unexpected rule {:?} inside action expected property_name or property_value", prop.as_rule())
                                                 }
@@ -531,12 +544,18 @@ impl Manifest {
                             }
                             Rule::EOI => (),
                             Rule::transform => (),
-                            _ => panic!("unexpected rule {:?} inside manifest expected action", manifest.as_rule()),
+                            _ => panic!(
+                                "unexpected rule {:?} inside manifest expected action",
+                                manifest.as_rule()
+                            ),
                         }
                     }
                 }
                 Rule::WHITESPACE => (),
-                _ => panic!("unexpected rule {:?} inside pair expected manifest", p.as_rule()),
+                _ => panic!(
+                    "unexpected rule {:?} inside pair expected manifest",
+                    p.as_rule()
+                ),
             }
         }
 
@@ -556,22 +575,23 @@ pub enum ActionKind {
     License,
     Link,
     Legacy,
-    Unknown{action: String},
+    Unknown { action: String },
     Transform,
 }
 
 impl Default for ActionKind {
-    fn default() -> Self { ActionKind::Unknown {action: String::new()} }
+    fn default() -> Self {
+        ActionKind::Unknown {
+            action: String::new(),
+        }
+    }
 }
 
 //TODO Multierror and no failure for these cases
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("unknown action {action:?} at line {line:?}")]
-    UnknownAction {
-        line: usize,
-        action: String,
-    },
+    UnknownAction { line: usize, action: String },
     #[error("action string \"{action:?}\" at line {line:?} is invalid: {message:?}")]
     InvalidAction {
         line: usize,
@@ -585,7 +605,7 @@ pub enum ManifestError {
 struct ManifestParser;
 
 fn get_action_kind(act: &str) -> ActionKind {
-    return match act {
+    match act {
         "set" => ActionKind::Attr,
         "depend" => ActionKind::Dependency,
         "dir" => ActionKind::Dir,
@@ -598,7 +618,7 @@ fn get_action_kind(act: &str) -> ActionKind {
         "user" => ActionKind::User,
         "legacy" => ActionKind::Legacy,
         "<transform" => ActionKind::Transform,
-        _ => ActionKind::Unknown{action: act.into()},
+        _ => ActionKind::Unknown { action: act.into() },
     }
 }
 
@@ -607,26 +627,22 @@ fn is_facet(s: String) -> bool {
 }
 
 fn get_facet_key(facet_string: String) -> String {
-    match facet_string.find(".") {
-        Some(idx) => {
-            facet_string.clone().split_off(idx+1)
-        },
-        None => facet_string.clone()
+    match facet_string.find('.') {
+        Some(idx) => facet_string.clone().split_off(idx + 1),
+        None => facet_string.clone(),
     }
 }
 
 fn split_property(property_string: String) -> (String, String) {
-    match property_string.find("=") {
+    match property_string.find('=') {
         Some(_) => {
-            let v :Vec <_> = property_string.split("=").collect();
+            let v: Vec<_> = property_string.split('=').collect();
             (
                 String::from(v[0]),
-                String::from(v[1])
-                    .replace("\"", "")
-                    .replace("\\", "")
+                String::from(v[1]).replace(['\"', '\\'], ""),
             )
-        },
-        None => (property_string.clone(), String::new())
+        }
+        None => (property_string.clone(), String::new()),
     }
 }
 
@@ -636,6 +652,6 @@ fn string_to_bool(orig: &str) -> Result<bool> {
         "false" => Ok(false),
         "t" => Ok(true),
         "f" => Ok(false),
-        _ => Err(ActionError::NotBooleanValue(orig.clone().to_owned()))
+        _ => Err(ActionError::NotBooleanValue(orig.to_owned())),
     }
 }
