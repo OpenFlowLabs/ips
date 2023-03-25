@@ -56,7 +56,7 @@ impl FromStr for Digest {
 
     fn from_str(s: &str) -> StdResult<Self, Self::Err> {
         let str = String::from(s);
-        if !s.contains(":") {
+        if !s.contains(':') {
             return Ok(Digest{
                 hash: String::from(s),
                 algorithm: DigestAlgorithm::SHA1,
