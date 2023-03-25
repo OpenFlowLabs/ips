@@ -3,12 +3,12 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::digest::{Digest, DigestAlgorithm, DigestSource, DigestError};
+use crate::digest::{Digest, DigestAlgorithm, DigestError, DigestSource};
 use object::Object;
-use std::path::Path;
-use thiserror::Error;
-use std::result::Result as StdResult;
 use std::io::Error as IOError;
+use std::path::Path;
+use std::result::Result as StdResult;
+use thiserror::Error;
 
 type Result<T> = StdResult<T, PayloadError>;
 
@@ -20,38 +20,29 @@ pub enum PayloadError {
     DigestError(#[from] DigestError),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum PayloadCompressionAlgorithm {
     Gzip,
-    LZ4
+    #[default]
+    LZ4,
 }
 
-impl Default for PayloadCompressionAlgorithm {
-    fn default() -> Self { PayloadCompressionAlgorithm::LZ4 }
-}
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum PayloadBits {
+    #[default]
     Independent,
     Bits32,
-    Bits64
+    Bits64,
 }
 
-impl Default for PayloadBits {
-    fn default() -> Self { PayloadBits::Independent }
-}
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum PayloadArchitecture {
+    #[default]
     NOARCH,
     I386,
     SPARC,
     ARM,
-    RISCV
-}
-
-impl Default for PayloadArchitecture {
-    fn default() -> Self { PayloadArchitecture::NOARCH }
+    RISCV,
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -94,12 +85,16 @@ impl Payload {
             Err(_) => (PayloadBits::Independent, PayloadArchitecture::NOARCH),
         };
 
-        Ok(Payload{
-            primary_identifier:Digest::from_bytes(f.as_slice(), DigestAlgorithm::SHA3512, DigestSource::PrimaryPayloadHash)?,
+        Ok(Payload {
+            primary_identifier: Digest::from_bytes(
+                f.as_slice(),
+                DigestAlgorithm::SHA3512,
+                DigestSource::PrimaryPayloadHash,
+            )?,
             additional_identifiers: Vec::<Digest>::new(),
             compression_algorithm: PayloadCompressionAlgorithm::default(),
             bitness,
-            architecture
+            architecture,
         })
     }
 }
