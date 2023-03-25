@@ -125,7 +125,7 @@ impl Makefile {
     }
 
     pub fn get_includes(&self) -> Option<Vec<String>> {
-        if self.includes.len() > 0 {
+        if !self.includes.is_empty() {
             Some(self.includes.clone())
         } else {
             None
@@ -133,7 +133,7 @@ impl Makefile {
     }
 
     pub fn has_includes(&self) -> bool {
-        self.includes.len() > 0
+        !self.includes.is_empty()
     }
 
     pub fn parse_included_makefiles(&self) -> Result<Vec<Self>> {
@@ -171,7 +171,7 @@ impl Makefile {
             }
             for captures in VARRE.captures_iter(maybe_nested_var) {
                 if let Some(nested_var) = captures.name("var_name") {
-                    let nested_var_name = nested_var.as_str().replace("$(", "").replace(")", "");
+                    let nested_var_name = nested_var.as_str().replace("$(", "").replace(')', "");
                     if let Some(resolved_nested_var) = self.get(&nested_var_name) {
                         let mut new_string = vars_copy[i].clone();
                         new_string =
@@ -195,7 +195,7 @@ impl Makefile {
 }
 
 fn vars_to_string(vars: &Vec<String>) -> String {
-    if vars.len() == 0 {
+    if vars.is_empty() {
         String::new()
     } else if vars.len() == 1 {
         vars[0].clone()

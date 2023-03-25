@@ -33,7 +33,7 @@ impl MacroParser {
 
         for (i, line) in raw_string.lines().enumerate() {
             let mut replaced_line = String::new();
-            let pairs = InternalMacroParser::parse(Rule::file, &line)?;
+            let pairs = InternalMacroParser::parse(Rule::file, line)?;
 
             for pair in pairs {
                 for test_pair in pair.into_inner() {

@@ -1,9 +1,9 @@
 pub mod macros;
 
+use anyhow::Result;
 use pest::Parser;
 use pest_derive::Parser;
 use std::collections::HashMap;
-use anyhow::{Result};
 
 #[derive(Parser)]
 #[grammar = "specfile.pest"]
@@ -37,15 +37,15 @@ enum KnownVariableControl {
 
 fn append_newline_string(s: &str, section_line: i32) -> String {
     if section_line == 0 {
-        return s.to_owned();
+        s.to_owned()
+    } else {
+        "\n".to_owned() + s
     }
-    return "\n".to_owned() + s;
 }
 
 pub fn parse(file_contents: String) -> Result<SpecFile> {
     let pairs = SpecFileParser::parse(Rule::file, &file_contents)?;
     let mut spec = SpecFile::default();
-
 
     for pair in pairs {
         // A pair can be converted to an iterator of the tokens which make it up:
@@ -55,32 +55,43 @@ pub fn parse(file_contents: String) -> Result<SpecFile> {
                 let mut var_name_tmp = String::new();
                 for variable_rule in pair.clone().into_inner() {
                     match variable_rule.as_rule() {
-                        Rule::variable_name => {
-                            match variable_rule.as_str() {
-                                "Name" => var_control = KnownVariableControl::Name,
-                                "Version" => var_control = KnownVariableControl::Version,
-                                "Release" => var_control = KnownVariableControl::Release,
-                                "Summary" => var_control = KnownVariableControl::Summary,
-                                "License" => var_control = KnownVariableControl::License,
-                                _ => var_control = {
+                        Rule::variable_name => match variable_rule.as_str() {
+                            "Name" => var_control = KnownVariableControl::Name,
+                            "Version" => var_control = KnownVariableControl::Version,
+                            "Release" => var_control = KnownVariableControl::Release,
+                            "Summary" => var_control = KnownVariableControl::Summary,
+                            "License" => var_control = KnownVariableControl::License,
+                            _ => {
+                                var_control = {
                                     var_name_tmp = variable_rule.as_str().to_string();
                                     KnownVariableControl::None
-                                },
-                            }
-                        }
-                        Rule::variable_text => {
-                            match var_control {
-                                KnownVariableControl::Name => spec.name = variable_rule.as_str().to_string(),
-                                KnownVariableControl::Version => spec.version = variable_rule.as_str().to_string(),
-                                KnownVariableControl::Release => spec.release = variable_rule.as_str().to_string(),
-                                KnownVariableControl::Summary =>spec.summary = variable_rule.as_str().to_string(),
-                                KnownVariableControl::License => spec.license = variable_rule.as_str().to_string(),
-                                KnownVariableControl::None => {
-                                    spec.variables.insert(var_name_tmp.clone(), variable_rule.as_str().to_string());
                                 }
                             }
-                        }
-                        _ => ()
+                        },
+                        Rule::variable_text => match var_control {
+                            KnownVariableControl::Name => {
+                                spec.name = variable_rule.as_str().to_string()
+                            }
+                            KnownVariableControl::Version => {
+                                spec.version = variable_rule.as_str().to_string()
+                            }
+                            KnownVariableControl::Release => {
+                                spec.release = variable_rule.as_str().to_string()
+                            }
+                            KnownVariableControl::Summary => {
+                                spec.summary = variable_rule.as_str().to_string()
+                            }
+                            KnownVariableControl::License => {
+                                spec.license = variable_rule.as_str().to_string()
+                            }
+                            KnownVariableControl::None => {
+                                spec.variables.insert(
+                                    var_name_tmp.clone(),
+                                    variable_rule.as_str().to_string(),
+                                );
+                            }
+                        },
+                        _ => (),
                     }
                 }
             }
@@ -89,51 +100,84 @@ pub fn parse(file_contents: String) -> Result<SpecFile> {
                 let mut section_line = 0;
                 for section_rule in pair.clone().into_inner() {
                     match section_rule.as_rule() {
-                        Rule::section_name => {
-                            section_name_tmp = section_rule.as_str().to_string()
-                        }
+                        Rule::section_name => section_name_tmp = section_rule.as_str().to_string(),
                         Rule::section_line => {
                             for line_or_comment in section_rule.into_inner() {
-                                match line_or_comment.as_rule() {
-                                    Rule::section_text => {
-                                        match section_name_tmp.as_str() {
-                                            "description" => {
-                                                spec.description.push_str(append_newline_string(line_or_comment.as_str(), section_line).as_str());
-                                                section_line = section_line + 1
-                                            },
-                                            "prep" => {
-                                                spec.prep_script.push_str(append_newline_string(line_or_comment.as_str(), section_line).as_str());
-                                                section_line = section_line + 1
-                                            },
-                                            "build" => {
-                                                spec.build_script.push_str(append_newline_string(line_or_comment.as_str(), section_line).as_str());
-                                                section_line = section_line + 1
-                                            },
-                                            "files" => spec.files.push(line_or_comment.as_str().trim_end().to_string()),
-                                            "install" => {
-                                                spec.install_script.push_str(append_newline_string(line_or_comment.as_str(), section_line).as_str());
-                                                section_line = section_line + 1
-                                            },
-                                            "changelog" => {
-                                                spec.changelog.push_str(append_newline_string(line_or_comment.as_str(), section_line).as_str());
-                                                section_line = section_line + 1
-                                            },
-                                            _ => panic!(
-                                                "Unknown Section: {:?}",
-                                                line_or_comment.as_rule()
-                                            ),
+                                if line_or_comment.as_rule() == Rule::section_text {
+                                    match section_name_tmp.as_str() {
+                                        "description" => {
+                                            spec.description.push_str(
+                                                append_newline_string(
+                                                    line_or_comment.as_str(),
+                                                    section_line,
+                                                )
+                                                .as_str(),
+                                            );
+                                            section_line += 1
                                         }
+                                        "prep" => {
+                                            spec.prep_script.push_str(
+                                                append_newline_string(
+                                                    line_or_comment.as_str(),
+                                                    section_line,
+                                                )
+                                                .as_str(),
+                                            );
+                                            section_line += 1
+                                        }
+                                        "build" => {
+                                            spec.build_script.push_str(
+                                                append_newline_string(
+                                                    line_or_comment.as_str(),
+                                                    section_line,
+                                                )
+                                                .as_str(),
+                                            );
+                                            section_line += 1
+                                        }
+                                        "files" => spec
+                                            .files
+                                            .push(line_or_comment.as_str().trim_end().to_string()),
+                                        "install" => {
+                                            spec.install_script.push_str(
+                                                append_newline_string(
+                                                    line_or_comment.as_str(),
+                                                    section_line,
+                                                )
+                                                .as_str(),
+                                            );
+                                            section_line += 1
+                                        }
+                                        "changelog" => {
+                                            spec.changelog.push_str(
+                                                append_newline_string(
+                                                    line_or_comment.as_str(),
+                                                    section_line,
+                                                )
+                                                .as_str(),
+                                            );
+                                            section_line += 1
+                                        }
+                                        _ => panic!(
+                                            "Unknown Section: {:?}",
+                                            line_or_comment.as_rule()
+                                        ),
                                     }
-                                    _ => ()
                                 }
                             }
                         }
-                        _ => panic!("Rule not known please update the code: {:?}", section_rule.as_rule()),
+                        _ => panic!(
+                            "Rule not known please update the code: {:?}",
+                            section_rule.as_rule()
+                        ),
                     }
                 }
             }
             Rule::EOI => (),
-            _ => panic!("Rule not known please update the code: {:?}", pair.as_rule()),
+            _ => panic!(
+                "Rule not known please update the code: {:?}",
+                pair.as_rule()
+            ),
         }
     }
 
@@ -142,8 +186,8 @@ pub fn parse(file_contents: String) -> Result<SpecFile> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use crate::parse;
+    use std::fs;
 
     #[test]
     fn it_works() {
@@ -157,8 +201,8 @@ mod tests {
             Ok(file) => {
                 let spec = parse(file);
                 assert!(spec.is_ok(), "parsing error {:?}", spec)
-            },
-            Err(e) => panic!("io error: {:}", e)
+            }
+            Err(e) => panic!("io error: {:}", e),
         }
     }
 }

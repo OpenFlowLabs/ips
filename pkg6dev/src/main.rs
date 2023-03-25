@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
-use libips::actions::{File, Manifest, ActionError};
+use libips::actions::{ActionError, File, Manifest};
 
-use anyhow::{Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use userland::repology::find_newest_version;
-use userland::{Makefile, Component};
+use userland::{Component, Makefile};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -46,12 +46,12 @@ fn main() -> Result<()> {
     }
 }
 
-fn parse_tripplet_replacements(replacements: &Vec<String>) -> HashMap<String, String> {
+fn parse_tripplet_replacements(replacements: &[String]) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for pair in replacements
-        .into_iter()
+        .iter()
         .map(|str| {
-            str.split_once(":")
+            str.split_once(':')
                 .map(|s| (s.0.to_owned(), s.1.to_owned()))
                 .unwrap_or((String::new(), String::new()))
         })
@@ -93,10 +93,8 @@ fn diff_component(
         .as_ref()
         .join("manifests/sample-manifest.p5m");
 
-    let manifests_res: Result<Vec<Manifest>, ActionError> = manifest_files
-        .iter()
-        .map(|f| Manifest::parse_file(f.to_string()))
-        .collect();
+    let manifests_res: Result<Vec<Manifest>, ActionError> =
+        manifest_files.iter().map(Manifest::parse_file).collect();
 
     let sample_manifest = Manifest::parse_file(sample_manifest_file)?;
 
@@ -109,12 +107,8 @@ fn diff_component(
         println!("file {} is missing in the manifests", f.path);
     }
 
-    let removed_files = find_removed_files(
-        &sample_manifest,
-        manifests.clone(),
-        &component_path,
-        &replacements,
-    )?;
+    let removed_files =
+        find_removed_files(&sample_manifest, manifests, &component_path, &replacements)?;
 
     for f in removed_files {
         println!(
@@ -140,7 +134,7 @@ fn diff_component(
 fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let makefile_path = component_path.as_ref().join("Makefile");
 
-    let initial_makefile = Makefile::parse_single_file(&makefile_path)?;
+    let initial_makefile = Makefile::parse_single_file(makefile_path)?;
     let makefile = initial_makefile.parse_all()?;
 
     let mut name = String::new();
@@ -148,15 +142,15 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let component = Component::new_from_makefile(&makefile)?;
 
     if let Some(var) = makefile.get("COMPONENT_NAME") {
-        println!("Name: {}", var.replace("\n", "\n\t"));
+        println!("Name: {}", var.replace('\n', "\n\t"));
         if let Some(component_name) = makefile.get_first_value_of_variable_by_name("COMPONENT_NAME")
         {
-            name = component_name.clone();
+            name = component_name;
         }
     }
 
     if let Some(var) = makefile.get("COMPONENT_VERSION") {
-        println!("Version: {}", var.replace("\n", "\n\t"));
+        println!("Version: {}", var.replace('\n', "\n\t"));
         let latest_version = find_newest_version(&name);
         if latest_version.is_ok() {
             println!("Latest Version: {}", latest_version?);
@@ -169,27 +163,27 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     }
 
     if let Some(var) = makefile.get("BUILD_BITS") {
-        println!("Build bits: {}", var.replace("\n", "\n\t"));
+        println!("Build bits: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_BUILD_ACTION") {
-        println!("Build action: {}", var.replace("\n", "\n\t"));
+        println!("Build action: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_PROJECT_URL") {
-        println!("Project URl: {}", var.replace("\n", "\n\t"));
+        println!("Project URl: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_ARCHIVE_URL") {
-        println!("Source URl: {}", var.replace("\n", "\n\t"));
+        println!("Source URl: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_ARCHIVE_HASH") {
-        println!("Source Archive File Hash: {}", var.replace("\n", "\n\t"));
+        println!("Source Archive File Hash: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("REQUIRED_PACKAGES") {
-        println!("Dependencies:\n\t{}", var.replace("\n", "\n\t"));
+        println!("Dependencies:\n\t{}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_INSTALL_ACTION") {
@@ -209,21 +203,17 @@ fn find_removed_files<P: AsRef<Path>>(
     replacements: &Option<HashMap<String, String>>,
 ) -> Result<Vec<File>> {
     let f_map = make_file_map(sample_manifest.files.clone());
-    let all_files: Vec<File> = manifests
-        .iter()
-        .map(|m| m.files.clone())
-        .flatten()
-        .collect();
+    let all_files: Vec<File> = manifests.iter().flat_map(|m| m.files.clone()).collect();
 
     let mut removed_files: Vec<File> = Vec::new();
 
     for f in all_files {
         match f.get_original_path() {
             Some(path) => {
-                if !f_map.contains_key(replace_func(path.clone(), replacements).as_str()) {
-                    if !component_path.as_ref().join(path).exists() {
-                        removed_files.push(f)
-                    }
+                if !f_map.contains_key(replace_func(path.clone(), replacements).as_str())
+                    && !component_path.as_ref().join(path).exists()
+                {
+                    removed_files.push(f)
                 }
             }
             None => {
@@ -243,11 +233,7 @@ fn find_files_missing_in_manifests(
     manifests: Vec<Manifest>,
     replacements: &Option<HashMap<String, String>>,
 ) -> Result<Vec<File>> {
-    let all_files: Vec<File> = manifests
-        .iter()
-        .map(|m| m.files.clone())
-        .flatten()
-        .collect();
+    let all_files: Vec<File> = manifests.iter().flat_map(|m| m.files.clone()).collect();
     let f_map = make_file_map(all_files);
 
     let mut missing_files: Vec<File> = Vec::new();
@@ -273,7 +259,7 @@ fn find_files_missing_in_manifests(
 fn replace_func(orig: String, replacements: &Option<HashMap<String, String>>) -> String {
     if let Some(replacements) = replacements {
         let mut replacement = orig.clone();
-        for (i, (from, to)) in replacements.into_iter().enumerate() {
+        for (i, (from, to)) in replacements.iter().enumerate() {
             let from: &str = &format!("$({})", from);
             if i == 0 {
                 replacement = orig.replace(from, to);
@@ -292,7 +278,7 @@ fn make_file_map(files: Vec<File>) -> HashMap<String, File> {
         .iter()
         .map(|f| {
             let orig_path_opt = f.get_original_path();
-            if orig_path_opt == None {
+            if orig_path_opt.is_none() {
                 return (f.path.clone(), f.clone());
             }
             (orig_path_opt.unwrap(), f.clone())

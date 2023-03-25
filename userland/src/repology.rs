@@ -29,7 +29,7 @@ pub fn project(package: &str) -> Result<Vec<Package>> {
 
     let json = reqwest::blocking::get(url)?.json::<Vec<Package>>()?;
 
-    return Ok(json);
+    Ok(json)
 }
 
 pub fn find_newest_version(package: &str) -> Result<String> {

@@ -17,7 +17,7 @@ type Result<T> = StdResult<T, WorkspaceError>;
 static DEFAULTWORKSPACEROOT: &str = "~/.ports/wks";
 static DEFAULTARCH: &str = "i386";
 static DEFAULTTAR: &str = "gtar";
-static DEFAULTSHEBANG: &'static [u8; 19usize] = b"#!/usr/bin/env bash";
+static DEFAULTSHEBANG: &[u8; 19usize] = b"#!/usr/bin/env bash";
 
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
@@ -68,7 +68,7 @@ fn init_root(ws: &Workspace) -> Result<()> {
 impl Workspace {
     pub fn new(root: &str) -> Result<Workspace> {
 
-        let root_dir = if root == "" {
+        let root_dir = if root.is_empty() {
             DEFAULTWORKSPACEROOT
         } else {
             root
@@ -145,8 +145,8 @@ impl Workspace {
                 let mut tar_cmd = Command::new(DEFAULTTAR)
                     .args([
                         "-C", 
-                        &self.build_dir.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
-                        "-xaf", &src.local_name.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
+                        self.build_dir.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
+                        "-xaf", src.local_name.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
                         "--strip-components=1"
                     ])
                     .spawn()?;
@@ -180,7 +180,7 @@ impl Workspace {
         let mut shell = Command::new(bash)
             .args([
                 "-ex", 
-                &build_script_path.to_str().ok_or(WorkspaceError::UnrunableScript("build_script".into()))?
+                build_script_path.to_str().ok_or(WorkspaceError::UnrunableScript("build_script".into()))?
             ])
             .env_clear()
             .envs(&filtered_env)
@@ -201,7 +201,7 @@ impl Workspace {
         let cwd = current_dir()?;
         set_current_dir(Path::new(&self.proto_dir))?;
         for f in file_list {
-            if f.starts_with("/") {
+            if f.starts_with('/') {
                 let mut f_mut = f.clone();
                 f_mut.remove(0);
                 manifest.add_file(FileAction::read_from_path(Path::new(&f_mut))?)

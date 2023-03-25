@@ -1,22 +1,23 @@
-mod workspace;
 mod sources;
+#[allow(clippy::result_large_err)]
+mod workspace;
 
+use crate::workspace::Workspace;
 use anyhow::anyhow;
+use anyhow::Result;
 use clap::{Parser, Subcommand};
+use specfile::macros;
+use specfile::parse;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use specfile::parse;
-use specfile::macros;
-use std::collections::HashMap;
-use crate::workspace::Workspace;
-use anyhow::Result;
 
-enum Verbose{
+enum Verbose {
     Off,
     Some,
     On,
-    Debug
+    Debug,
 }
 
 #[derive(Debug, Parser)]
@@ -40,7 +41,7 @@ enum Commands {
 
         #[clap(value_parser)]
         specfile: PathBuf,
-    } 
+    },
 }
 
 fn main() -> Result<()> {
@@ -54,7 +55,8 @@ fn main() -> Result<()> {
         0 => Verbose::Off,
         1 => Verbose::Some,
         2 => Verbose::On,
-        3 | _ => Verbose::Debug,
+        3 => Verbose::Debug,
+        _ => Verbose::Debug,
     };
 
     match cli.command {
@@ -62,7 +64,7 @@ fn main() -> Result<()> {
             run_package_command(specfile, target)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -73,17 +75,19 @@ fn run_package_command<P: AsRef<Path>>(spec_file: P, _target: P) -> Result<()> {
     let downloaded = ws.get_sources(spec.sources)?;
     ws.unpack_all_sources(downloaded)?;
 
-    let mut macro_map= HashMap::<String, String>::new();
+    let mut macro_map = HashMap::<String, String>::new();
     for ws_macro in ws.get_macros() {
         macro_map.insert(
-            ws_macro.0, 
-            ws_macro.1.to_str().ok_or(anyhow!("not string path {}", ws_macro.1.display()))?.to_owned()
+            ws_macro.0,
+            ws_macro
+                .1
+                .to_str()
+                .ok_or_else(|| anyhow!("not string path {}", ws_macro.1.display()))?
+                .to_owned(),
         );
     }
 
-    let mp = macros::MacroParser {
-        macros: macro_map
-    };
+    let mp = macros::MacroParser { macros: macro_map };
 
     let build_script = mp.parse(spec.build_script)?;
     ws.build(build_script)?;

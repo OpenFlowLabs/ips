@@ -66,7 +66,7 @@ impl Component {
 
         let ver = semver::Version::parse(
             &m.get_first_value_of_variable_by_name("COMPONENT_VERSION")
-                .ok_or(anyhow::anyhow!("missing component version"))?,
+                .ok_or_else(|| anyhow::anyhow!("missing component version"))?,
         )?;
 
         let revision = m
@@ -85,7 +85,8 @@ impl Component {
                 "cmake" => BuildStyle::Cmake,
                 "meson" => BuildStyle::Meson,
                 "custom" => BuildStyle::Custom,
-                "configure" | _ => BuildStyle::Configure,
+                "configure" => BuildStyle::Configure,
+                _ => BuildStyle::Configure,
             };
             //TODO: Custom build style variable checks
             // something like guess_buildstyle_from_options
@@ -111,10 +112,10 @@ impl Component {
 
         Ok(Self {
             version: ver,
-            revision: revision,
+            revision,
             sources: HashMap::from([src]),
             options: opts,
-            build_style: build_style,
+            build_style,
         })
     }
 }
