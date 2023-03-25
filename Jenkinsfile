@@ -18,7 +18,7 @@ pipeline {
                 sh '''
                     source $HOME/.profile
                     cargo version
-                    gmake
+                    cargo build
                 '''
             }
         }
@@ -27,14 +27,8 @@ pipeline {
                 sh '''
                     source $HOME/.profile
                     cargo version
-                    gmake test
+                    cargo test
                 '''
-            }
-        }
-        stage('Release') {
-            when { tag "v*" }
-            steps {
-                archiveArtifacts artifacts: 'artifacts/**', fingerprint: true
             }
         }
     }
