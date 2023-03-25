@@ -6,6 +6,7 @@
 use sha2::Digest as Sha2Digest;
 #[allow(unused_imports)]
 use sha3::Digest as Sha3Digest;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::{convert::TryInto, result::Result as StdResult};
 use strum::{Display as StrumDisplay, EnumString};
@@ -106,8 +107,13 @@ impl Digest {
             DigestAlgorithm::SHA3512Half | DigestAlgorithm::SHA3256 => {
                 format!("{:x}", sha3::Sha3_256::digest(b))
             }
-            DigestAlgorithm::SHA3512 | _ => {
+            DigestAlgorithm::SHA3512 => {
                 format!("{:x}", sha3::Sha3_512::digest(b))
+            }
+            x => {
+                return Err(DigestError::UnknownAlgorithm {
+                    algorithm: x.to_string(),
+                })
             }
         };
 
@@ -117,28 +123,11 @@ impl Digest {
             hash,
         })
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!(
-            "{}:{}:{}",
-            match self.source {
-                DigestSource::UncompressedFile => "file",
-                DigestSource::GzipCompressed => "gzip",
-                DigestSource::GNUElf => "gelf",
-                DigestSource::GNUElfUnsigned => "gelf.unsigned",
-                DigestSource::Unknown | _ => "unknown",
-            },
-            match self.algorithm {
-                DigestAlgorithm::SHA1 => "sha1",
-                DigestAlgorithm::SHA256 => "sha256t",
-                DigestAlgorithm::SHA512Half => "sha512t_256",
-                DigestAlgorithm::SHA512 => "sha512t",
-                DigestAlgorithm::SHA3256 => "sha3256t",
-                DigestAlgorithm::SHA3512Half => "sha3512t_256",
-                DigestAlgorithm::SHA3512 => "sha3512t",
-            },
-            self.hash
-        )
+impl Display for Digest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.source, self.algorithm, self.hash)
     }
 }
 
