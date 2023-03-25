@@ -1,16 +1,16 @@
-use std::fs::{create_dir_all, File};
 use crate::sources::{Source, SourceError};
-use std::process::{Command, Stdio};
-use std::path::{Path, PathBuf};
-use std::io::copy;
+use libips::actions::{ActionError, File as FileAction, Manifest};
 use std::collections::HashMap;
-use std::io::prelude::*;
 use std::env;
-use libips::actions::{Manifest, File as FileAction, ActionError};
-use std::env::{set_current_dir, current_dir};
-use thiserror::Error;
-use std::result::Result as StdResult;
+use std::env::{current_dir, set_current_dir};
+use std::fs::{create_dir_all, File};
+use std::io::copy;
+use std::io::prelude::*;
 use std::io::Error as IOError;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::result::Result as StdResult;
+use thiserror::Error;
 
 type Result<T> = StdResult<T, WorkspaceError>;
 
@@ -22,10 +22,7 @@ static DEFAULTSHEBANG: &[u8; 19usize] = b"#!/usr/bin/env bash";
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
     #[error("command returned {command} exit code: {code}")]
-    NonZeroCommandExitCode {
-        command: String,
-        code: i32,
-    },
+    NonZeroCommandExitCode { command: String, code: i32 },
     #[error("source {0} cannot be extracted")]
     UnextractableSource(Source),
     #[error("status code invalid")]
@@ -48,7 +45,6 @@ pub enum WorkspaceError {
     IpsActionError(#[from] ActionError),
 }
 
-
 pub struct Workspace {
     root: PathBuf,
     source_dir: PathBuf,
@@ -67,20 +63,21 @@ fn init_root(ws: &Workspace) -> Result<()> {
 
 impl Workspace {
     pub fn new(root: &str) -> Result<Workspace> {
-
         let root_dir = if root.is_empty() {
             DEFAULTWORKSPACEROOT
         } else {
             root
         };
 
-        let expanded_root_dir = shellexpand::full(root_dir).map_err(|e|{
-            WorkspaceError::VariableLookupError(format!("{}", e.cause))
-        })?.to_string();
+        let expanded_root_dir = shellexpand::full(root_dir)
+            .map_err(|e| WorkspaceError::VariableLookupError(format!("{}", e.cause)))?
+            .to_string();
 
-        let ws = Workspace{
+        let ws = Workspace {
             root: Path::new(&expanded_root_dir).to_path_buf(),
-            build_dir: Path::new(&expanded_root_dir).join("build").join(DEFAULTARCH),
+            build_dir: Path::new(&expanded_root_dir)
+                .join("build")
+                .join(DEFAULTARCH),
             source_dir: Path::new(&expanded_root_dir).join("sources"),
             proto_dir: Path::new(&expanded_root_dir).join("build").join("proto"),
         };
@@ -110,7 +107,8 @@ impl Workspace {
             ("proto_dir".to_owned(), self.proto_dir.clone()),
             ("build_dir".to_owned(), self.build_dir.clone()),
             ("source_dir".to_owned(), self.source_dir.clone()),
-        ].into()
+        ]
+        .into()
     }
 
     pub fn get_sources(&self, sources: Vec<String>) -> Result<Vec<Source>> {
@@ -138,22 +136,34 @@ impl Workspace {
     pub fn unpack_source(&self, src: &Source) -> Result<()> {
         match Path::new(&src.local_name).extension() {
             Some(ext) => {
-                if !ext.to_str().ok_or(WorkspaceError::SourceHasNoExtension(src.clone()))?.contains("tar") {
+                if !ext
+                    .to_str()
+                    .ok_or(WorkspaceError::SourceHasNoExtension(src.clone()))?
+                    .contains("tar")
+                {
                     return Err(WorkspaceError::UnextractableSource(src.clone()));
                 }
                 //TODO support inspecting the tar file to see if we have a top level directory or not
                 let mut tar_cmd = Command::new(DEFAULTTAR)
                     .args([
-                        "-C", 
-                        self.build_dir.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
-                        "-xaf", src.local_name.to_str().ok_or(WorkspaceError::UnextractableSource(src.clone()))?, 
-                        "--strip-components=1"
+                        "-C",
+                        self.build_dir
+                            .to_str()
+                            .ok_or(WorkspaceError::UnextractableSource(src.clone()))?,
+                        "-xaf",
+                        src.local_name
+                            .to_str()
+                            .ok_or(WorkspaceError::UnextractableSource(src.clone()))?,
+                        "--strip-components=1",
                     ])
                     .spawn()?;
 
                 let status = tar_cmd.wait()?;
                 if !status.success() {
-                    return Err(WorkspaceError::NonZeroCommandExitCode {command: "tar".to_owned(), code: status.code().ok_or(WorkspaceError::InvalidStatusCode)?})?;
+                    return Err(WorkspaceError::NonZeroCommandExitCode {
+                        command: "tar".to_owned(),
+                        code: status.code().ok_or(WorkspaceError::InvalidStatusCode)?,
+                    })?;
                 }
             }
             None => {
@@ -172,15 +182,16 @@ impl Workspace {
         file.write_all(build_script.as_bytes())?;
         file.write_all(b"\n")?;
         let bash = which::which("bash")?;
-        let filtered_env : HashMap<String, String> =
-            env::vars().filter(|&(ref k, _)|
-                k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH"
-            ).collect();
+        let filtered_env: HashMap<String, String> = env::vars()
+            .filter(|(k, _)| k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH")
+            .collect();
 
         let mut shell = Command::new(bash)
             .args([
-                "-ex", 
-                build_script_path.to_str().ok_or(WorkspaceError::UnrunableScript("build_script".into()))?
+                "-ex",
+                build_script_path
+                    .to_str()
+                    .ok_or(WorkspaceError::UnrunableScript("build_script".into()))?,
             ])
             .env_clear()
             .envs(&filtered_env)
@@ -190,7 +201,10 @@ impl Workspace {
 
         let status = shell.wait()?;
         if !status.success() {
-            return Err(WorkspaceError::NonZeroCommandExitCode {command: "build_script".to_owned(), code: status.code().ok_or(WorkspaceError::InvalidStatusCode)?})?;
+            return Err(WorkspaceError::NonZeroCommandExitCode {
+                command: "build_script".to_owned(),
+                code: status.code().ok_or(WorkspaceError::InvalidStatusCode)?,
+            })?;
         }
 
         Ok(())
