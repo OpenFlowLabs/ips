@@ -17,9 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Patch target path
-      run: rm .cargo/config.toml
-
     - name: Build
       run: cargo build --verbose
 
