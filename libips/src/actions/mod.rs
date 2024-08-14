@@ -15,6 +15,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::str::FromStr;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 type Result<T> = StdResult<T, ActionError>;
@@ -76,7 +77,7 @@ impl FacetedAction for Action {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct Dir {
     pub path: String,
     pub group: String,
@@ -127,7 +128,7 @@ impl FacetedAction for Dir {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct File {
     pub payload: Option<Payload>,
     pub path: String,
@@ -254,7 +255,7 @@ pub enum FileError {
 }
 
 //TODO implement multiple FMRI for require-any
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct Dependency {
     pub fmri: String,            //TODO make FMRI
     pub dependency_type: String, //TODO make enum
@@ -304,7 +305,7 @@ impl FacetedAction for Dependency {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Default, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Facet {
     pub name: String,
     pub value: String,
@@ -319,7 +320,7 @@ impl Facet {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct Attr {
     pub key: String,
     pub values: Vec<String>,
@@ -356,7 +357,7 @@ impl From<Action> for Attr {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Default, Clone)]
+#[derive(Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
 pub struct License {
     pub payload: String,
     pub properties: HashMap<String, Property>,
@@ -384,7 +385,7 @@ impl From<Action> for License {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Default, Clone)]
+#[derive(Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Link {
     pub path: String,
     pub target: String,
@@ -421,13 +422,13 @@ impl From<Action> for Link {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Default, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Property {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,

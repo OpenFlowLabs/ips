@@ -7,6 +7,7 @@
 pub mod actions;
 pub mod digest;
 pub mod payload;
+pub mod image;
 
 #[cfg(test)]
 mod tests {
