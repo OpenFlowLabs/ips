@@ -15,6 +15,7 @@ use std::fs::read_to_string;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::str::FromStr;
+use diff::Diff;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -77,7 +78,10 @@ impl FacetedAction for Action {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Dir {
     pub path: String,
     pub group: String,
@@ -128,7 +132,10 @@ impl FacetedAction for Dir {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct File {
     pub payload: Option<Payload>,
     pub path: String,
@@ -255,7 +262,10 @@ pub enum FileError {
 }
 
 //TODO implement multiple FMRI for require-any
-#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Dependency {
     pub fmri: String,            //TODO make FMRI
     pub dependency_type: String, //TODO make enum
@@ -305,7 +315,10 @@ impl FacetedAction for Dependency {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Facet {
     pub name: String,
     pub value: String,
@@ -320,7 +333,10 @@ impl Facet {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Attr {
     pub key: String,
     pub values: Vec<String>,
@@ -357,7 +373,10 @@ impl From<Action> for Attr {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct License {
     pub payload: String,
     pub properties: HashMap<String, Property>,
@@ -385,7 +404,10 @@ impl From<Action> for License {
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Link {
     pub path: String,
     pub target: String,
@@ -422,13 +444,19 @@ impl From<Action> for Link {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize)]
+#[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Property {
     pub key: String,
     pub value: String,
 }
 
-#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Manifest {
     pub attributes: Vec<Attr>,
     pub directories: Vec<Dir>,

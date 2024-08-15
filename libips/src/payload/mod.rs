@@ -8,6 +8,8 @@ use object::Object;
 use std::io::Error as IOError;
 use std::path::Path;
 use std::result::Result as StdResult;
+use diff::Diff;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 type Result<T> = StdResult<T, PayloadError>;
@@ -20,14 +22,20 @@ pub enum PayloadError {
     DigestError(#[from] DigestError),
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub enum PayloadCompressionAlgorithm {
     Gzip,
     #[default]
     LZ4,
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub enum PayloadBits {
     #[default]
     Independent,
@@ -35,7 +43,10 @@ pub enum PayloadBits {
     Bits64,
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub enum PayloadArchitecture {
     #[default]
     NOARCH,
@@ -45,7 +56,10 @@ pub enum PayloadArchitecture {
     RISCV,
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Payload {
     pub primary_identifier: Digest,
     pub additional_identifiers: Vec<Digest>,

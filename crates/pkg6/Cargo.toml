@@ -1,0 +1,8 @@
+[package]
+name = "pkg6"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libips = { version = "0.1.2", path = "../../libips" }
+diff-struct = "0.5.3"

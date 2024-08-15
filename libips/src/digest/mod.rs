@@ -9,6 +9,8 @@ use sha3::Digest as Sha3Digest;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::{convert::TryInto, result::Result as StdResult};
+use diff::Diff;
+use serde::{Deserialize, Serialize};
 use strum::{Display as StrumDisplay, EnumString};
 use thiserror::Error;
 
@@ -17,7 +19,10 @@ type Result<T> = StdResult<T, DigestError>;
 #[allow(dead_code)]
 static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
-#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default)]
+#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub enum DigestAlgorithm {
     #[default]
     #[strum(serialize = "sha1")]
@@ -36,7 +41,10 @@ pub enum DigestAlgorithm {
     SHA3512, // Sha3 version of sha512t
 }
 
-#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default)]
+#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub enum DigestSource {
     #[strum(serialize = "gzip")]
     GzipCompressed,
@@ -52,7 +60,10 @@ pub enum DigestSource {
     PrimaryPayloadHash,
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
 pub struct Digest {
     pub hash: String,
     pub algorithm: DigestAlgorithm,
