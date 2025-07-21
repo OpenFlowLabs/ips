@@ -64,6 +64,37 @@ impl Transaction {
         })
     }
     
+    /// Update the manifest in the transaction
+    ///
+    /// This intelligently merges the provided manifest with the existing one,
+    /// preserving file actions that have already been added to the transaction.
+    /// 
+    /// The merge strategy:
+    /// - Keeps all file actions from the transaction's manifest (these have been processed with checksums, etc.)
+    /// - Adds any file actions from the provided manifest that don't exist in the transaction's manifest
+    /// - Merges other types of actions (attributes, directories, dependencies, licenses, links) from both manifests
+    pub fn update_manifest(&mut self, manifest: Manifest) {
+        // Keep track of file paths that are already in the transaction's manifest
+        let existing_file_paths: std::collections::HashSet<String> = self.manifest.files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+        
+        // Add file actions from the provided manifest that don't exist in the transaction's manifest
+        for file in manifest.files {
+            if !existing_file_paths.contains(&file.path) {
+                self.manifest.add_file(file);
+            }
+        }
+        
+        // Merge other types of actions
+        self.manifest.attributes.extend(manifest.attributes);
+        self.manifest.directories.extend(manifest.directories);
+        self.manifest.dependencies.extend(manifest.dependencies);
+        self.manifest.licenses.extend(manifest.licenses);
+        self.manifest.links.extend(manifest.links);
+    }
+    
     /// Process a file for the transaction
     ///
     /// Takes a FileAction and a path to a file in a prototype directory.
@@ -299,6 +330,11 @@ impl Repository for FileBackend {
             fs::create_dir_all(self.path.join("catalog").join(publisher))?;
             fs::create_dir_all(self.path.join("pkg").join(publisher))?;
             
+            // Set as default publisher if no default publisher is set
+            if self.config.default_publisher.is_none() {
+                self.config.default_publisher = Some(publisher.to_string());
+            }
+            
             // Save the updated configuration
             self.save_config()?;
         }
@@ -417,7 +453,7 @@ impl Repository for FileBackend {
         // For each package, list contents
         let mut contents = Vec::new();
         
-        for (pkg_name, pkg_version, pub_name) in packages {
+        for (pkg_name, pkg_version, _pub_name) in packages {
             // Example content data (package, path, type)
             let example_contents = vec![
                 (format!("{}@{}", pkg_name, pkg_version), "/usr/bin/example".to_string(), "file".to_string()),
@@ -501,6 +537,22 @@ impl Repository for FileBackend {
                 // In a real implementation, we would refresh the search index
             }
         }
+        
+        Ok(())
+    }
+    
+    /// Set the default publisher for the repository
+    fn set_default_publisher(&mut self, publisher: &str) -> Result<()> {
+        // Check if the publisher exists
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            return Err(anyhow!("Publisher does not exist: {}", publisher));
+        }
+        
+        // Set the default publisher
+        self.config.default_publisher = Some(publisher.to_string());
+        
+        // Save the updated configuration
+        self.save_config()?;
         
         Ok(())
     }

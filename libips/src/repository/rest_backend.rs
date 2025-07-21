@@ -3,9 +3,8 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 
 use super::{Repository, RepositoryConfig, RepositoryVersion};
 
@@ -296,6 +295,25 @@ impl Repository for RestBackend {
                 // In a real implementation, we would make a REST API call to refresh the search index
             }
         }
+        
+        Ok(())
+    }
+    
+    /// Set the default publisher for the repository
+    fn set_default_publisher(&mut self, publisher: &str) -> Result<()> {
+        // This is a stub implementation
+        // In a real implementation, we would make a REST API call to set the default publisher
+        
+        // Check if the publisher exists
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            return Err(anyhow!("Publisher does not exist: {}", publisher));
+        }
+        
+        // Set the default publisher
+        self.config.default_publisher = Some(publisher.to_string());
+        
+        // Save the updated configuration
+        self.save_config()?;
         
         Ok(())
     }

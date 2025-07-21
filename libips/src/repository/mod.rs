@@ -45,6 +45,7 @@ pub struct RepositoryConfig {
     pub version: RepositoryVersion,
     pub publishers: Vec<String>,
     pub properties: HashMap<String, String>,
+    pub default_publisher: Option<String>,
 }
 
 impl Default for RepositoryConfig {
@@ -53,6 +54,7 @@ impl Default for RepositoryConfig {
             version: RepositoryVersion::default(),
             publishers: Vec::new(),
             properties: HashMap::new(),
+            default_publisher: None,
         }
     }
 }
@@ -94,4 +96,7 @@ pub trait Repository {
     
     /// Refresh repository metadata
     fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;
+    
+    /// Set the default publisher for the repository
+    fn set_default_publisher(&mut self, publisher: &str) -> Result<()>;
 }

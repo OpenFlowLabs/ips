@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use libips::actions::{ActionError, File, Manifest};
+use libips::repository::{Repository, FileBackend};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
@@ -31,6 +32,24 @@ enum Commands {
     ShowComponent {
         component: String,
     },
+    /// Publish a package to a repository
+    Publish {
+        /// Path to the manifest file
+        #[clap(short = 'm', long)]
+        manifest_path: PathBuf,
+
+        /// Path to the prototype directory containing the files to publish
+        #[clap(short = 'p', long)]
+        prototype_dir: PathBuf,
+
+        /// Path to the repository
+        #[clap(short = 'r', long)]
+        repo_path: PathBuf,
+
+        /// Publisher name (defaults to "test" if not specified)
+        #[clap(short = 'u', long)]
+        publisher: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -43,6 +62,12 @@ fn main() -> Result<()> {
             replacements,
             output_manifest,
         } => diff_component(component, replacements, output_manifest),
+        Commands::Publish {
+            manifest_path,
+            prototype_dir,
+            repo_path,
+            publisher,
+        } => publish_package(manifest_path, prototype_dir, repo_path, publisher),
     }
 }
 
@@ -284,4 +309,89 @@ fn make_file_map(files: Vec<File>) -> HashMap<String, File> {
             (orig_path_opt.unwrap(), f.clone())
         })
         .collect()
+}
+
+/// Publish a package to a repository
+///
+/// This function:
+/// 1. Opens the repository at the specified path
+/// 2. Parses the manifest file
+/// 3. Uses the FileBackend's publish_files method to publish the files from the prototype directory
+fn publish_package(
+    manifest_path: &PathBuf,
+    prototype_dir: &PathBuf,
+    repo_path: &PathBuf,
+    publisher: &Option<String>,
+) -> Result<()> {
+    // Check if the manifest file exists
+    if !manifest_path.exists() {
+        return Err(anyhow!("Manifest file does not exist: {}", manifest_path.display()));
+    }
+
+    // Check if the prototype directory exists
+    if !prototype_dir.exists() {
+        return Err(anyhow!("Prototype directory does not exist: {}", prototype_dir.display()));
+    }
+
+    // Parse the manifest file
+    println!("Parsing manifest file: {}", manifest_path.display());
+    let manifest = Manifest::parse_file(manifest_path)?;
+
+    // Open the repository
+    println!("Opening repository at: {}", repo_path.display());
+    let repo = match FileBackend::open(repo_path) {
+        Ok(repo) => repo,
+        Err(_) => {
+            println!("Repository does not exist, creating a new one...");
+            // Create a new repository with version 4
+            FileBackend::create(repo_path, libips::repository::RepositoryVersion::V4)?
+        }
+    };
+
+    // Determine which publisher to use
+    let publisher_name = if let Some(pub_name) = publisher {
+        // Use the explicitly specified publisher
+        if !repo.config.publishers.contains(pub_name) {
+            return Err(anyhow!("Publisher '{}' does not exist in the repository. Please add it first using pkg6repo add-publisher.", pub_name));
+        }
+        pub_name.clone()
+    } else {
+        // Use the default publisher
+        match &repo.config.default_publisher {
+            Some(default_pub) => default_pub.clone(),
+            None => return Err(anyhow!("No default publisher set in the repository. Please specify a publisher using the --publisher option or set a default publisher."))
+        }
+    };
+
+    // Begin a transaction
+    println!("Beginning transaction for publisher: {}", publisher_name);
+    let mut transaction = repo.begin_transaction()?;
+
+    // Add files from the prototype directory to the transaction
+    println!("Adding files from prototype directory: {}", prototype_dir.display());
+    for file_action in manifest.files.iter() {
+        // Construct the full path to the file in the prototype directory
+        let file_path = prototype_dir.join(&file_action.path);
+        
+        // Check if the file exists
+        if !file_path.exists() {
+            println!("Warning: File does not exist in prototype directory: {}", file_path.display());
+            continue;
+        }
+        
+        // Add the file to the transaction
+        println!("Adding file: {}", file_action.path);
+        transaction.add_file(file_action.clone(), &file_path)?;
+    }
+
+    // Update the manifest in the transaction
+    println!("Updating manifest in the transaction...");
+    transaction.update_manifest(manifest);
+
+    // Commit the transaction
+    println!("Committing transaction...");
+    transaction.commit()?;
+
+    println!("Package published successfully!");
+    Ok(())
 }
