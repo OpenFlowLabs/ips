@@ -1,0 +1,609 @@
+//  This Source Code Form is subject to the terms of
+//  the Mozilla Public License, v. 2.0. If a copy of the
+//  MPL was not distributed with this file, You can
+//  obtain one at https://mozilla.org/MPL/2.0/.
+
+use anyhow::{Result, anyhow};
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::str::FromStr;
+use sha2::{Sha256, Digest as Sha2Digest};
+use std::fs::File;
+
+use crate::actions::{Manifest, File as FileAction};
+use crate::digest::Digest;
+use crate::payload::{Payload, PayloadCompressionAlgorithm};
+
+use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME};
+
+/// Repository implementation that uses the local filesystem
+pub struct FileBackend {
+    pub path: PathBuf,
+    pub config: RepositoryConfig,
+}
+
+/// Transaction for publishing packages
+pub struct Transaction {
+    /// Unique ID for the transaction
+    id: String,
+    /// Path to the transaction directory
+    path: PathBuf,
+    /// Manifest being updated
+    manifest: Manifest,
+    /// Files to be published
+    files: Vec<(PathBuf, String)>, // (source_path, sha256)
+    /// Repository reference
+    repo: PathBuf,
+}
+
+impl Transaction {
+    /// Create a new transaction
+    pub fn new(repo_path: PathBuf) -> Result<Self> {
+        // Generate a unique ID based on timestamp
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let id = format!("trans_{}", timestamp);
+        
+        // Create transaction directory
+        let trans_path = repo_path.join("trans").join(&id);
+        fs::create_dir_all(&trans_path)?;
+        
+        Ok(Transaction {
+            id,
+            path: trans_path,
+            manifest: Manifest::new(),
+            files: Vec::new(),
+            repo: repo_path,
+        })
+    }
+    
+    /// Process a file for the transaction
+    ///
+    /// Takes a FileAction and a path to a file in a prototype directory.
+    /// Calculates the file's checksum, copies and "compresses" the content into a temp file
+    /// in the transactions directory, and updates the FileAction with the hash information.
+    pub fn add_file(&mut self, file_action: FileAction, file_path: &Path) -> Result<()> {
+        // Calculate SHA256 hash of the file (uncompressed)
+        let hash = Self::calculate_file_hash(file_path)?;
+        
+        // Create a temp file path in the transactions directory
+        let temp_file_name = format!("temp_{}", hash);
+        let temp_file_path = self.path.join(temp_file_name);
+        
+        // Copy the file to the temp location (this is a placeholder for compression)
+        // In a real implementation, we would compress the file here
+        fs::copy(file_path, &temp_file_path)?;
+        
+        // For now, we're using the same hash for both uncompressed and "compressed" versions
+        // In a real implementation with compression, we would calculate the hash of the compressed file
+        let compressed_hash = hash.clone();
+        
+        // Add file to the list for later processing during commit
+        self.files.push((file_path.to_path_buf(), hash.clone()));
+        
+        // Create a new FileAction with the updated information if one wasn't provided
+        let mut updated_file_action = file_action;
+        
+        // Create a payload with the hash information if it doesn't exist
+        let mut payload = updated_file_action.payload.unwrap_or_else(Payload::default);
+        
+        // Set the primary identifier (uncompressed hash)
+        payload.primary_identifier = Digest::from_str(&hash)?;
+        
+        // Set the compression algorithm
+        payload.compression_algorithm = PayloadCompressionAlgorithm::Gzip;
+        
+        // Add the compressed hash as an additional identifier
+        let compressed_digest = Digest::from_str(&compressed_hash)?;
+        payload.additional_identifiers.push(compressed_digest);
+        
+        // Update the FileAction with the payload
+        updated_file_action.payload = Some(payload);
+        
+        // Add the FileAction to the manifest
+        self.manifest.add_file(updated_file_action);
+        
+        Ok(())
+    }
+    
+    /// Commit the transaction
+    pub fn commit(self) -> Result<()> {
+        // Save the manifest to the transaction directory
+        let manifest_path = self.path.join("manifest");
+        
+        // Serialize the manifest to JSON
+        let manifest_json = serde_json::to_string_pretty(&self.manifest)?;
+        fs::write(&manifest_path, manifest_json)?;
+        
+        // Copy files to their final location
+        for (source_path, hash) in self.files {
+            // Create the destination path in the files directory
+            let dest_path = self.repo.join("file").join(&hash);
+            
+            // Copy the file if it doesn't already exist
+            if !dest_path.exists() {
+                fs::copy(source_path, &dest_path)?;
+            }
+        }
+        
+        // Generate a timestamp for the manifest version
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        // Move the manifest to its final location in the repository
+        // Store in both the pkg directory and the trans directory as required
+        let pkg_manifest_path = self.repo.join("pkg").join("manifest");
+        let trans_manifest_path = self.repo.join("trans").join(format!("manifest_{}", timestamp));
+        
+        // Copy to pkg directory
+        fs::copy(&manifest_path, &pkg_manifest_path)?;
+        
+        // Move to trans directory
+        fs::rename(manifest_path, trans_manifest_path)?;
+        
+        // Clean up the transaction directory (except for the manifest which was moved)
+        fs::remove_dir_all(self.path)?;
+        
+        Ok(())
+    }
+    
+    /// Calculate SHA256 hash of a file
+    fn calculate_file_hash(file_path: &Path) -> Result<String> {
+        // Open the file
+        let mut file = File::open(file_path)?;
+        
+        // Create a SHA256 hasher
+        let mut hasher = Sha256::new();
+        
+        // Read the file in chunks and update the hasher
+        let mut buffer = [0; 1024];
+        loop {
+            let bytes_read = file.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+        }
+        
+        // Get the hash result
+        let hash = hasher.finalize();
+        
+        // Convert to hex string
+        let hash_str = format!("{:x}", hash);
+        
+        Ok(hash_str)
+    }
+}
+
+impl Repository for FileBackend {
+    /// Create a new repository at the specified path
+    fn create<P: AsRef<Path>>(path: P, version: RepositoryVersion) -> Result<Self> {
+        let path = path.as_ref();
+        
+        // Create the repository directory if it doesn't exist
+        fs::create_dir_all(path)?;
+        
+        // Create the repository configuration
+        let config = RepositoryConfig {
+            version,
+            ..Default::default()
+        };
+        
+        // Create the repository structure
+        let repo = FileBackend {
+            path: path.to_path_buf(),
+            config,
+        };
+        
+        // Create the repository directories
+        repo.create_directories()?;
+        
+        // Save the repository configuration
+        repo.save_config()?;
+        
+        Ok(repo)
+    }
+    
+    /// Open an existing repository
+    fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        
+        // Check if the repository directory exists
+        if !path.exists() {
+            return Err(anyhow!("Repository does not exist: {}", path.display()));
+        }
+        
+        // Load the repository configuration
+        let config_path = path.join(REPOSITORY_CONFIG_FILENAME);
+        let config_data = fs::read_to_string(config_path)?;
+        let config: RepositoryConfig = serde_json::from_str(&config_data)?;
+        
+        Ok(FileBackend {
+            path: path.to_path_buf(),
+            config,
+        })
+    }
+    
+    /// Save the repository configuration
+    fn save_config(&self) -> Result<()> {
+        let config_path = self.path.join(REPOSITORY_CONFIG_FILENAME);
+        let config_data = serde_json::to_string_pretty(&self.config)?;
+        fs::write(config_path, config_data)?;
+        Ok(())
+    }
+    
+    /// Add a publisher to the repository
+    fn add_publisher(&mut self, publisher: &str) -> Result<()> {
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            self.config.publishers.push(publisher.to_string());
+            
+            // Create publisher-specific directories
+            fs::create_dir_all(self.path.join("catalog").join(publisher))?;
+            fs::create_dir_all(self.path.join("pkg").join(publisher))?;
+            
+            // Save the updated configuration
+            self.save_config()?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Remove a publisher from the repository
+    fn remove_publisher(&mut self, publisher: &str, dry_run: bool) -> Result<()> {
+        if let Some(pos) = self.config.publishers.iter().position(|p| p == publisher) {
+            if !dry_run {
+                self.config.publishers.remove(pos);
+                
+                // Save the updated configuration
+                self.save_config()?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Get repository information
+    fn get_info(&self) -> Result<Vec<(String, usize, String, String)>> {
+        let mut info = Vec::new();
+        
+        for publisher in &self.config.publishers {
+            // Count packages (this is a placeholder, actual implementation would count packages)
+            let package_count = 0;
+            
+            // Status is always "online" for now
+            let status = "online".to_string();
+            
+            // Updated timestamp (placeholder)
+            let updated = "2025-07-21T18:46:00.000000Z".to_string();
+            
+            info.push((publisher.clone(), package_count, status, updated));
+        }
+        
+        Ok(info)
+    }
+    
+    /// Set a repository property
+    fn set_property(&mut self, property: &str, value: &str) -> Result<()> {
+        self.config.properties.insert(property.to_string(), value.to_string());
+        self.save_config()?;
+        Ok(())
+    }
+    
+    /// Set a publisher property
+    fn set_publisher_property(&mut self, publisher: &str, property: &str, value: &str) -> Result<()> {
+        // Check if the publisher exists
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            return Err(anyhow!("Publisher does not exist: {}", publisher));
+        }
+        
+        // Create the property key in the format "publisher/property"
+        let key = format!("{}/{}", publisher, property);
+        
+        // Set the property
+        self.config.properties.insert(key, value.to_string());
+        
+        // Save the updated configuration
+        self.save_config()?;
+        
+        Ok(())
+    }
+    
+    /// List packages in the repository
+    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<(String, String, String)>> {
+        let mut packages = Vec::new();
+        
+        // Filter publishers if specified
+        let publishers = if let Some(pub_name) = publisher {
+            if !self.config.publishers.contains(&pub_name.to_string()) {
+                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+            }
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+        
+        // For each publisher, list packages
+        for pub_name in publishers {
+            // In a real implementation, we would scan the repository for packages
+            // For now, we'll just return a placeholder
+            
+            // Example package data (name, version, publisher)
+            let example_packages = vec![
+                ("example/package1".to_string(), "1.0.0".to_string(), pub_name.clone()),
+                ("example/package2".to_string(), "2.0.0".to_string(), pub_name.clone()),
+            ];
+            
+            // Filter by pattern if specified
+            let filtered_packages = if let Some(pat) = pattern {
+                example_packages.into_iter()
+                    .filter(|(name, _, _)| name.contains(pat))
+                    .collect()
+            } else {
+                example_packages
+            };
+            
+            packages.extend(filtered_packages);
+        }
+        
+        Ok(packages)
+    }
+    
+    /// Show the contents of packages
+    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>> {
+        // This is a placeholder implementation
+        // In a real implementation, we would parse package manifests and extract contents
+        
+        // Get the list of packages
+        let packages = self.list_packages(publisher, pattern)?;
+        
+        // For each package, list contents
+        let mut contents = Vec::new();
+        
+        for (pkg_name, pkg_version, pub_name) in packages {
+            // Example content data (package, path, type)
+            let example_contents = vec![
+                (format!("{}@{}", pkg_name, pkg_version), "/usr/bin/example".to_string(), "file".to_string()),
+                (format!("{}@{}", pkg_name, pkg_version), "/usr/share/doc/example".to_string(), "dir".to_string()),
+            ];
+            
+            // Filter by action type if specified
+            let filtered_contents = if let Some(types) = action_types {
+                example_contents.into_iter()
+                    .filter(|(_, _, action_type)| types.contains(&action_type))
+                    .collect::<Vec<_>>()
+            } else {
+                example_contents
+            };
+            
+            contents.extend(filtered_contents);
+        }
+        
+        Ok(contents)
+    }
+    
+    /// Rebuild repository metadata
+    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+        // This is a placeholder implementation
+        // In a real implementation, we would rebuild catalogs and search indexes
+        
+        // Filter publishers if specified
+        let publishers = if let Some(pub_name) = publisher {
+            if !self.config.publishers.contains(&pub_name.to_string()) {
+                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+            }
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+        
+        // For each publisher, rebuild metadata
+        for pub_name in publishers {
+            println!("Rebuilding metadata for publisher: {}", pub_name);
+            
+            if !no_catalog {
+                println!("Rebuilding catalog...");
+                // In a real implementation, we would rebuild the catalog
+            }
+            
+            if !no_index {
+                println!("Rebuilding search index...");
+                // In a real implementation, we would rebuild the search index
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Refresh repository metadata
+    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+        // This is a placeholder implementation
+        // In a real implementation, we would refresh catalogs and search indexes
+        
+        // Filter publishers if specified
+        let publishers = if let Some(pub_name) = publisher {
+            if !self.config.publishers.contains(&pub_name.to_string()) {
+                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+            }
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+        
+        // For each publisher, refresh metadata
+        for pub_name in publishers {
+            println!("Refreshing metadata for publisher: {}", pub_name);
+            
+            if !no_catalog {
+                println!("Refreshing catalog...");
+                // In a real implementation, we would refresh the catalog
+            }
+            
+            if !no_index {
+                println!("Refreshing search index...");
+                // In a real implementation, we would refresh the search index
+            }
+        }
+        
+        Ok(())
+    }
+}
+
+impl FileBackend {
+    /// Create the repository directories
+    fn create_directories(&self) -> Result<()> {
+        // Create the main repository directories
+        fs::create_dir_all(self.path.join("catalog"))?;
+        fs::create_dir_all(self.path.join("file"))?;
+        fs::create_dir_all(self.path.join("index"))?;
+        fs::create_dir_all(self.path.join("pkg"))?;
+        fs::create_dir_all(self.path.join("trans"))?;
+        
+        Ok(())
+    }
+    
+    #[cfg(test)]
+    pub fn test_publish_files(&mut self, test_dir: &Path) -> Result<()> {
+        println!("Testing file publishing...");
+        
+        // Create a test publisher
+        self.add_publisher("test")?;
+        
+        // Create a nested directory structure
+        let nested_dir = test_dir.join("nested").join("dir");
+        fs::create_dir_all(&nested_dir)?;
+        
+        // Create a test file in the nested directory
+        let test_file_path = nested_dir.join("test_file.txt");
+        fs::write(&test_file_path, "This is a test file")?;
+        
+        // Begin a transaction
+        let mut transaction = self.begin_transaction()?;
+        
+        // Create a FileAction from the test file path
+        let mut file_action = FileAction::read_from_path(&test_file_path)?;
+        
+        // Calculate the relative path from the test file path to the base directory
+        let relative_path = test_file_path.strip_prefix(test_dir)?.to_string_lossy().to_string();
+        
+        // Set the relative path in the FileAction
+        file_action.path = relative_path;
+        
+        // Add the test file to the transaction
+        transaction.add_file(file_action, &test_file_path)?;
+        
+        // Verify that the path in the FileAction is the relative path
+        // The path should be "nested/dir/test_file.txt", not the full path
+        let expected_path = "nested/dir/test_file.txt";
+        let actual_path = &transaction.manifest.files[0].path;
+        
+        if actual_path != expected_path {
+            return Err(anyhow!("Path in FileAction is incorrect. Expected: {}, Actual: {}", 
+                              expected_path, actual_path));
+        }
+        
+        // Commit the transaction
+        transaction.commit()?;
+        
+        // Verify the file was stored
+        let hash = Transaction::calculate_file_hash(&test_file_path)?;
+        let stored_file_path = self.path.join("file").join(&hash);
+        
+        if !stored_file_path.exists() {
+            return Err(anyhow!("File was not stored correctly"));
+        }
+        
+        // Verify the manifest was updated
+        let manifest_path = self.path.join("pkg").join("manifest");
+        
+        if !manifest_path.exists() {
+            return Err(anyhow!("Manifest was not created"));
+        }
+        
+        println!("File publishing test passed!");
+        
+        Ok(())
+    }
+    
+    /// Begin a new transaction for publishing
+    pub fn begin_transaction(&self) -> Result<Transaction> {
+        Transaction::new(self.path.clone())
+    }
+    
+    /// Publish files from a prototype directory
+    pub fn publish_files<P: AsRef<Path>>(&self, proto_dir: P, publisher: &str) -> Result<()> {
+        let proto_dir = proto_dir.as_ref();
+        
+        // Check if the prototype directory exists
+        if !proto_dir.exists() {
+            return Err(anyhow!("Prototype directory does not exist: {}", proto_dir.display()));
+        }
+        
+        // Check if the publisher exists
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            return Err(anyhow!("Publisher does not exist: {}", publisher));
+        }
+        
+        // Begin a transaction
+        let mut transaction = self.begin_transaction()?;
+        
+        // Walk the prototype directory and add files to the transaction
+        self.add_files_to_transaction(&mut transaction, proto_dir, proto_dir)?;
+        
+        // Commit the transaction
+        transaction.commit()?;
+        
+        Ok(())
+    }
+    
+    /// Add files from a directory to a transaction
+    fn add_files_to_transaction(&self, transaction: &mut Transaction, base_dir: &Path, dir: &Path) -> Result<()> {
+        // Read the directory entries
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                // Recursively add files from subdirectories
+                self.add_files_to_transaction(transaction, base_dir, &path)?;
+            } else {
+                // Create a FileAction from the file path
+                let mut file_action = FileAction::read_from_path(&path)?;
+                
+                // Calculate the relative path from the file path to the base directory
+                let relative_path = path.strip_prefix(base_dir)?.to_string_lossy().to_string();
+                
+                // Set the relative path in the FileAction
+                file_action.path = relative_path;
+                
+                // Add the file to the transaction
+                transaction.add_file(file_action, &path)?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Store a file in the repository
+    pub fn store_file<P: AsRef<Path>>(&self, file_path: P) -> Result<String> {
+        let file_path = file_path.as_ref();
+        
+        // Calculate the SHA256 hash of the file
+        let hash = Transaction::calculate_file_hash(file_path)?;
+        
+        // Create the destination path in the files directory
+        let dest_path = self.path.join("file").join(&hash);
+        
+        // Copy the file if it doesn't already exist
+        if !dest_path.exists() {
+            fs::copy(file_path, &dest_path)?;
+        }
+        
+        Ok(hash)
+    }
+}

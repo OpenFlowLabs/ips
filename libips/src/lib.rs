@@ -8,6 +8,7 @@ pub mod actions;
 pub mod digest;
 pub mod payload;
 pub mod image;
+pub mod repository;
 
 #[cfg(test)]
 mod tests {
