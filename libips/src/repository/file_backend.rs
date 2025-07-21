@@ -5,12 +5,15 @@
 
 use anyhow::{Result, anyhow};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::str::FromStr;
 use sha2::{Sha256, Digest as Sha2Digest};
 use std::fs::File;
+use flate2::write::GzEncoder;
+use flate2::Compression as GzipCompression;
+use lz4::EncoderBuilder;
 
 use crate::actions::{Manifest, File as FileAction};
 use crate::digest::Digest;
@@ -64,8 +67,9 @@ impl Transaction {
     /// Process a file for the transaction
     ///
     /// Takes a FileAction and a path to a file in a prototype directory.
-    /// Calculates the file's checksum, copies and "compresses" the content into a temp file
-    /// in the transactions directory, and updates the FileAction with the hash information.
+    /// Calculates the file's checksum, compresses the content using the specified algorithm (Gzip or LZ4),
+    /// stores the compressed content in a temp file in the transactions directory,
+    /// and updates the FileAction with the hash information for both uncompressed and compressed versions.
     pub fn add_file(&mut self, file_action: FileAction, file_path: &Path) -> Result<()> {
         // Calculate SHA256 hash of the file (uncompressed)
         let hash = Self::calculate_file_hash(file_path)?;
@@ -74,28 +78,76 @@ impl Transaction {
         let temp_file_name = format!("temp_{}", hash);
         let temp_file_path = self.path.join(temp_file_name);
         
-        // Copy the file to the temp location (this is a placeholder for compression)
-        // In a real implementation, we would compress the file here
-        fs::copy(file_path, &temp_file_path)?;
+        // Check if the temp file already exists
+        if temp_file_path.exists() {
+            // If it exists, remove it to avoid any issues with existing content
+            fs::remove_file(&temp_file_path).map_err(|e| anyhow!("Failed to remove existing temp file: {}", e))?;
+        }
         
-        // For now, we're using the same hash for both uncompressed and "compressed" versions
-        // In a real implementation with compression, we would calculate the hash of the compressed file
-        let compressed_hash = hash.clone();
-        
-        // Add file to the list for later processing during commit
-        self.files.push((file_path.to_path_buf(), hash.clone()));
-        
-        // Create a new FileAction with the updated information if one wasn't provided
-        let mut updated_file_action = file_action;
+        // Read the file content
+        let file_content = fs::read(file_path).map_err(|e| anyhow!("Failed to read file {}: {}", file_path.display(), e))?;
         
         // Create a payload with the hash information if it doesn't exist
+        let mut updated_file_action = file_action;
         let mut payload = updated_file_action.payload.unwrap_or_else(Payload::default);
+        
+        // Set the compression algorithm (use the one from payload or default to Gzip)
+        let compression_algorithm = payload.compression_algorithm;
+        
+        // Compress the file based on the selected algorithm
+        let compressed_hash = match compression_algorithm {
+            PayloadCompressionAlgorithm::Gzip => {
+                // Create a Gzip encoder with default compression level
+                let mut encoder = GzEncoder::new(Vec::new(), GzipCompression::default());
+                
+                // Write the file content to the encoder
+                encoder.write_all(&file_content)
+                    .map_err(|e| anyhow!("Failed to write data to Gzip encoder: {}", e))?;
+                
+                // Finish the compression and get the compressed data
+                let compressed_data = encoder.finish()
+                    .map_err(|e| anyhow!("Failed to finish Gzip compression: {}", e))?;
+                
+                // Write the compressed data to the temp file
+                fs::write(&temp_file_path, &compressed_data)
+                    .map_err(|e| anyhow!("Failed to write compressed data to temp file: {}", e))?;
+                
+                // Calculate hash of the compressed data
+                let mut hasher = Sha256::new();
+                hasher.update(&compressed_data);
+                format!("{:x}", hasher.finalize())
+            },
+            PayloadCompressionAlgorithm::LZ4 => {
+                // Create an LZ4 encoder with default compression level
+                let mut encoder = EncoderBuilder::new().build(Vec::new())
+                    .map_err(|e| anyhow!("Failed to create LZ4 encoder: {}", e))?;
+                
+                // Write the file content to the encoder
+                encoder.write_all(&file_content)
+                    .map_err(|e| anyhow!("Failed to write data to LZ4 encoder: {}", e))?;
+                
+                // Finish the compression and get the compressed data
+                let (compressed_data, _) = encoder.finish();
+                
+                // Write the compressed data to the temp file
+                fs::write(&temp_file_path, &compressed_data)
+                    .map_err(|e| anyhow!("Failed to write LZ4 compressed data to temp file: {}", e))?;
+                
+                // Calculate hash of the compressed data
+                let mut hasher = Sha256::new();
+                hasher.update(&compressed_data);
+                format!("{:x}", hasher.finalize())
+            }
+        };
+        
+        // Add file to the list for later processing during commit
+        self.files.push((temp_file_path.clone(), compressed_hash.clone()));
         
         // Set the primary identifier (uncompressed hash)
         payload.primary_identifier = Digest::from_str(&hash)?;
         
         // Set the compression algorithm
-        payload.compression_algorithm = PayloadCompressionAlgorithm::Gzip;
+        payload.compression_algorithm = compression_algorithm;
         
         // Add the compressed hash as an additional identifier
         let compressed_digest = Digest::from_str(&compressed_hash)?;
