@@ -39,12 +39,8 @@ pub struct RepositoryInfo {
 /// Information about a package in a repository
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageInfo {
-    /// Name of the package
-    pub name: String,
-    /// Version of the package
-    pub version: String,
-    /// Publisher of the package
-    pub publisher: String,
+    /// FMRI (Fault Management Resource Identifier) of the package
+    pub fmri: crate::fmri::Fmri,
 }
 
 /// Repository version

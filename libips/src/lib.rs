@@ -6,6 +6,7 @@
 #[allow(clippy::result_large_err)]
 pub mod actions;
 pub mod digest;
+pub mod fmri;
 pub mod payload;
 pub mod image;
 pub mod repository;
@@ -16,6 +17,7 @@ mod tests {
     use crate::actions::Attr;
     use crate::actions::{Dependency, Dir, Facet, File, Link, Manifest, Property};
     use crate::digest::{Digest, DigestAlgorithm, DigestSource};
+    use crate::fmri::Fmri;
     use crate::payload::Payload;
     use std::collections::HashMap;
 
@@ -980,18 +982,17 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
 
         let test_results = vec![
             Dependency {
-                fmri: "pkg:/system/library@0.5.11-2020.0.1.19563".to_string(),
+                fmri: Some(Fmri::parse("pkg:/system/library@0.5.11-2020.0.1.19563").unwrap()),
                 dependency_type: "require".to_string(),
                 ..Dependency::default()
             },
             Dependency {
-                fmri: "pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951".to_string(),
+                fmri: Some(Fmri::parse("pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951").unwrap()),
                 dependency_type: "incorporate".to_string(),
                 ..Dependency::default()
             },
             Dependency {
-                fmri: "pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951"
-                    .to_string(),
+                fmri: Some(Fmri::parse("pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951").unwrap()),
                 dependency_type: "incorporate".to_string(),
                 facets: hashmap! {
                     "version-lock.system/data/hardware-registry".to_string() => Facet{
@@ -1002,7 +1003,7 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
                 ..Dependency::default()
             },
             Dependency {
-                fmri: "xvm@0.5.11-2015.0.2.0".to_string(),
+                fmri: Some(Fmri::parse("xvm@0.5.11-2015.0.2.0").unwrap()),
                 dependency_type: "incorporate".to_string(),
                 facets: hashmap! {
                     "version-lock.xvm".to_string() => Facet{
@@ -1013,7 +1014,7 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
                 ..Dependency::default()
             },
             Dependency {
-                fmri: "system/mozilla-nss@3.51.1-2020.0.1.0".to_string(),
+                fmri: Some(Fmri::parse("system/mozilla-nss@3.51.1-2020.0.1.0").unwrap()),
                 dependency_type: "incorporate".to_string(),
                 facets: hashmap! {
                     "version-lock.system/mozilla-nss".to_string() => Facet{
@@ -1031,7 +1032,13 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
 
         assert_eq!(manifest.dependencies.len(), test_results.len());
         for (pos, dependency) in manifest.dependencies.iter().enumerate() {
-            assert_eq!(dependency.fmri, test_results[pos].fmri);
+            // Compare the string representation of the FMRIs
+            if let (Some(dep_fmri), Some(test_fmri)) = (&dependency.fmri, &test_results[pos].fmri) {
+                assert_eq!(dep_fmri.to_string(), test_fmri.to_string());
+            } else {
+                assert_eq!(dependency.fmri.is_none(), test_results[pos].fmri.is_none());
+            }
+            
             assert_eq!(
                 dependency.dependency_type,
                 test_results[pos].dependency_type

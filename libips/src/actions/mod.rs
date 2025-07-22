@@ -6,6 +6,7 @@
 // Source https://docs.oracle.com/cd/E23824_01/html/E21796/pkg-5.html
 
 use crate::digest::Digest;
+use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadError};
 use pest::Parser;
 use pest_derive::Parser;
@@ -267,9 +268,9 @@ pub enum FileError {
     #[derive(Debug, PartialEq)]
 ))]
 pub struct Dependency {
-    pub fmri: String,            //TODO make FMRI
+    pub fmri: Option<Fmri>,      // FMRI of the dependency
     pub dependency_type: String, //TODO make enum
-    pub predicate: String,       //TODO make FMRI
+    pub predicate: Option<Fmri>, // FMRI for conditional dependencies
     pub root_image: String,      //TODO make boolean
     pub optional: Vec<Property>,
     pub facets: HashMap<String, Facet>,
@@ -288,9 +289,25 @@ impl From<Action> for Dependency {
         }
         for prop in props {
             match prop.key.as_str() {
-                "fmri" => dep.fmri = prop.value,
+                "fmri" => {
+                    match Fmri::parse(&prop.value) {
+                        Ok(fmri) => dep.fmri = Some(fmri),
+                        Err(err) => {
+                            eprintln!("Error parsing FMRI '{}': {}", prop.value, err);
+                            dep.fmri = None;
+                        }
+                    }
+                },
                 "type" => dep.dependency_type = prop.value,
-                "predicate" => dep.predicate = prop.value,
+                "predicate" => {
+                    match Fmri::parse(&prop.value) {
+                        Ok(fmri) => dep.predicate = Some(fmri),
+                        Err(err) => {
+                            eprintln!("Error parsing predicate FMRI '{}': {}", prop.value, err);
+                            dep.predicate = None;
+                        }
+                    }
+                },
                 "root-image" => dep.root_image = prop.value,
                 _ => {
                     if is_facet(prop.key.clone()) {

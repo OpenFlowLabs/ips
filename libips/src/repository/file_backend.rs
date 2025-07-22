@@ -18,6 +18,7 @@ use regex::Regex;
 
 use crate::actions::{Manifest, File as FileAction};
 use crate::digest::Digest;
+use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
 use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo, PackageInfo};
@@ -520,51 +521,51 @@ impl Repository for FileBackend {
                                         if attr.key == "pkg.fmri" && !attr.values.is_empty() {
                                             let fmri = &attr.values[0];
                                             
-                                            // Parse the FMRI to extract package name and version
-                                            // Format: pkg://publisher/package_name@version
-                                            if let Some(pkg_part) = fmri.strip_prefix("pkg://") {
-                                                if let Some(at_pos) = pkg_part.find('@') {
-                                                    let pkg_with_pub = &pkg_part[0..at_pos];
-                                                    let version = &pkg_part[at_pos+1..];
-                                                    
-                                                    // Extract package name (may include publisher)
-                                                    let pkg_name = if let Some(slash_pos) = pkg_with_pub.find('/') {
-                                                        // Skip publisher part if present
-                                                        let pub_end = slash_pos + 1;
-                                                        &pkg_with_pub[pub_end..]
-                                                    } else {
-                                                        pkg_with_pub
-                                                    };
-                                                    
+                                            // Parse the FMRI using our Fmri type
+                                            match Fmri::parse(fmri) {
+                                                Ok(parsed_fmri) => {
                                                     // Filter by pattern if specified
                                                     if let Some(pat) = pattern {
                                                         // Try to compile the pattern as a regex
                                                         match Regex::new(pat) {
                                                             Ok(regex) => {
                                                                 // Use regex matching
-                                                                if !regex.is_match(pkg_name) {
+                                                                if !regex.is_match(&parsed_fmri.name) {
                                                                     continue;
                                                                 }
                                                             },
                                                             Err(err) => {
                                                                 // Log the error but fall back to simple string contains
                                                                 eprintln!("Error compiling regex pattern '{}': {}", pat, err);
-                                                                if !pkg_name.contains(pat) {
+                                                                if !parsed_fmri.name.contains(pat) {
                                                                     continue;
                                                                 }
                                                             }
                                                         }
                                                     }
                                                     
-                                                    // Create a PackageInfo struct and add it to the list
-                                                    packages.push(PackageInfo {
-                                                        name: pkg_name.to_string(),
-                                                        version: version.to_string(),
-                                                        publisher: pub_name.clone(),
-                                                    });
+                                                    // If the publisher is not set in the FMRI, use the current publisher
+                                                    if parsed_fmri.publisher.is_none() {
+                                                        let mut fmri_with_publisher = parsed_fmri.clone();
+                                                        fmri_with_publisher.publisher = Some(pub_name.clone());
+                                                        
+                                                        // Create a PackageInfo struct and add it to the list
+                                                        packages.push(PackageInfo {
+                                                            fmri: fmri_with_publisher,
+                                                        });
+                                                    } else {
+                                                        // Create a PackageInfo struct and add it to the list
+                                                        packages.push(PackageInfo {
+                                                            fmri: parsed_fmri.clone(),
+                                                        });
+                                                    }
                                                     
                                                     // Found the package info, no need to check other attributes
                                                     break;
+                                                },
+                                                Err(err) => {
+                                                    // Log the error but continue processing
+                                                    eprintln!("Error parsing FMRI '{}': {}", fmri, err);
                                                 }
                                             }
                                         }
@@ -597,10 +598,17 @@ impl Repository for FileBackend {
         let mut contents = Vec::new();
         
         for pkg_info in packages {
+            // Format the package identifier using the FMRI
+            let pkg_id = if let Some(version) = &pkg_info.fmri.version {
+                format!("{}@{}", pkg_info.fmri.name, version)
+            } else {
+                pkg_info.fmri.name.clone()
+            };
+            
             // Example content data (package, path, type)
             let example_contents = vec![
-                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/bin/example".to_string(), "file".to_string()),
-                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/share/doc/example".to_string(), "dir".to_string()),
+                (pkg_id.clone(), "/usr/bin/example".to_string(), "file".to_string()),
+                (pkg_id.clone(), "/usr/share/doc/example".to_string(), "dir".to_string()),
             ];
             
             // Filter by action type if specified

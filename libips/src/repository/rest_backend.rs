@@ -211,10 +211,17 @@ impl Repository for RestBackend {
         for pkg_info in packages {
             // In a real implementation, we would get this information from the REST API
             
+            // Format the package identifier using the FMRI
+            let pkg_id = if let Some(version) = &pkg_info.fmri.version {
+                format!("{}@{}", pkg_info.fmri.name, version)
+            } else {
+                pkg_info.fmri.name.clone()
+            };
+            
             // Example content data (package, path, type)
             let example_contents = vec![
-                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/bin/example".to_string(), "file".to_string()),
-                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/share/doc/example".to_string(), "dir".to_string()),
+                (pkg_id.clone(), "/usr/bin/example".to_string(), "file".to_string()),
+                (pkg_id.clone(), "/usr/share/doc/example".to_string(), "dir".to_string()),
             ];
             
             // Filter by action type if specified
