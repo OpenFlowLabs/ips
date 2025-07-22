@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion, PublisherInfo, RepositoryInfo};
+use super::{Repository, RepositoryConfig, RepositoryVersion, PublisherInfo, RepositoryInfo, PackageInfo};
 
 /// Repository implementation that uses a REST API
 pub struct RestBackend {
@@ -164,7 +164,7 @@ impl Repository for RestBackend {
     }
     
     /// List packages in the repository
-    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<(String, String, String)>> {
+    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to list packages
         
@@ -182,24 +182,16 @@ impl Repository for RestBackend {
         
         // For each publisher, list packages
         for pub_name in publishers {
-            // In a real implementation, we would get this information from the REST API
+            // In a real implementation, we would make a REST API call to get package information
+            // The API call would return a list of packages with their names, versions, and other metadata
+            // We would then parse this information and create PackageInfo structs
             
-            // Example package data (name, version, publisher)
-            let example_packages = vec![
-                ("example/package1".to_string(), "1.0.0".to_string(), pub_name.clone()),
-                ("example/package2".to_string(), "2.0.0".to_string(), pub_name.clone()),
-            ];
+            // For now, we return an empty list since we don't want to return placeholder data
+            // and we don't have a real API to call
             
-            // Filter by pattern if specified
-            let filtered_packages = if let Some(pat) = pattern {
-                example_packages.into_iter()
-                    .filter(|(name, _, _)| name.contains(pat))
-                    .collect()
-            } else {
-                example_packages
-            };
-            
-            packages.extend(filtered_packages);
+            // If pattern filtering is needed, it would be applied here to the results from the API
+            // When implementing, use the regex crate to handle user-provided regexp patterns properly,
+            // similar to the implementation in file_backend.rs
         }
         
         Ok(packages)
@@ -216,13 +208,13 @@ impl Repository for RestBackend {
         // For each package, list contents
         let mut contents = Vec::new();
         
-        for (pkg_name, pkg_version, _) in packages {
+        for pkg_info in packages {
             // In a real implementation, we would get this information from the REST API
             
             // Example content data (package, path, type)
             let example_contents = vec![
-                (format!("{}@{}", pkg_name, pkg_version), "/usr/bin/example".to_string(), "file".to_string()),
-                (format!("{}@{}", pkg_name, pkg_version), "/usr/share/doc/example".to_string(), "dir".to_string()),
+                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/bin/example".to_string(), "file".to_string()),
+                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/share/doc/example".to_string(), "dir".to_string()),
             ];
             
             // Filter by action type if specified

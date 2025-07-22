@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 use std::convert::TryFrom;
 
-use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo};
+use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo, PackageInfo};
 
 #[cfg(test)]
 mod tests;
@@ -377,8 +377,8 @@ fn main() -> Result<()> {
             }
             
             // Print packages
-            for (name, version, publisher) in packages {
-                println!("{:<30} {:<15} {:<10}", name, version, publisher);
+            for pkg_info in packages {
+                println!("{:<30} {:<15} {:<10}", pkg_info.name, pkg_info.version, pkg_info.publisher);
             }
             
             Ok(())

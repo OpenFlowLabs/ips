@@ -36,6 +36,17 @@ pub struct RepositoryInfo {
     pub publishers: Vec<PublisherInfo>,
 }
 
+/// Information about a package in a repository
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageInfo {
+    /// Name of the package
+    pub name: String,
+    /// Version of the package
+    pub version: String,
+    /// Publisher of the package
+    pub publisher: String,
+}
+
 /// Repository version
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RepositoryVersion {
@@ -106,7 +117,7 @@ pub trait Repository {
     fn set_publisher_property(&mut self, publisher: &str, property: &str, value: &str) -> Result<()>;
     
     /// List packages in the repository
-    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<(String, String, String)>>;
+    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<PackageInfo>>;
     
     /// Show contents of packages
     fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>>;

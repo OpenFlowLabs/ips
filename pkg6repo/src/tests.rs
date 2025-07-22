@@ -91,11 +91,21 @@ mod tests {
         // Check that the publisher was added
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
         
+        // Check that the publisher directories were created
+        let catalog_dir = repo_path.join("catalog").join("example.com");
+        let pkg_dir = repo_path.join("pkg").join("example.com");
+        assert!(catalog_dir.exists(), "Catalog directory should exist after adding publisher");
+        assert!(pkg_dir.exists(), "Package directory should exist after adding publisher");
+        
         // Remove the publisher
         repo.remove_publisher("example.com", false).unwrap();
         
-        // Check that the publisher was removed
+        // Check that the publisher was removed from the configuration
         assert!(!repo.config.publishers.contains(&"example.com".to_string()));
+        
+        // Check that the publisher directories were removed
+        assert!(!catalog_dir.exists(), "Catalog directory should not exist after removing publisher");
+        assert!(!pkg_dir.exists(), "Package directory should not exist after removing publisher");
         
         // Clean up
         cleanup_test_dir(&test_dir);

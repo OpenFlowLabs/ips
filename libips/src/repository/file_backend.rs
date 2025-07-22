@@ -14,12 +14,13 @@ use std::fs::File;
 use flate2::write::GzEncoder;
 use flate2::Compression as GzipCompression;
 use lz4::EncoderBuilder;
+use regex::Regex;
 
 use crate::actions::{Manifest, File as FileAction};
 use crate::digest::Digest;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo};
+use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo, PackageInfo};
 
 /// Repository implementation that uses the local filesystem
 pub struct FileBackend {
@@ -369,6 +370,22 @@ impl Repository for FileBackend {
             if !dry_run {
                 self.config.publishers.remove(pos);
                 
+                // Remove publisher-specific directories and their contents recursively
+                let catalog_dir = self.path.join("catalog").join(publisher);
+                let pkg_dir = self.path.join("pkg").join(publisher);
+                
+                // Remove the catalog directory if it exists
+                if catalog_dir.exists() {
+                    fs::remove_dir_all(&catalog_dir)
+                        .map_err(|e| anyhow!("Failed to remove catalog directory: {}", e))?;
+                }
+                
+                // Remove the package directory if it exists
+                if pkg_dir.exists() {
+                    fs::remove_dir_all(&pkg_dir)
+                        .map_err(|e| anyhow!("Failed to remove package directory: {}", e))?;
+                }
+                
                 // Save the updated configuration
                 self.save_config()?;
             }
@@ -463,7 +480,7 @@ impl Repository for FileBackend {
     }
     
     /// List packages in the repository
-    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<(String, String, String)>> {
+    fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
         let mut packages = Vec::new();
         
         // Filter publishers if specified
@@ -478,25 +495,91 @@ impl Repository for FileBackend {
         
         // For each publisher, list packages
         for pub_name in publishers {
-            // In a real implementation, we would scan the repository for packages
-            // For now, we'll just return a placeholder
+            // Get the publisher's package directory
+            let publisher_pkg_dir = self.path.join("pkg").join(&pub_name);
             
-            // Example package data (name, version, publisher)
-            let example_packages = vec![
-                ("example/package1".to_string(), "1.0.0".to_string(), pub_name.clone()),
-                ("example/package2".to_string(), "2.0.0".to_string(), pub_name.clone()),
-            ];
-            
-            // Filter by pattern if specified
-            let filtered_packages = if let Some(pat) = pattern {
-                example_packages.into_iter()
-                    .filter(|(name, _, _)| name.contains(pat))
-                    .collect()
-            } else {
-                example_packages
-            };
-            
-            packages.extend(filtered_packages);
+            // Check if the publisher directory exists
+            if publisher_pkg_dir.exists() {
+                // Verify that the publisher is in the config
+                if !self.config.publishers.contains(&pub_name) {
+                    return Err(anyhow!("Publisher directory exists but is not in the repository configuration: {}", pub_name));
+                }
+                
+                // Walk through the directory and collect package manifests
+                if let Ok(entries) = fs::read_dir(&publisher_pkg_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        
+                        // Skip directories, only process files (package manifests)
+                        if path.is_file() {
+                            // Parse the manifest file to get real package information
+                            match Manifest::parse_file(&path) {
+                                Ok(manifest) => {
+                                    // Look for the pkg.fmri attribute
+                                    for attr in &manifest.attributes {
+                                        if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                                            let fmri = &attr.values[0];
+                                            
+                                            // Parse the FMRI to extract package name and version
+                                            // Format: pkg://publisher/package_name@version
+                                            if let Some(pkg_part) = fmri.strip_prefix("pkg://") {
+                                                if let Some(at_pos) = pkg_part.find('@') {
+                                                    let pkg_with_pub = &pkg_part[0..at_pos];
+                                                    let version = &pkg_part[at_pos+1..];
+                                                    
+                                                    // Extract package name (may include publisher)
+                                                    let pkg_name = if let Some(slash_pos) = pkg_with_pub.find('/') {
+                                                        // Skip publisher part if present
+                                                        let pub_end = slash_pos + 1;
+                                                        &pkg_with_pub[pub_end..]
+                                                    } else {
+                                                        pkg_with_pub
+                                                    };
+                                                    
+                                                    // Filter by pattern if specified
+                                                    if let Some(pat) = pattern {
+                                                        // Try to compile the pattern as a regex
+                                                        match Regex::new(pat) {
+                                                            Ok(regex) => {
+                                                                // Use regex matching
+                                                                if !regex.is_match(pkg_name) {
+                                                                    continue;
+                                                                }
+                                                            },
+                                                            Err(err) => {
+                                                                // Log the error but fall back to simple string contains
+                                                                eprintln!("Error compiling regex pattern '{}': {}", pat, err);
+                                                                if !pkg_name.contains(pat) {
+                                                                    continue;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    // Create a PackageInfo struct and add it to the list
+                                                    packages.push(PackageInfo {
+                                                        name: pkg_name.to_string(),
+                                                        version: version.to_string(),
+                                                        publisher: pub_name.clone(),
+                                                    });
+                                                    
+                                                    // Found the package info, no need to check other attributes
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                Err(err) => {
+                                    // Log the error but continue processing other files
+                                    eprintln!("Error parsing manifest file {}: {}", path.display(), err);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // No else clause - we don't return placeholder data anymore
         }
         
         Ok(packages)
@@ -513,11 +596,11 @@ impl Repository for FileBackend {
         // For each package, list contents
         let mut contents = Vec::new();
         
-        for (pkg_name, pkg_version, _pub_name) in packages {
+        for pkg_info in packages {
             // Example content data (package, path, type)
             let example_contents = vec![
-                (format!("{}@{}", pkg_name, pkg_version), "/usr/bin/example".to_string(), "file".to_string()),
-                (format!("{}@{}", pkg_name, pkg_version), "/usr/share/doc/example".to_string(), "dir".to_string()),
+                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/bin/example".to_string(), "file".to_string()),
+                (format!("{}@{}", pkg_info.name, pkg_info.version), "/usr/share/doc/example".to_string(), "dir".to_string()),
             ];
             
             // Filter by action type if specified
