@@ -1,0 +1,227 @@
+.. CDDL HEADER START
+
+.. The contents of this file are subject to the terms of the
+   Common Development and Distribution License (the "License").
+   You may not use this file except in compliance with the License.
+
+.. You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+   or http://www.opensolaris.org/os/licensing.
+   See the License for the specific language governing permissions
+   and limitations under the License.
+
+.. When distributing Covered Code, include this CDDL HEADER in each
+   file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+   If applicable, add the following below this CDDL HEADER, with the
+   fields enclosed by brackets "[]" replaced with your own identifying
+   information: Portions Copyright [yyyy] [name of copyright owner]
+
+.. CDDL HEADER END
+
+.. Copyright (c) 2011, Oracle and/or its affiliates. All rights reserved.
+
+Chapter 13
+----------
+
+How IPS Features Are Used when Packaging the OpenIndiana OS
+..............................................................
+
+This chapter describes how IPS is used to package OpenIndiana, and how
+the various dependency types are used to define working package sets for the OS.
+
+We include this chapter to give another concrete example of how IPS can be used
+to manage a complex set of software, and talk about some of the IPS features
+that were used.
+
+Versioning
+~~~~~~~~~~
+
+In *Chapter 3* we discussed the ``pkg.fmri`` attribute, and talked about the
+different components of the version field, describing how the version field can
+be used to support different models of software development.
+
+This section explains how OpenIndiana uses the version field, and is provided
+to give an insight into the reasons why a fine-grained versioning scheme can be
+useful.  Developers **do not** have to follow the same versioning scheme as
+OpenIndiana.
+
+Given a sample package::
+
+    pkg://openindiana.org/system/library@0.5.11,5.11-2018.0.0.18233:20190417T022656Z
+
+This is how the version field ``0.5.11,5.11-2018.0.0.18233:20190417T022656Z``
+is broken down:
+
+    0.5.11
+        The component version.  For packages that are provided by illumos-gate,
+        this is the OS major.minor version.  For packages developed outside,
+        this is the upstream version. For example, the Apache Web Server in the
+        package:
+
+        ``pkg:/web/server/apache-24@2.4.39,5.11-2018.0.0.0:20190406T083404Z``
+
+        has the component version 2.4.39.
+
+    5.11
+        This is the build version.  This is used to define the OS release that
+        this package was built for and should always be 5.11 for packages created
+        for OpenIndiana.
+
+    2018.0.0.18233
+        This is the branch version. OpenIndiana uses the following notation
+        for the branch version in this release:
+
+            * 2018: Major release number. Usually corresponds to the current year
+            * 0: Release minor number. Can be incremented on significant updates.
+            * 0: Update number. Usually incremented when a lot of components need rebuilding.
+            * 18233: Component revision, incremented for each component update.
+              In this case it refers to illumos-gate commit number.
+
+    20190417T022656Z
+        This is the timestamp, defined when the package was published.
+
+
+Incorporations
+~~~~~~~~~~~~~~
+
+OpenIndiana is delivered by a set of packages, with each group of packages
+constrained by an incorporation.
+
+Each incorporation roughly represents the organization that developed each
+group of packages, though there are some cross-incorporation dependencies
+within the packages themselves.  The following is a list of the incorporation
+packages in OpenIndiana:
+
+    * ``pkg:/consolidation/cde/cde-incorporation``
+    * ``pkg:/consolidation/dbtg/dbtg-incorporation``
+    * ``pkg:/consolidation/install/install-incorporation``
+    * ``pkg:/consolidation/jdmk/jdmk-incorporation``
+    * ``pkg:/consolidation/man/man-incorporation``
+    * ``pkg:/consolidation/nspg/nspg-incorporation``
+    * ``pkg:/consolidation/osnet/osnet-incorporation``
+    * ``pkg:/consolidation/userland/userland-incorporation``
+    * ``pkg:/consolidation/X/X-incorporation``
+
+Each of these incorporations includes:
+
+    * general package metadata
+    * ``incorporate`` dependencies, sometimes with ``variant.arch`` variants
+      to denote dependencies that are specific to a given architecture
+    * a ``license`` action that ensures that when the incorporation is
+      installed, a license is displayed
+
+Each of the packages delivered on the system contains a ``require`` dependency
+on one of these incorporations.
+
+OpenIndiana also includes a special package called ``entire``.
+
+The ``entire`` constrains dependency on userland-incorporation.
+
+
+facet.version-lock.*
+~~~~~~~~~~~~~~~~~~~~
+
+Some of the incorporations, listed above use ``facet.version-lock.*`` facets,
+which were discussed in *Chapter 6*.
+
+For example, looking at the ``pkg:/consolidation/userland/userland-incorporation``
+package, we see::
+
+    .
+    .
+    depend type=incorporate \
+        fmri=library/python/subversion@1.9.7-2018.0.0.1 \
+        depend facet.version-lock.library/python/subversion=true
+    depend type=incorporate \
+        fmri=library/security/libassuan@2.1.3-2018.0.0.1 \
+        facet.version-lock.library/security/libassuan=true
+    depend type=incorporate \
+        fmri=network/chat/ircii@0.2011.11.15-2018.0.0.1 \
+        facet.version-lock.network/chat/ircii=true
+    .
+    .
+    etc.
+
+enabling the administrator to allow certain packages to float free from the
+constraints of the incorporation package.
+
+Notably, the ``entire`` package also contains version-lock facet, allowing
+userland incorporation to be removed.  However, this can result in a system
+which is difficult to fix, and this package should only be unlocked
+on development systems.
+
+.. raw:: pdf
+
+    PageBreak
+
+Informational attributes
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following attributes are not necessary for correct package installation,
+but having a shared convention lowers confusion between publishers and
+users.
+
+    info.classification
+       See *Chapter 3* under "Set actions", and *Appendix A*.
+
+    info.keyword
+       A list of additional terms that should cause this package to be
+       returned by a search.
+
+    info.maintainer
+       A human readable string describing the entity providing the
+       package.  For an individual, this string is expected to be their
+       name, or name and email.
+
+    info.maintainer-url
+       A URL associated with the entity providing the package.
+
+    info.upstream
+       A human readable string describing the entity that creates the
+       software.  For an individual, this string is expected to be
+       their name, or name and email.
+
+    info.upstream-url
+       A URL associated with the entity that creates the
+       software delivered within the package.
+
+    info.source-url
+       A URL to the source code bundle, if appropriate, for the package.
+
+    info.repository-url
+       A URL to the source code repository, if appropriate, for the
+       package.
+
+    info.repository-changeset
+       A changeset ID for the version of the source code contained in
+       info.repository-url.
+
+OpenIndiana Attributes
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    org.opensolaris.arc-caseid
+        One or more case identifiers (e.g., PSARC/2008/190) associated with
+        the ARC case (Architecture Review Committee) or cases associated with the
+        component delivered by the package.
+
+    org.opensolaris.smf.fmri
+        One or more FMRIs representing SMF services delivered by this
+        package.   These attributes are automatically generated by |pkgdepend|
+        for packages containing SMF service manifests.
+
+OpenIndiana Tags
+~~~~~~~~~~~~~~~~~~~
+
+    variant.opensolaris.zone
+        See *Chapter 12*
+
+Organization Specific Attributes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Organizations wanting to provide a package with additional metadata
+    or to amend an existing package's metadata (in a repository that
+    they have control over) must use an organization-specific prefix.
+    For example, a service organization might introduce
+    ``service.example.com,support-level`` or
+    ``com.example.service,support-level`` to describe a level of support
+    for a package and its contents.
+
