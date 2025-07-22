@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion};
+use super::{Repository, RepositoryConfig, RepositoryVersion, PublisherInfo, RepositoryInfo};
 
 /// Repository implementation that uses a REST API
 pub struct RestBackend {
@@ -105,22 +105,29 @@ impl Repository for RestBackend {
     }
     
     /// Get repository information
-    fn get_info(&self) -> Result<Vec<(String, usize, String, String)>> {
+    fn get_info(&self) -> Result<RepositoryInfo> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to get repository information
         
-        let mut info = Vec::new();
+        let mut publishers = Vec::new();
         
-        for publisher in &self.config.publishers {
+        for publisher_name in &self.config.publishers {
             // In a real implementation, we would get this information from the REST API
             let package_count = 0;
             let status = "online".to_string();
             let updated = "2025-07-21T18:46:00.000000Z".to_string();
             
-            info.push((publisher.clone(), package_count, status, updated));
+            // Create a PublisherInfo struct and add it to the list
+            publishers.push(PublisherInfo {
+                name: publisher_name.clone(),
+                package_count,
+                status,
+                updated,
+            });
         }
         
-        Ok(info)
+        // Create and return a RepositoryInfo struct
+        Ok(RepositoryInfo { publishers })
     }
     
     /// Set a repository property

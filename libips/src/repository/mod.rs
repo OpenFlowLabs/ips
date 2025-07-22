@@ -16,6 +16,26 @@ pub use rest_backend::RestBackend;
 /// Repository configuration filename
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";
 
+/// Information about a publisher in a repository
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublisherInfo {
+    /// Name of the publisher
+    pub name: String,
+    /// Number of packages from this publisher
+    pub package_count: usize,
+    /// Status of the publisher (e.g., "online", "offline")
+    pub status: String,
+    /// Last updated timestamp in ISO 8601 format
+    pub updated: String,
+}
+
+/// Information about a repository
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryInfo {
+    /// Information about publishers in the repository
+    pub publishers: Vec<PublisherInfo>,
+}
+
 /// Repository version
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RepositoryVersion {
@@ -77,7 +97,7 @@ pub trait Repository {
     fn remove_publisher(&mut self, publisher: &str, dry_run: bool) -> Result<()>;
     
     /// Get repository information
-    fn get_info(&self) -> Result<Vec<(String, usize, String, String)>>;
+    fn get_info(&self) -> Result<RepositoryInfo>;
     
     /// Set a repository property
     fn set_property(&mut self, property: &str, value: &str) -> Result<()>;

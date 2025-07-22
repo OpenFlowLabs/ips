@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 use std::convert::TryFrom;
 
-use libips::repository::{Repository, RepositoryVersion, FileBackend};
+use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo};
 
 #[cfg(test)]
 mod tests;
@@ -321,7 +321,7 @@ fn main() -> Result<()> {
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get repository info
-            let info = repo.get_info()?;
+            let repo_info = repo.get_info()?;
             
             // Print headers if not omitted
             if !omit_headers {
@@ -329,8 +329,13 @@ fn main() -> Result<()> {
             }
             
             // Print repository info
-            for (pub_name, pkg_count, status, updated) in info {
-                println!("{:<10} {:<8} {:<6} {:<30}", pub_name, pkg_count, status, updated);
+            for publisher_info in repo_info.publishers {
+                println!("{:<10} {:<8} {:<6} {:<30}", 
+                    publisher_info.name, 
+                    publisher_info.package_count, 
+                    publisher_info.status, 
+                    publisher_info.updated
+                );
             }
             
             Ok(())

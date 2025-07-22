@@ -19,12 +19,33 @@ use crate::actions::{Manifest, File as FileAction};
 use crate::digest::Digest;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME};
+use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo};
 
 /// Repository implementation that uses the local filesystem
 pub struct FileBackend {
     pub path: PathBuf,
     pub config: RepositoryConfig,
+}
+
+/// Format a SystemTime as an ISO 8601 timestamp string
+fn format_iso8601_timestamp(time: &SystemTime) -> String {
+    let duration = time.duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0));
+    
+    let secs = duration.as_secs();
+    let micros = duration.subsec_micros();
+    
+    // Format as ISO 8601 with microsecond precision
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z", 
+        // Convert seconds to date and time components
+        1970 + secs / 31536000, // year (approximate)
+        (secs % 31536000) / 2592000 + 1, // month (approximate)
+        (secs % 2592000) / 86400 + 1, // day (approximate)
+        (secs % 86400) / 3600, // hour
+        (secs % 3600) / 60, // minute
+        secs % 60, // second
+        micros // microseconds
+    )
 }
 
 /// Transaction for publishing packages
@@ -357,23 +378,62 @@ impl Repository for FileBackend {
     }
     
     /// Get repository information
-    fn get_info(&self) -> Result<Vec<(String, usize, String, String)>> {
-        let mut info = Vec::new();
+    fn get_info(&self) -> Result<RepositoryInfo> {
+        let mut publishers = Vec::new();
         
-        for publisher in &self.config.publishers {
-            // Count packages (this is a placeholder, actual implementation would count packages)
-            let package_count = 0;
+        for publisher_name in &self.config.publishers {
+            // Count packages by scanning the pkg/<publisher> directory
+            let publisher_pkg_dir = self.path.join("pkg").join(publisher_name);
+            let mut package_count = 0;
+            let mut latest_timestamp = SystemTime::UNIX_EPOCH;
             
-            // Status is always "online" for now
+            // Check if the publisher directory exists
+            if publisher_pkg_dir.exists() {
+                // Walk through the directory and count package manifests
+                if let Ok(entries) = fs::read_dir(&publisher_pkg_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        
+                        // Skip directories, only count files (package manifests)
+                        if path.is_file() {
+                            package_count += 1;
+                            
+                            // Update the latest timestamp if this file is newer
+                            if let Ok(metadata) = fs::metadata(&path) {
+                                if let Ok(modified) = metadata.modified() {
+                                    if modified > latest_timestamp {
+                                        latest_timestamp = modified;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Status is always "online" for file-based repositories
             let status = "online".to_string();
             
-            // Updated timestamp (placeholder)
-            let updated = "2025-07-21T18:46:00.000000Z".to_string();
+            // Format the timestamp in ISO 8601 format
+            let updated = if latest_timestamp == SystemTime::UNIX_EPOCH {
+                // If no files were found, use current time
+                let now = SystemTime::now();
+                format_iso8601_timestamp(&now)
+            } else {
+                format_iso8601_timestamp(&latest_timestamp)
+            };
             
-            info.push((publisher.clone(), package_count, status, updated));
+            // Create a PublisherInfo struct and add it to the list
+            publishers.push(PublisherInfo {
+                name: publisher_name.clone(),
+                package_count,
+                status,
+                updated,
+            });
         }
         
-        Ok(info)
+        // Create and return a RepositoryInfo struct
+        Ok(RepositoryInfo { publishers })
     }
     
     /// Set a repository property
