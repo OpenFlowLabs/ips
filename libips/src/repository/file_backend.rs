@@ -588,39 +588,173 @@ impl Repository for FileBackend {
     
     /// Show the contents of packages
     fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>> {
-        // This is a placeholder implementation
-        // In a real implementation, we would parse package manifests and extract contents
-        
-        // Get the list of packages
-        let packages = self.list_packages(publisher, pattern)?;
+        // We don't need to get the list of packages since we'll process the manifests directly
         
         // For each package, list contents
         let mut contents = Vec::new();
         
-        for pkg_info in packages {
-            // Format the package identifier using the FMRI
-            let pkg_id = if let Some(version) = &pkg_info.fmri.version {
-                format!("{}@{}", pkg_info.fmri.name, version)
-            } else {
-                pkg_info.fmri.name.clone()
-            };
+        // Filter publishers if specified
+        let publishers = if let Some(pub_name) = publisher {
+            if !self.config.publishers.contains(&pub_name.to_string()) {
+                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+            }
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+        
+        // For each publisher, process packages
+        for pub_name in publishers {
+            // Get the publisher's package directory
+            let publisher_pkg_dir = self.path.join("pkg").join(&pub_name);
             
-            // Example content data (package, path, type)
-            let example_contents = vec![
-                (pkg_id.clone(), "/usr/bin/example".to_string(), "file".to_string()),
-                (pkg_id.clone(), "/usr/share/doc/example".to_string(), "dir".to_string()),
-            ];
-            
-            // Filter by action type if specified
-            let filtered_contents = if let Some(types) = action_types {
-                example_contents.into_iter()
-                    .filter(|(_, _, action_type)| types.contains(&action_type))
-                    .collect::<Vec<_>>()
-            } else {
-                example_contents
-            };
-            
-            contents.extend(filtered_contents);
+            // Check if the publisher directory exists
+            if publisher_pkg_dir.exists() {
+                // Walk through the directory and collect package manifests
+                if let Ok(entries) = fs::read_dir(&publisher_pkg_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        
+                        // Skip directories, only process files (package manifests)
+                        if path.is_file() {
+                            // Parse the manifest file to get package information
+                            match Manifest::parse_file(&path) {
+                                Ok(manifest) => {
+                                    // Look for the pkg.fmri attribute to identify the package
+                                    let mut pkg_id = String::new();
+                                    
+                                    for attr in &manifest.attributes {
+                                        if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                                            let fmri = &attr.values[0];
+                                            
+                                            // Parse the FMRI using our Fmri type
+                                            match Fmri::parse(fmri) {
+                                                Ok(parsed_fmri) => {
+                                                    // Filter by pattern if specified
+                                                    if let Some(pat) = pattern {
+                                                        // Try to compile the pattern as a regex
+                                                        match Regex::new(pat) {
+                                                            Ok(regex) => {
+                                                                // Use regex matching
+                                                                if !regex.is_match(&parsed_fmri.name) {
+                                                                    continue;
+                                                                }
+                                                            },
+                                                            Err(err) => {
+                                                                // Log the error but fall back to simple string contains
+                                                                eprintln!("Error compiling regex pattern '{}': {}", pat, err);
+                                                                if !parsed_fmri.name.contains(pat) {
+                                                                    continue;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    // Format the package identifier using the FMRI
+                                                    pkg_id = if let Some(version) = &parsed_fmri.version {
+                                                        format!("{}@{}", parsed_fmri.name, version)
+                                                    } else {
+                                                        parsed_fmri.name.clone()
+                                                    };
+                                                    
+                                                    break;
+                                                },
+                                                Err(err) => {
+                                                    // Log the error but continue processing
+                                                    eprintln!("Error parsing FMRI '{}': {}", fmri, err);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Skip if we couldn't determine the package ID
+                                    if pkg_id.is_empty() {
+                                        continue;
+                                    }
+                                    
+                                    // Process file actions
+                                    for file in &manifest.files {
+                                        // Skip if action type filtering is enabled and "file" is not in the list
+                                        if let Some(types) = action_types {
+                                            if !types.contains(&"file".to_string()) {
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // Add the file content information to the result
+                                        contents.push((pkg_id.clone(), file.path.clone(), "file".to_string()));
+                                    }
+                                    
+                                    // Process directory actions
+                                    for dir in &manifest.directories {
+                                        // Skip if action type filtering is enabled and "dir" is not in the list
+                                        if let Some(types) = action_types {
+                                            if !types.contains(&"dir".to_string()) {
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // Add the directory content information to the result
+                                        contents.push((pkg_id.clone(), dir.path.clone(), "dir".to_string()));
+                                    }
+                                    
+                                    // Process link actions
+                                    for link in &manifest.links {
+                                        // Skip if action type filtering is enabled and "link" is not in the list
+                                        if let Some(types) = action_types {
+                                            if !types.contains(&"link".to_string()) {
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // Add the link content information to the result
+                                        contents.push((pkg_id.clone(), link.path.clone(), "link".to_string()));
+                                    }
+                                    
+                                    // Process dependency actions
+                                    for depend in &manifest.dependencies {
+                                        // Skip if action type filtering is enabled and "depend" is not in the list
+                                        if let Some(types) = action_types {
+                                            if !types.contains(&"depend".to_string()) {
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // For dependencies, use the fmri as the path
+                                        if let Some(fmri) = &depend.fmri {
+                                            contents.push((pkg_id.clone(), fmri.to_string(), "depend".to_string()));
+                                        }
+                                    }
+                                    
+                                    // Process license actions
+                                    for license in &manifest.licenses {
+                                        // Skip if action type filtering is enabled and "license" is not in the list
+                                        if let Some(types) = action_types {
+                                            if !types.contains(&"license".to_string()) {
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // For licenses, use the license path from properties if available
+                                        if let Some(path_prop) = license.properties.get("path") {
+                                            contents.push((pkg_id.clone(), path_prop.value.clone(), "license".to_string()));
+                                        } else if let Some(license_prop) = license.properties.get("license") {
+                                            contents.push((pkg_id.clone(), license_prop.value.clone(), "license".to_string()));
+                                        } else {
+                                            // If no path property, use the payload as the path
+                                            contents.push((pkg_id.clone(), license.payload.clone(), "license".to_string()));
+                                        }
+                                    }
+                                },
+                                Err(err) => {
+                                    // Log the error but continue processing other files
+                                    eprintln!("Error parsing manifest file {}: {}", path.display(), err);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         Ok(contents)
