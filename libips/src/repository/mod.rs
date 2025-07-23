@@ -9,9 +9,11 @@ use std::collections::HashMap;
 
 mod file_backend;
 mod rest_backend;
+mod catalog;
 
 pub use file_backend::FileBackend;
 pub use rest_backend::RestBackend;
+pub use catalog::{CatalogManager, CatalogAttrs, CatalogPart, UpdateLog, CatalogOperationType};
 
 /// Repository configuration filename
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";

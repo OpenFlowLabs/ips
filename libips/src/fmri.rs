@@ -519,6 +519,19 @@ impl Fmri {
             version,
         }
     }
+    
+    /// Get the stem of the FMRI (the package name without version)
+    pub fn stem(&self) -> &str {
+        &self.name
+    }
+    
+    /// Get the version of the FMRI as a string
+    pub fn version(&self) -> String {
+        match &self.version {
+            Some(v) => v.to_string(),
+            None => String::new(),
+        }
+    }
 
     /// Parse an FMRI string into an Fmri
     ///

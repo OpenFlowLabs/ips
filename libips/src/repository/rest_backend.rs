@@ -212,10 +212,11 @@ impl Repository for RestBackend {
             // In a real implementation, we would get this information from the REST API
             
             // Format the package identifier using the FMRI
-            let pkg_id = if let Some(version) = &pkg_info.fmri.version {
-                format!("{}@{}", pkg_info.fmri.name, version)
+            let version = pkg_info.fmri.version();
+            let pkg_id = if !version.is_empty() {
+                format!("{}@{}", pkg_info.fmri.stem(), version)
             } else {
-                pkg_info.fmri.name.clone()
+                pkg_info.fmri.stem().to_string()
             };
             
             // Example content for each type

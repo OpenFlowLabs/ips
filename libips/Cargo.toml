@@ -34,3 +34,4 @@ semver = { version = "1.0.20", features = ["serde"] }
 diff-struct = "0.5.3"
 searchy = "0.5.0"
 tantivy = { version = "0.24.2", features = ["mmap"] }
+chrono = "0.4.41"

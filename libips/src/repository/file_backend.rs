@@ -16,6 +16,7 @@ use flate2::Compression as GzipCompression;
 use lz4::EncoderBuilder;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
 use serde::{Serialize, Deserialize};
 
 use crate::actions::{Manifest, File as FileAction};
@@ -69,16 +70,17 @@ impl SearchIndex {
         let fmri = package.fmri.to_string();
         
         // Add the package name as a term
-        self.add_term(&package.fmri.name, &fmri, &package.fmri.name);
+        self.add_term(package.fmri.stem(), &fmri, package.fmri.stem());
         
         // Add the publisher as a term if available
         if let Some(publisher) = &package.fmri.publisher {
-            self.add_term(publisher, &fmri, &package.fmri.name);
+            self.add_term(publisher, &fmri, package.fmri.stem());
         }
         
         // Add the version as a term if available
-        if let Some(version) = &package.fmri.version {
-            self.add_term(&version.to_string(), &fmri, &package.fmri.name);
+        let version = package.fmri.version();
+        if !version.is_empty() {
+            self.add_term(&version, &fmri, &package.fmri.stem());
         }
         
         // Add contents if available
@@ -86,21 +88,21 @@ impl SearchIndex {
             // Add files
             if let Some(files) = &content.files {
                 for file in files {
-                    self.add_term(file, &fmri, &package.fmri.name);
+                    self.add_term(file, &fmri, package.fmri.stem());
                 }
             }
             
             // Add directories
             if let Some(directories) = &content.directories {
                 for dir in directories {
-                    self.add_term(dir, &fmri, &package.fmri.name);
+                    self.add_term(dir, &fmri, package.fmri.stem());
                 }
             }
             
             // Add dependencies
             if let Some(dependencies) = &content.dependencies {
                 for dep in dependencies {
-                    self.add_term(dep, &fmri, &package.fmri.name);
+                    self.add_term(dep, &fmri, package.fmri.stem());
                 }
             }
         }
@@ -197,6 +199,8 @@ impl SearchIndex {
 pub struct FileBackend {
     pub path: PathBuf,
     pub config: RepositoryConfig,
+    /// Catalog manager for handling catalog operations
+    catalog_manager: Option<crate::repository::catalog::CatalogManager>,
 }
 
 /// Format a SystemTime as an ISO 8601 timestamp string
@@ -475,6 +479,7 @@ impl Repository for FileBackend {
         let repo = FileBackend {
             path: path.to_path_buf(),
             config,
+            catalog_manager: None,
         };
         
         // Create the repository directories
@@ -503,6 +508,7 @@ impl Repository for FileBackend {
         Ok(FileBackend {
             path: path.to_path_buf(),
             config,
+            catalog_manager: None,
         })
     }
     
@@ -700,14 +706,14 @@ impl Repository for FileBackend {
                                                         match Regex::new(pat) {
                                                             Ok(regex) => {
                                                                 // Use regex matching
-                                                                if !regex.is_match(&parsed_fmri.name) {
+                                                                if !regex.is_match(parsed_fmri.stem()) {
                                                                     continue;
                                                                 }
                                                             },
                                                             Err(err) => {
                                                                 // Log the error but fall back to simple string contains
                                                                 eprintln!("Error compiling regex pattern '{}': {}", pat, err);
-                                                                if !parsed_fmri.name.contains(pat) {
+                                                                if !parsed_fmri.stem().contains(pat) {
                                                                     continue;
                                                                 }
                                                             }
@@ -827,14 +833,14 @@ impl Repository for FileBackend {
                                                         match Regex::new(pat) {
                                                             Ok(regex) => {
                                                                 // Use regex matching
-                                                                if !regex.is_match(&parsed_fmri.name) {
+                                                                if !regex.is_match(parsed_fmri.stem()) {
                                                                     continue;
                                                                 }
                                                             },
                                                             Err(err) => {
                                                                 // Log the error but fall back to simple string contains
                                                                 eprintln!("Error compiling regex pattern '{}': {}", pat, err);
-                                                                if !parsed_fmri.name.contains(pat) {
+                                                                if !parsed_fmri.stem().contains(pat) {
                                                                     continue;
                                                                 }
                                                             }
@@ -842,10 +848,11 @@ impl Repository for FileBackend {
                                                     }
                                                     
                                                     // Format the package identifier using the FMRI
-                                                    pkg_id = if let Some(version) = &parsed_fmri.version {
-                                                        format!("{}@{}", parsed_fmri.name, version)
+                                                    let version = parsed_fmri.version();
+                                                    pkg_id = if !version.is_empty() {
+                                                        format!("{}@{}", parsed_fmri.stem(), version)
                                                     } else {
-                                                        parsed_fmri.name.clone()
+                                                        parsed_fmri.stem().to_string()
                                                     };
                                                     
                                                     break;
@@ -1093,7 +1100,7 @@ impl Repository for FileBackend {
                     .into_iter()
                     .filter(|pkg| {
                         // Match against package name
-                        pkg.fmri.name.contains(query)
+                        pkg.fmri.stem().contains(query)
                     })
                     .collect();
                 
@@ -1120,6 +1127,226 @@ impl FileBackend {
         fs::create_dir_all(self.path.join("index"))?;
         fs::create_dir_all(self.path.join("pkg"))?;
         fs::create_dir_all(self.path.join("trans"))?;
+        
+        Ok(())
+    }
+    
+    /// Get or initialize the catalog manager
+    fn get_catalog_manager(&mut self) -> Result<&mut crate::repository::catalog::CatalogManager> {
+        if self.catalog_manager.is_none() {
+            let catalog_dir = self.path.join("catalog");
+            self.catalog_manager = Some(crate::repository::catalog::CatalogManager::new(&catalog_dir)?);
+        }
+        
+        Ok(self.catalog_manager.as_mut().unwrap())
+    }
+    
+    /// URL encode a string for use in a filename
+    fn url_encode(s: &str) -> String {
+        let mut result = String::new();
+        for c in s.chars() {
+            match c {
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
+                ' ' => result.push('+'),
+                _ => {
+                    result.push('%');
+                    result.push_str(&format!("{:02X}", c as u8));
+                }
+            }
+        }
+        result
+    }
+    
+    /// Generate catalog parts for a publisher
+    fn generate_catalog_parts(&mut self, publisher: &str, create_update_log: bool) -> Result<()> {
+        println!("Generating catalog parts for publisher: {}", publisher);
+        
+        // Collect package data first
+        let repo_path = self.path.clone();
+        let packages = self.list_packages(Some(publisher), None)?;
+        
+        // Prepare data structures for catalog parts
+        let mut base_entries = Vec::new();
+        let mut dependency_entries = Vec::new();
+        let mut summary_entries = Vec::new();
+        let mut update_entries = Vec::new();
+        
+        // Track package counts
+        let mut package_count = 0;
+        let mut package_version_count = 0;
+        
+        // Process each package
+        for package in packages {
+            let fmri = &package.fmri;
+            let stem = fmri.stem();
+            
+            // Skip if no version
+            if fmri.version().is_empty() {
+                continue;
+            }
+            
+            // Get the package manifest
+            let pkg_dir = repo_path.join("pkg").join(publisher).join(stem);
+            if !pkg_dir.exists() {
+                continue;
+            }
+            
+            // Get the package version
+            let version = fmri.version();
+            let encoded_version = Self::url_encode(&version);
+            let manifest_path = pkg_dir.join(encoded_version);
+            
+            if !manifest_path.exists() {
+                continue;
+            }
+            
+            // Read the manifest
+            let manifest_content = std::fs::read_to_string(&manifest_path)?;
+            let manifest = crate::actions::Manifest::parse_string(manifest_content.clone())?;
+            
+            // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(manifest_content.as_bytes());
+            let signature = format!("{:x}", hasher.finalize());
+            
+            // Add to base entries
+            base_entries.push((fmri.clone(), None, signature.clone()));
+            
+            // Extract dependency actions
+            let mut dependency_actions = Vec::new();
+            for dep in &manifest.dependencies {
+                if let Some(dep_fmri) = &dep.fmri {
+                    dependency_actions.push(format!("depend fmri={} type={}", dep_fmri, dep.dependency_type));
+                }
+            }
+            
+            // Extract variant and facet actions
+            for attr in &manifest.attributes {
+                if attr.key.starts_with("variant.") || attr.key.starts_with("facet.") {
+                    let values_str = attr.values.join(" value=");
+                    dependency_actions.push(format!("set name={} value={}", attr.key, values_str));
+                }
+            }
+            
+            // Add to dependency entries if there are dependency actions
+            if !dependency_actions.is_empty() {
+                dependency_entries.push((fmri.clone(), Some(dependency_actions.clone()), signature.clone()));
+            }
+            
+            // Extract summary actions (set actions excluding variants and facets)
+            let mut summary_actions = Vec::new();
+            for attr in &manifest.attributes {
+                if !attr.key.starts_with("variant.") && !attr.key.starts_with("facet.") {
+                    let values_str = attr.values.join(" value=");
+                    summary_actions.push(format!("set name={} value={}", attr.key, values_str));
+                }
+            }
+            
+            // Add to summary entries if there are summary actions
+            if !summary_actions.is_empty() {
+                summary_entries.push((fmri.clone(), Some(summary_actions.clone()), signature.clone()));
+            }
+            
+            // Prepare update entry if needed
+            if create_update_log {
+                let mut catalog_parts = std::collections::HashMap::new();
+                
+                // Add dependency actions to update entry
+                if !dependency_actions.is_empty() {
+                    let mut actions = std::collections::HashMap::new();
+                    actions.insert("actions".to_string(), dependency_actions);
+                    catalog_parts.insert("catalog.dependency.C".to_string(), actions);
+                }
+                
+                // Add summary actions to update entry
+                if !summary_actions.is_empty() {
+                    let mut actions = std::collections::HashMap::new();
+                    actions.insert("actions".to_string(), summary_actions);
+                    catalog_parts.insert("catalog.summary.C".to_string(), actions);
+                }
+                
+                // Add to update entries
+                update_entries.push((fmri.clone(), catalog_parts, signature));
+            }
+            
+            // Update counts
+            package_count += 1;
+            package_version_count += 1;
+        }
+        
+        // Now get the catalog manager and create the catalog parts
+        let catalog_manager = self.get_catalog_manager()?;
+        
+        // Create and populate the base part
+        let base_part_name = "catalog.base.C".to_string();
+        let base_part = catalog_manager.create_part(&base_part_name);
+        for (fmri, actions, signature) in base_entries {
+            base_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        catalog_manager.save_part(&base_part_name)?;
+        
+        // Create and populate dependency part
+        let dependency_part_name = "catalog.dependency.C".to_string();
+        let dependency_part = catalog_manager.create_part(&dependency_part_name);
+        for (fmri, actions, signature) in dependency_entries {
+            dependency_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        catalog_manager.save_part(&dependency_part_name)?;
+        
+        // Create and populate summary part
+        let summary_part_name = "catalog.summary.C".to_string();
+        let summary_part = catalog_manager.create_part(&summary_part_name);
+        for (fmri, actions, signature) in summary_entries {
+            summary_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        catalog_manager.save_part(&summary_part_name)?;
+        
+        // Create and populate the update log if needed
+        if create_update_log {
+            let now = std::time::SystemTime::now();
+            let timestamp = format_iso8601_timestamp(&now);
+            let update_log_name = format!("update.{}Z.C", timestamp.split('.').next().unwrap());
+            
+            let update_log = catalog_manager.create_update_log(&update_log_name);
+            for (fmri, catalog_parts, signature) in update_entries {
+                update_log.add_update(
+                    publisher,
+                    &fmri,
+                    crate::repository::catalog::CatalogOperationType::Add,
+                    catalog_parts,
+                    Some(signature),
+                );
+            }
+            catalog_manager.save_update_log(&update_log_name)?;
+        }
+        
+        // Update catalog attributes
+        let now = std::time::SystemTime::now();
+        let timestamp = format_iso8601_timestamp(&now);
+        
+        let attrs = catalog_manager.attrs_mut();
+        attrs.last_modified = timestamp.clone();
+        attrs.package_count = package_count;
+        attrs.package_version_count = package_version_count;
+        
+        // Add part information
+        attrs.parts.insert(base_part_name.clone(), crate::repository::catalog::CatalogPartInfo {
+            last_modified: timestamp.clone(),
+            signature_sha1: None,
+        });
+        
+        attrs.parts.insert(dependency_part_name.clone(), crate::repository::catalog::CatalogPartInfo {
+            last_modified: timestamp.clone(),
+            signature_sha1: None,
+        });
+        
+        attrs.parts.insert(summary_part_name.clone(), crate::repository::catalog::CatalogPartInfo {
+            last_modified: timestamp.clone(),
+            signature_sha1: None,
+        });
+        
+        // Save catalog attributes
+        catalog_manager.save_attrs()?;
         
         Ok(())
     }
@@ -1160,10 +1387,11 @@ impl FileBackend {
                                                 };
                                                 
                                                 // Create a PackageContents struct
-                                                let package_id = if let Some(version) = &parsed_fmri.version {
-                                                    format!("{}@{}", parsed_fmri.name, version)
+                                                let version = parsed_fmri.version();
+                                                let package_id = if !version.is_empty() {
+                                                    format!("{}@{}", parsed_fmri.stem(), version)
                                                 } else {
-                                                    parsed_fmri.name.clone()
+                                                    parsed_fmri.stem().to_string()
                                                 };
                                                 
                                                 // Extract content information

@@ -379,17 +379,14 @@ fn main() -> Result<()> {
             // Print packages
             for pkg_info in packages {
                 // Format version and publisher, handling optional fields
-                let version_str = match &pkg_info.fmri.version {
-                    Some(version) => version.to_string(),
-                    None => String::new(),
-                };
+                let version_str = pkg_info.fmri.version();
                 
                 let publisher_str = match &pkg_info.fmri.publisher {
                     Some(publisher) => publisher.clone(),
                     None => String::new(),
                 };
                 
-                println!("{:<30} {:<15} {:<10}", pkg_info.fmri.name, version_str, publisher_str);
+                println!("{:<30} {:<15} {:<10}", pkg_info.fmri.stem(), version_str, publisher_str);
             }
             
             Ok(())
