@@ -21,7 +21,7 @@ use crate::digest::Digest;
 use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo, PackageInfo};
+use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo, PackageInfo, PackageContents};
 
 /// Repository implementation that uses the local filesystem
 pub struct FileBackend {
@@ -587,11 +587,32 @@ impl Repository for FileBackend {
     }
     
     /// Show the contents of packages
-    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>> {
+    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<PackageContents>> {
         // We don't need to get the list of packages since we'll process the manifests directly
         
-        // For each package, list contents
-        let mut contents = Vec::new();
+        // Use a HashMap to store package information
+        let mut packages = std::collections::HashMap::new();
+        
+        // Define a struct to hold the content vectors for each package
+        struct PackageContentVectors {
+            files: Vec<String>,
+            directories: Vec<String>,
+            links: Vec<String>,
+            dependencies: Vec<String>,
+            licenses: Vec<String>,
+        }
+        
+        impl PackageContentVectors {
+            fn new() -> Self {
+                Self {
+                    files: Vec::new(),
+                    directories: Vec::new(),
+                    links: Vec::new(),
+                    dependencies: Vec::new(),
+                    licenses: Vec::new(),
+                }
+            }
+        }
         
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
@@ -672,77 +693,51 @@ impl Repository for FileBackend {
                                         continue;
                                     }
                                     
+                                    // Get or create the content vectors for this package
+                                    let content_vectors = packages
+                                        .entry(pkg_id.clone())
+                                        .or_insert_with(PackageContentVectors::new);
+                                    
                                     // Process file actions
-                                    for file in &manifest.files {
-                                        // Skip if action type filtering is enabled and "file" is not in the list
-                                        if let Some(types) = action_types {
-                                            if !types.contains(&"file".to_string()) {
-                                                continue;
-                                            }
+                                    if action_types.is_none() || action_types.as_ref().unwrap().contains(&"file".to_string()) {
+                                        for file in &manifest.files {
+                                            content_vectors.files.push(file.path.clone());
                                         }
-                                        
-                                        // Add the file content information to the result
-                                        contents.push((pkg_id.clone(), file.path.clone(), "file".to_string()));
                                     }
                                     
                                     // Process directory actions
-                                    for dir in &manifest.directories {
-                                        // Skip if action type filtering is enabled and "dir" is not in the list
-                                        if let Some(types) = action_types {
-                                            if !types.contains(&"dir".to_string()) {
-                                                continue;
-                                            }
+                                    if action_types.is_none() || action_types.as_ref().unwrap().contains(&"dir".to_string()) {
+                                        for dir in &manifest.directories {
+                                            content_vectors.directories.push(dir.path.clone());
                                         }
-                                        
-                                        // Add the directory content information to the result
-                                        contents.push((pkg_id.clone(), dir.path.clone(), "dir".to_string()));
                                     }
                                     
                                     // Process link actions
-                                    for link in &manifest.links {
-                                        // Skip if action type filtering is enabled and "link" is not in the list
-                                        if let Some(types) = action_types {
-                                            if !types.contains(&"link".to_string()) {
-                                                continue;
-                                            }
+                                    if action_types.is_none() || action_types.as_ref().unwrap().contains(&"link".to_string()) {
+                                        for link in &manifest.links {
+                                            content_vectors.links.push(link.path.clone());
                                         }
-                                        
-                                        // Add the link content information to the result
-                                        contents.push((pkg_id.clone(), link.path.clone(), "link".to_string()));
                                     }
                                     
                                     // Process dependency actions
-                                    for depend in &manifest.dependencies {
-                                        // Skip if action type filtering is enabled and "depend" is not in the list
-                                        if let Some(types) = action_types {
-                                            if !types.contains(&"depend".to_string()) {
-                                                continue;
+                                    if action_types.is_none() || action_types.as_ref().unwrap().contains(&"depend".to_string()) {
+                                        for depend in &manifest.dependencies {
+                                            if let Some(fmri) = &depend.fmri {
+                                                content_vectors.dependencies.push(fmri.to_string());
                                             }
-                                        }
-                                        
-                                        // For dependencies, use the fmri as the path
-                                        if let Some(fmri) = &depend.fmri {
-                                            contents.push((pkg_id.clone(), fmri.to_string(), "depend".to_string()));
                                         }
                                     }
                                     
                                     // Process license actions
-                                    for license in &manifest.licenses {
-                                        // Skip if action type filtering is enabled and "license" is not in the list
-                                        if let Some(types) = action_types {
-                                            if !types.contains(&"license".to_string()) {
-                                                continue;
+                                    if action_types.is_none() || action_types.as_ref().unwrap().contains(&"license".to_string()) {
+                                        for license in &manifest.licenses {
+                                            if let Some(path_prop) = license.properties.get("path") {
+                                                content_vectors.licenses.push(path_prop.value.clone());
+                                            } else if let Some(license_prop) = license.properties.get("license") {
+                                                content_vectors.licenses.push(license_prop.value.clone());
+                                            } else {
+                                                content_vectors.licenses.push(license.payload.clone());
                                             }
-                                        }
-                                        
-                                        // For licenses, use the license path from properties if available
-                                        if let Some(path_prop) = license.properties.get("path") {
-                                            contents.push((pkg_id.clone(), path_prop.value.clone(), "license".to_string()));
-                                        } else if let Some(license_prop) = license.properties.get("license") {
-                                            contents.push((pkg_id.clone(), license_prop.value.clone(), "license".to_string()));
-                                        } else {
-                                            // If no path property, use the payload as the path
-                                            contents.push((pkg_id.clone(), license.payload.clone(), "license".to_string()));
                                         }
                                     }
                                 },
@@ -757,7 +752,53 @@ impl Repository for FileBackend {
             }
         }
         
-        Ok(contents)
+        // Convert the HashMap to a Vec<PackageContents>
+        let package_contents = packages
+            .into_iter()
+            .map(|(package_id, content_vectors)| {
+                // Only include non-empty vectors
+                let files = if content_vectors.files.is_empty() {
+                    None
+                } else {
+                    Some(content_vectors.files)
+                };
+                
+                let directories = if content_vectors.directories.is_empty() {
+                    None
+                } else {
+                    Some(content_vectors.directories)
+                };
+                
+                let links = if content_vectors.links.is_empty() {
+                    None
+                } else {
+                    Some(content_vectors.links)
+                };
+                
+                let dependencies = if content_vectors.dependencies.is_empty() {
+                    None
+                } else {
+                    Some(content_vectors.dependencies)
+                };
+                
+                let licenses = if content_vectors.licenses.is_empty() {
+                    None
+                } else {
+                    Some(content_vectors.licenses)
+                };
+                
+                PackageContents {
+                    package_id,
+                    files,
+                    directories,
+                    links,
+                    dependencies,
+                    licenses,
+                }
+            })
+            .collect();
+        
+        Ok(package_contents)
     }
     
     /// Rebuild repository metadata

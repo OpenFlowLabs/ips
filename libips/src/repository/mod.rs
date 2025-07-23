@@ -43,6 +43,23 @@ pub struct PackageInfo {
     pub fmri: crate::fmri::Fmri,
 }
 
+/// Contents of a package
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageContents {
+    /// Package identifier (name and version)
+    pub package_id: String,
+    /// Files in the package
+    pub files: Option<Vec<String>>,
+    /// Directories in the package
+    pub directories: Option<Vec<String>>,
+    /// Links in the package
+    pub links: Option<Vec<String>>,
+    /// Dependencies of the package
+    pub dependencies: Option<Vec<String>>,
+    /// Licenses in the package
+    pub licenses: Option<Vec<String>>,
+}
+
 /// Repository version
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RepositoryVersion {
@@ -116,7 +133,7 @@ pub trait Repository {
     fn list_packages(&self, publisher: Option<&str>, pattern: Option<&str>) -> Result<Vec<PackageInfo>>;
     
     /// Show contents of packages
-    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>>;
+    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<PackageContents>>;
     
     /// Rebuild repository metadata
     fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;

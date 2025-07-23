@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 use std::convert::TryFrom;
 
-use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo, PackageInfo};
+use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo, PackageInfo, PackageContents};
 
 #[cfg(test)]
 mod tests;
@@ -415,13 +415,70 @@ fn main() -> Result<()> {
             let contents = repo.show_contents(None, pattern_option, action_type.as_deref())?;
             
             // Print contents
-            for (package, path, action_type) in contents {
-                if *manifest {
-                    // If manifest option is specified, print in manifest format
-                    println!("{} path={} type={}", action_type, path, package);
-                } else {
-                    // Otherwise, print in table format
-                    println!("{:<40} {:<30} {:<10}", package, path, action_type);
+            for pkg_contents in contents {
+                // Process files
+                if let Some(files) = &pkg_contents.files {
+                    for path in files {
+                        if *manifest {
+                            // If manifest option is specified, print in manifest format
+                            println!("file path={} type={}", path, pkg_contents.package_id);
+                        } else {
+                            // Otherwise, print in table format
+                            println!("{:<40} {:<30} {:<10}", pkg_contents.package_id, path, "file");
+                        }
+                    }
+                }
+                
+                // Process directories
+                if let Some(directories) = &pkg_contents.directories {
+                    for path in directories {
+                        if *manifest {
+                            // If manifest option is specified, print in manifest format
+                            println!("dir path={} type={}", path, pkg_contents.package_id);
+                        } else {
+                            // Otherwise, print in table format
+                            println!("{:<40} {:<30} {:<10}", pkg_contents.package_id, path, "dir");
+                        }
+                    }
+                }
+                
+                // Process links
+                if let Some(links) = &pkg_contents.links {
+                    for path in links {
+                        if *manifest {
+                            // If manifest option is specified, print in manifest format
+                            println!("link path={} type={}", path, pkg_contents.package_id);
+                        } else {
+                            // Otherwise, print in table format
+                            println!("{:<40} {:<30} {:<10}", pkg_contents.package_id, path, "link");
+                        }
+                    }
+                }
+                
+                // Process dependencies
+                if let Some(dependencies) = &pkg_contents.dependencies {
+                    for path in dependencies {
+                        if *manifest {
+                            // If manifest option is specified, print in manifest format
+                            println!("depend path={} type={}", path, pkg_contents.package_id);
+                        } else {
+                            // Otherwise, print in table format
+                            println!("{:<40} {:<30} {:<10}", pkg_contents.package_id, path, "depend");
+                        }
+                    }
+                }
+                
+                // Process licenses
+                if let Some(licenses) = &pkg_contents.licenses {
+                    for path in licenses {
+                        if *manifest {
+                            // If manifest option is specified, print in manifest format
+                            println!("license path={} type={}", path, pkg_contents.package_id);
+                        } else {
+                            // Otherwise, print in table format
+                            println!("{:<40} {:<30} {:<10}", pkg_contents.package_id, path, "license");
+                        }
+                    }
                 }
             }
             

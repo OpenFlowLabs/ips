@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
-use super::{Repository, RepositoryConfig, RepositoryVersion, PublisherInfo, RepositoryInfo, PackageInfo};
+use super::{Repository, RepositoryConfig, RepositoryVersion, PublisherInfo, RepositoryInfo, PackageInfo, PackageContents};
 
 /// Repository implementation that uses a REST API
 pub struct RestBackend {
@@ -198,15 +198,15 @@ impl Repository for RestBackend {
     }
     
     /// Show contents of packages
-    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<(String, String, String)>> {
+    fn show_contents(&self, publisher: Option<&str>, pattern: Option<&str>, action_types: Option<&[String]>) -> Result<Vec<PackageContents>> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to get package contents
         
         // Get the list of packages
         let packages = self.list_packages(publisher, pattern)?;
         
-        // For each package, list contents
-        let mut contents = Vec::new();
+        // For each package, create a PackageContents struct
+        let mut package_contents = Vec::new();
         
         for pkg_info in packages {
             // In a real implementation, we would get this information from the REST API
@@ -218,25 +218,68 @@ impl Repository for RestBackend {
                 pkg_info.fmri.name.clone()
             };
             
-            // Example content data (package, path, type)
-            let example_contents = vec![
-                (pkg_id.clone(), "/usr/bin/example".to_string(), "file".to_string()),
-                (pkg_id.clone(), "/usr/share/doc/example".to_string(), "dir".to_string()),
-            ];
+            // Example content for each type
+            // In a real implementation, we would get this information from the REST API
             
-            // Filter by action type if specified
-            let filtered_contents = if let Some(types) = action_types {
-                example_contents.into_iter()
-                    .filter(|(_, _, action_type)| types.contains(&action_type))
-                    .collect::<Vec<_>>()
+            // Files
+            let files = if action_types.is_none() || action_types.as_ref().unwrap().contains(&"file".to_string()) {
+                Some(vec![
+                    "/usr/bin/example".to_string(),
+                    "/usr/lib/example.so".to_string(),
+                ])
             } else {
-                example_contents
+                None
             };
             
-            contents.extend(filtered_contents);
+            // Directories
+            let directories = if action_types.is_none() || action_types.as_ref().unwrap().contains(&"dir".to_string()) {
+                Some(vec![
+                    "/usr/share/doc/example".to_string(),
+                    "/usr/share/man/man1".to_string(),
+                ])
+            } else {
+                None
+            };
+            
+            // Links
+            let links = if action_types.is_none() || action_types.as_ref().unwrap().contains(&"link".to_string()) {
+                Some(vec![
+                    "/usr/bin/example-link".to_string(),
+                ])
+            } else {
+                None
+            };
+            
+            // Dependencies
+            let dependencies = if action_types.is_none() || action_types.as_ref().unwrap().contains(&"depend".to_string()) {
+                Some(vec![
+                    "pkg:/system/library@0.5.11".to_string(),
+                ])
+            } else {
+                None
+            };
+            
+            // Licenses
+            let licenses = if action_types.is_none() || action_types.as_ref().unwrap().contains(&"license".to_string()) {
+                Some(vec![
+                    "/usr/share/licenses/example/LICENSE".to_string(),
+                ])
+            } else {
+                None
+            };
+            
+            // Add the package contents to the result
+            package_contents.push(PackageContents {
+                package_id: pkg_id,
+                files,
+                directories,
+                links,
+                dependencies,
+                licenses,
+            });
         }
         
-        Ok(contents)
+        Ok(package_contents)
     }
     
     /// Rebuild repository metadata
