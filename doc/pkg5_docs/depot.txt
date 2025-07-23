@@ -162,6 +162,10 @@ DEPOT
         These operations alter a repository's catalog, package metadata, and
         allow storage of package content.
 
+    - administrative
+        These operations perform administrative tasks on the repository or
+        depot server.
+
 2.2.2. Modes
 
     Which types of operations are available is dependent on which mode the depot
@@ -202,7 +206,48 @@ DEPOT
                 The contents of the file, compressed using the gzip compression
                 algorithm.
 
-2.2.2.  Depot Operations
+        Version 1:
+            A GET or POST/PUT operation that retrieves or uploads the contents of a file.
+            For GET requests, it behaves the same as Version 0.
+            For POST/PUT requests, it allows uploading file content to the repository.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/file/1/
+                a00030db8b91f85d0b7144d0d4ef241a3f1ae28f
+
+            Expects:
+                For GET: A SHA-1 hash of the file's content belonging to a package in the
+                request path.
+                For POST/PUT: The file content in the request body.
+
+            Returns:
+                For GET: The contents of the file, compressed using the gzip compression
+                algorithm.
+                For POST/PUT: Response status of 200 on success; any other status indicates
+                failure.
+
+        Version 2:
+            Extends Version 1 to add support for HEAD requests. For GET and POST/PUT
+            requests, it behaves the same as Version 1. For HEAD requests, it returns
+            metadata about the file without returning the file content.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/file/2/
+                a00030db8b91f85d0b7144d0d4ef241a3f1ae28f
+
+            Expects:
+                For GET/POST/PUT: Same as Version 1.
+                For HEAD: A SHA-1 hash of the file's content belonging to a package in the
+                request path.
+
+            Returns:
+                For GET/POST/PUT: Same as Version 1.
+                For HEAD: Response headers containing file metadata including compressed
+                attributes in X-Ipkg-Attr-{n} headers.
+
+2.2.4.  Depot Operations
 
     - versions
         Version 0:
@@ -235,7 +280,23 @@ DEPOT
                 close 0
                 open 0
 
-2.2.2.  Meta-data Operations
+    - status
+        Version 0:
+            A GET operation that retrieves a JSON formatted dictionary containing
+            statistics information for the repository being served.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/status/0/
+
+            Expects:
+                Nothing
+
+            Returns:
+                A JSON formatted dictionary containing statistics information for
+                the repository being served.
+
+2.2.5.  Meta-data Operations
 
     - catalog
         Version 0:
@@ -255,6 +316,164 @@ DEPOT
                 Either the contents of a pkg(5) catalog file, or the entries
                 that were added since the specified date as they are found
                 in the catalog file, separated by newlines.
+
+        Version 1:
+            A GET operation that retrieves the contents of a specific catalog file
+            by name.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/catalog/1/catalog.attrs
+
+            Expects:
+                A catalog file name in the request path.
+
+            Returns:
+                The contents of the specified catalog file.
+
+            Valid Catalog File Names:
+                The following catalog files are valid for the V1 catalog endpoint:
+
+                catalog.attrs
+                    Contains metadata about the catalog, including creation date, 
+                    last modified date, package counts, and information about 
+                    available catalog parts.
+
+                    Sample Output:
+                    {
+                        "_SIGNATURE": {
+                            "sha-1": "8f5c22fd8218f7a0982d3e3fdd01e40671cb9cab"
+                        },
+                        "created": "20050614T080000.234231Z",
+                        "last-modified": "20090508T161025.686485Z",
+                        "package-count": 40802,
+                        "package-version-count": 1706,
+                        "parts": {
+                            "catalog.base.C": {
+                                "last-modified": "20090508T161025.686485Z",
+                                "signature-sha-1": "9b37ef267ae6aa8a31b878aad4e9baa234470d45"
+                            },
+                            "catalog.dependency.C": {
+                                "last-modified": "20090508T161025.686485Z",
+                                "signature-sha-1": "0c896321c59fd2cd4344fec074d55ba9c88f75e8"
+                            },
+                            "catalog.summary.C": {
+                                "last-modified": "20090508T161025.686485Z",
+                                "signature-sha-1": "b3a6ab53677c7b5f94c9bd551a484d57b54ed6f7"
+                            }
+                        },
+                        "version": 1
+                    }
+
+                catalog.base.C
+                    Contains the FMRIs of packages in the repository and optional 
+                    digest values for verifying manifest contents.
+
+                    Sample Output:
+                    {
+                        "_SIGNATURE": {
+                            "sha-1": "9b37ef267ae6aa8a31b878aad4e9baa234470d45"
+                        },
+                        "opensolaris.org": {
+                            "SUNWipkg": [
+                                {
+                                    "version": "0.5.11,5.11-0.117:20090623T135937Z",
+                                    "signature-sha-1": "596f26c4fc725b486faba089071d2b3b35482114"
+                                },
+                                {
+                                    "version": "0.5.11,5.11-0.118:20090707T220625Z",
+                                    "signature-sha-1": "ab6f26c4fc725b386faca089071d2b3d35482114"
+                                }
+                            ]
+                        }
+                    }
+
+                catalog.dependency.C
+                    Contains package FMRIs, depend actions, and set actions for 
+                    facets or variants.
+
+                    Sample Output:
+                    {
+                        "_SIGNATURE": {
+                            "sha-1": "0c896321c59fd2cd4344fec074d55ba9c88f75e8"
+                        },
+                        "opensolaris.org": {
+                            "SUNWdvdrw": [
+                                {
+                                    "version": "5.21.4.10.8,5.11-0.108:20090218T042840Z",
+                                    "actions": [
+                                        "set name=variant.zone value=global value=nonglobal",
+                                        "set name=variant.arch value=sparc value=i386",
+                                        "depend fmri=SUNWlibms@0.5.11-0.108 type=require",
+                                        "depend fmri=SUNWlibC@0.5.11-0.108 type=require",
+                                        "depend fmri=SUNWcsl@0.5.11-0.108 type=require"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+
+                catalog.summary.C
+                    Contains package FMRIs and set actions (excluding those for 
+                    facets or variants).
+
+                    Sample Output:
+                    {
+                        "_SIGNATURE": {
+                            "catalog-sha-1": "b3a6ab53677c7b5f94c9bd551a484d57b54ed6f7"
+                        },
+                        "opensolaris.org": {
+                            "SUNWdvdrw": [
+                                {
+                                    "version": "5.21.4.10.8,5.11-0.108:20090218T042840Z",
+                                    "actions": [
+                                        "set name=description value=\"DVD creation utilities\"",
+                                        "set name=info.classification value=org.opensolaris.category.2008:System/Media"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+
+                catalog.summary.<locale_name>
+                    Locale-specific versions of the summary catalog, where 
+                    <locale_name> is an OpenSolaris system locale name.
+
+                update.<logdate>.<locale_name>
+                    Update logs containing incremental changes to the catalog, 
+                    where <logdate> is a UTC date and time in ISO-8601 'reduced 
+                    accuracy basic format' and <locale_name> is an OpenSolaris 
+                    system locale name.
+
+                    Sample Output:
+                    {
+                        "_SIGNATURE": {
+                            "sha-1": "0c896321c59fd2cd4344fec074d55ba9c88f75e8"
+                        },
+                        "opensolaris.org": {
+                            "SUNWdvdrw": [
+                                {
+                                    "op-type": "add",
+                                    "op-time": "20090524T042841Z",
+                                    "version": "5.21.4.10.8,5.11-0.111:20090524T042840Z",
+                                    "catalog.dependency.C": {
+                                        "actions": [
+                                            "depend fmri=SUNWlibms@0.5.11-0.111 type=require",
+                                            "depend fmri=SUNWlibC@0.5.11-0.111 type=require",
+                                            "depend fmri=SUNWcsl@0.5.11-0.111 type=require"
+                                        ]
+                                    },
+                                    "catalog.summary.C": {
+                                        "actions": [
+                                            "set name=description value=\"DVD creation utilities\"",
+                                            "set name=info.classification value=org.opensolaris.category.2008:System/Media"
+                                        ]
+                                    },
+                                    "signature-sha-1": "fe6f26c4fc124b386faca089071d2b3a35482114"
+                                }
+                            ]
+                        }
+                    }
 
     - info
         Version 0:
@@ -305,6 +524,25 @@ DEPOT
             Returns:
                 The contents of the package's manifest file.
 
+        Version 1:
+            A GET or POST/PUT operation that retrieves or uploads the contents of a
+            manifest file. For GET requests, it behaves the same as Version 0.
+            For POST/PUT requests, it allows uploading manifest content to the repository.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/manifest/1/entire@0.5.11,5.11-0.101:20081119T235706Z
+
+            Expects:
+                For GET: A URL-encoded pkg(5) FMRI excluding the 'pkg:/' scheme prefix
+                and publisher information and including the full version information.
+                For POST/PUT: The manifest content in the request body.
+
+            Returns:
+                For GET: The contents of the package's manifest file.
+                For POST/PUT: Response status of 200 on success; any other status indicates
+                failure.
+
     - p5i
         Version 0:
                 A GET operation that retrieves an application/vnd.pkg5.info
@@ -351,6 +589,24 @@ DEPOT
                 configuration's publisher information.  The Content-Type of the
                 response is 'application/vnd.pkg5.info'.
 
+        Version 1:
+                A GET operation that retrieves an application/vnd.pkg5.info
+                datastream representing publisher information for a specific publisher
+                or all publishers. This version provides improved error handling and
+                response formatting.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/publisher/1
+
+            Expects:
+                Nothing
+
+            Returns:
+                Returns a pkg(5) information datastream based on the repository
+                configuration's publisher information.  The Content-Type of the
+                response is 'application/vnd.pkg5.info'.
+
     - search
         Version 0:
             A GET operation that retrieves a text/plain list of packages with
@@ -381,7 +637,54 @@ DEPOT
                 basename pkg:/SUNWvim@7.1.284,5.11-0.101:20081119T230659Z dir usr/share/vim
                 basename pkg:/SUNWvim@7.1.284,5.11-0.93:20080708T171331Z file usr/bin/vim
 
-2.2.3.  Publishing Operations
+        Version 1:
+            A GET or POST operation that retrieves a text/plain list of packages with
+            metadata that matches the specified criteria. This version adds support for
+            POST requests, case-sensitive searches, and returns a validation string
+            to confirm the client is talking to a valid search server.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/search/1/vim
+
+            Expects:
+                For GET: A URL-encoded token representing the search criteria.
+                For POST: Search criteria in the request parameters.
+
+            Returns:
+                A text/plain list of matching entries, preceded by a validation string.
+                Each entry consists of a set of space-separated values:
+
+                    query_number - which query in the request this result is for
+                    
+                    return_type - whether the result is an action or package
+
+                    fmri - the fmri of the package that contains the match
+
+                    field - the field that matched (URL-encoded)
+
+                    line - the line that matched (for actions)
+
+                If no results are found, a 204 No Content status is returned.
+
+    - index
+        Version 0:
+            A GET operation that provides an administrative interface for search
+            indexing. Returns no output if successful; otherwise the response body
+            will contain the failure details.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/index/0/refresh
+
+            Expects:
+                A command to execute, such as "refresh" to update search indexes.
+
+            Returns:
+                No output if successful; otherwise the response body will contain
+                the failure details.
+
+2.2.6.  Publishing Operations
 
     - add
         Version 0:
@@ -429,6 +732,23 @@ DEPOT
                 Response status of 200 on success; any other status indicates
                 failure.
 
+    - append
+        Version 0:
+            A POST operation that starts an append transaction for the package
+            name specified in the request path. Returns no output.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/append/0/system%2Flibc@0.1-98
+
+            Expects:
+                A URL-encoded pkg(5) FMRI (excluding timestamp).
+
+            Returns:
+                Response status of 200 on success and an identifier for the new
+                transaction in the 'Transaction-ID' response header; any other
+                status indicates failure.
+
     - close
         Version 0:
             A GET operation that ends an in-flight transaction for the
@@ -464,5 +784,36 @@ DEPOT
                 transaction in the 'Transaction-ID' response header; any other
                 status indicates failure.
 
-3.  References
+2.2.7.  Administrative Operations
 
+    - admin
+        Version 0:
+            A GET operation that executes a specified repository administration
+            operation based on the provided query string.
+
+            Example:
+                URL:
+                http://pkg.opensolaris.org/release/admin/0?cmd=refresh-index
+
+            Expects:
+                A command parameter in the query string. Available commands are:
+                    rebuild
+                        Discard search data and package catalogs and rebuild both.
+                    rebuild-indexes
+                        Discard search data and rebuild.
+                    rebuild-packages
+                        Discard package catalogs and rebuild.
+                    refresh
+                        Update search and package data.
+                    refresh-indexes
+                        Update search data. (Add packages found in the repository
+                        to their related search indexes.)
+                    refresh-packages
+                        Update package data. (Add packages found in the repository
+                        to their related catalog.)
+
+            Returns:
+                No output if successful; otherwise the response body will contain
+                the failure details.
+
+3.  References
