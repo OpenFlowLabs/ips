@@ -143,4 +143,16 @@ pub trait Repository {
     
     /// Set the default publisher for the repository
     fn set_default_publisher(&mut self, publisher: &str) -> Result<()>;
+    
+    /// Search for packages in the repository
+    /// 
+    /// This method searches for packages in the repository using the search index.
+    /// It returns a list of packages that match the search query.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `query` - The search query
+    /// * `publisher` - Optional publisher to limit the search to
+    /// * `limit` - Optional maximum number of results to return
+    fn search(&self, query: &str, publisher: Option<&str>, limit: Option<usize>) -> Result<Vec<PackageInfo>>;
 }

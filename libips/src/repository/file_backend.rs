@@ -15,6 +15,8 @@ use flate2::write::GzEncoder;
 use flate2::Compression as GzipCompression;
 use lz4::EncoderBuilder;
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
+use serde::{Serialize, Deserialize};
 
 use crate::actions::{Manifest, File as FileAction};
 use crate::digest::Digest;
@@ -22,6 +24,174 @@ use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
 use super::{Repository, RepositoryConfig, RepositoryVersion, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo, PackageInfo, PackageContents};
+
+/// Search index for a repository
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SearchIndex {
+    /// Maps search terms to package FMRIs
+    terms: HashMap<String, HashSet<String>>,
+    /// Maps package FMRIs to package names
+    packages: HashMap<String, String>,
+    /// Last updated timestamp
+    updated: u64,
+}
+
+impl SearchIndex {
+    /// Create a new empty search index
+    fn new() -> Self {
+        SearchIndex {
+            terms: HashMap::new(),
+            packages: HashMap::new(),
+            updated: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+    
+    /// Add a term to the index for a package
+    fn add_term(&mut self, term: &str, fmri: &str, name: &str) {
+        // Convert term to lowercase for case-insensitive search
+        let term = term.to_lowercase();
+        
+        // Add the term to the index
+        self.terms.entry(term)
+            .or_insert_with(HashSet::new)
+            .insert(fmri.to_string());
+        
+        // Add the package to the packages map
+        self.packages.insert(fmri.to_string(), name.to_string());
+    }
+    
+    /// Add a package to the index
+    fn add_package(&mut self, package: &PackageInfo, contents: Option<&PackageContents>) {
+        // Get the FMRI as a string
+        let fmri = package.fmri.to_string();
+        
+        // Add the package name as a term
+        self.add_term(&package.fmri.name, &fmri, &package.fmri.name);
+        
+        // Add the publisher as a term if available
+        if let Some(publisher) = &package.fmri.publisher {
+            self.add_term(publisher, &fmri, &package.fmri.name);
+        }
+        
+        // Add the version as a term if available
+        if let Some(version) = &package.fmri.version {
+            self.add_term(&version.to_string(), &fmri, &package.fmri.name);
+        }
+        
+        // Add contents if available
+        if let Some(content) = contents {
+            // Add files
+            if let Some(files) = &content.files {
+                for file in files {
+                    self.add_term(file, &fmri, &package.fmri.name);
+                }
+            }
+            
+            // Add directories
+            if let Some(directories) = &content.directories {
+                for dir in directories {
+                    self.add_term(dir, &fmri, &package.fmri.name);
+                }
+            }
+            
+            // Add dependencies
+            if let Some(dependencies) = &content.dependencies {
+                for dep in dependencies {
+                    self.add_term(dep, &fmri, &package.fmri.name);
+                }
+            }
+        }
+        
+        // Update the timestamp
+        self.updated = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+    }
+    
+    /// Search the index for packages matching a query
+    fn search(&self, query: &str, limit: Option<usize>) -> Vec<String> {
+        // Convert query to lowercase for case-insensitive search
+        let query = query.to_lowercase();
+        
+        // Split the query into terms
+        let terms: Vec<&str> = query.split_whitespace().collect();
+        
+        // If no terms, return empty result
+        if terms.is_empty() {
+            return Vec::new();
+        }
+        
+        // Find packages that match all terms
+        let mut result_set: Option<HashSet<String>> = None;
+        
+        for term in terms {
+            // Find packages that match this term
+            if let Some(packages) = self.terms.get(term) {
+                // If this is the first term, initialize the result set
+                if result_set.is_none() {
+                    result_set = Some(packages.clone());
+                } else {
+                    // Otherwise, intersect with the current result set
+                    result_set = result_set.map(|rs| {
+                        rs.intersection(packages)
+                            .cloned()
+                            .collect()
+                    });
+                }
+            } else {
+                // If any term has no matches, the result is empty
+                return Vec::new();
+            }
+        }
+        
+        // Convert the result set to a vector
+        let mut results: Vec<String> = result_set
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        
+        // Sort the results
+        results.sort();
+        
+        // Apply limit if specified
+        if let Some(max_results) = limit {
+            results.truncate(max_results);
+        }
+        
+        results
+    }
+    
+    /// Save the index to a file
+    fn save(&self, path: &Path) -> Result<()> {
+        // Create the parent directory if it doesn't exist
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        // Serialize the index to JSON
+        let json = serde_json::to_string(self)?;
+        
+        // Write the JSON to the file
+        fs::write(path, json)?;
+        
+        Ok(())
+    }
+    
+    /// Load the index from a file
+    fn load(path: &Path) -> Result<Self> {
+        // Read the file
+        let json = fs::read_to_string(path)?;
+        
+        // Deserialize the JSON
+        let index: SearchIndex = serde_json::from_str(&json)?;
+        
+        Ok(index)
+    }
+}
 
 /// Repository implementation that uses the local filesystem
 pub struct FileBackend {
@@ -803,9 +973,6 @@ impl Repository for FileBackend {
     
     /// Rebuild repository metadata
     fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
-        // This is a placeholder implementation
-        // In a real implementation, we would rebuild catalogs and search indexes
-        
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -827,7 +994,7 @@ impl Repository for FileBackend {
             
             if !no_index {
                 println!("Rebuilding search index...");
-                // In a real implementation, we would rebuild the search index
+                self.build_search_index(&pub_name)?;
             }
         }
         
@@ -836,9 +1003,6 @@ impl Repository for FileBackend {
     
     /// Refresh repository metadata
     fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
-        // This is a placeholder implementation
-        // In a real implementation, we would refresh catalogs and search indexes
-        
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -860,7 +1024,17 @@ impl Repository for FileBackend {
             
             if !no_index {
                 println!("Refreshing search index...");
-                // In a real implementation, we would refresh the search index
+                
+                // Check if the index exists
+                let index_path = self.path.join("index").join(&pub_name).join("search.json");
+                if !index_path.exists() {
+                    // If the index doesn't exist, build it
+                    self.build_search_index(&pub_name)?;
+                } else {
+                    // If the index exists, update it
+                    // For simplicity, we'll just rebuild it
+                    self.build_search_index(&pub_name)?;
+                }
             }
         }
         
@@ -882,6 +1056,59 @@ impl Repository for FileBackend {
         
         Ok(())
     }
+    
+    /// Search for packages in the repository
+    fn search(&self, query: &str, publisher: Option<&str>, limit: Option<usize>) -> Result<Vec<PackageInfo>> {
+        // If no publisher is specified, use the default publisher if available
+        let publisher = publisher.or_else(|| self.config.default_publisher.as_deref());
+        
+        // If still no publisher, we need to search all publishers
+        let publishers = if let Some(pub_name) = publisher {
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+        
+        let mut results = Vec::new();
+        
+        // For each publisher, search the index
+        for pub_name in publishers {
+            // Check if the index exists
+            if let Ok(Some(index)) = self.get_search_index(&pub_name) {
+                // Search the index
+                let fmris = index.search(query, limit);
+                
+                // Convert FMRIs to PackageInfo
+                for fmri_str in fmris {
+                    if let Ok(fmri) = Fmri::parse(&fmri_str) {
+                        results.push(PackageInfo { fmri });
+                    }
+                }
+            } else {
+                // If the index doesn't exist, fall back to the simple search
+                let all_packages = self.list_packages(Some(&pub_name), None)?;
+                
+                // Filter packages by the query string
+                let matching_packages: Vec<PackageInfo> = all_packages
+                    .into_iter()
+                    .filter(|pkg| {
+                        // Match against package name
+                        pkg.fmri.name.contains(query)
+                    })
+                    .collect();
+                
+                // Add matching packages to the results
+                results.extend(matching_packages);
+            }
+        }
+        
+        // Apply limit if specified
+        if let Some(max_results) = limit {
+            results.truncate(max_results);
+        }
+        
+        Ok(results)
+    }
 }
 
 impl FileBackend {
@@ -895,6 +1122,142 @@ impl FileBackend {
         fs::create_dir_all(self.path.join("trans"))?;
         
         Ok(())
+    }
+    
+    /// Build a search index for a publisher
+    fn build_search_index(&self, publisher: &str) -> Result<()> {
+        println!("Building search index for publisher: {}", publisher);
+        
+        // Create a new search index
+        let mut index = SearchIndex::new();
+        
+        // Get the publisher's package directory
+        let publisher_pkg_dir = self.path.join("pkg").join(publisher);
+        
+        // Check if the publisher directory exists
+        if publisher_pkg_dir.exists() {
+            // Walk through the directory and process package manifests
+            if let Ok(entries) = fs::read_dir(&publisher_pkg_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    
+                    // Skip directories, only process files (package manifests)
+                    if path.is_file() {
+                        // Parse the manifest file to get package information
+                        match Manifest::parse_file(&path) {
+                            Ok(manifest) => {
+                                // Look for the pkg.fmri attribute
+                                for attr in &manifest.attributes {
+                                    if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                                        let fmri_str = &attr.values[0];
+                                        
+                                        // Parse the FMRI using our Fmri type
+                                        match Fmri::parse(fmri_str) {
+                                            Ok(parsed_fmri) => {
+                                                // Create a PackageInfo struct
+                                                let package_info = PackageInfo {
+                                                    fmri: parsed_fmri.clone(),
+                                                };
+                                                
+                                                // Create a PackageContents struct
+                                                let package_id = if let Some(version) = &parsed_fmri.version {
+                                                    format!("{}@{}", parsed_fmri.name, version)
+                                                } else {
+                                                    parsed_fmri.name.clone()
+                                                };
+                                                
+                                                // Extract content information
+                                                let files = if !manifest.files.is_empty() {
+                                                    Some(manifest.files.iter().map(|f| f.path.clone()).collect())
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                let directories = if !manifest.directories.is_empty() {
+                                                    Some(manifest.directories.iter().map(|d| d.path.clone()).collect())
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                let links = if !manifest.links.is_empty() {
+                                                    Some(manifest.links.iter().map(|l| l.path.clone()).collect())
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                let dependencies = if !manifest.dependencies.is_empty() {
+                                                    Some(manifest.dependencies.iter()
+                                                        .filter_map(|d| d.fmri.as_ref().map(|f| f.to_string()))
+                                                        .collect())
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                let licenses = if !manifest.licenses.is_empty() {
+                                                    Some(manifest.licenses.iter().map(|l| {
+                                                        if let Some(path_prop) = l.properties.get("path") {
+                                                            path_prop.value.clone()
+                                                        } else if let Some(license_prop) = l.properties.get("license") {
+                                                            license_prop.value.clone()
+                                                        } else {
+                                                            l.payload.clone()
+                                                        }
+                                                    }).collect())
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                let package_contents = PackageContents {
+                                                    package_id,
+                                                    files,
+                                                    directories,
+                                                    links,
+                                                    dependencies,
+                                                    licenses,
+                                                };
+                                                
+                                                // Add the package to the index
+                                                index.add_package(&package_info, Some(&package_contents));
+                                                
+                                                // Found the package info, no need to check other attributes
+                                                break;
+                                            },
+                                            Err(err) => {
+                                                // Log the error but continue processing
+                                                eprintln!("Error parsing FMRI '{}': {}", fmri_str, err);
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            Err(err) => {
+                                // Log the error but continue processing other files
+                                eprintln!("Error parsing manifest file {}: {}", path.display(), err);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Save the index to a file
+        let index_path = self.path.join("index").join(publisher).join("search.json");
+        index.save(&index_path)?;
+        
+        println!("Search index built for publisher: {}", publisher);
+        
+        Ok(())
+    }
+    
+    /// Get the search index for a publisher
+    fn get_search_index(&self, publisher: &str) -> Result<Option<SearchIndex>> {
+        let index_path = self.path.join("index").join(publisher).join("search.json");
+        
+        if index_path.exists() {
+            Ok(Some(SearchIndex::load(&index_path)?))
+        } else {
+            Ok(None)
+        }
     }
     
     #[cfg(test)]

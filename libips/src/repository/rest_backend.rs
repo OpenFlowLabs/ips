@@ -366,6 +366,10 @@ impl Repository for RestBackend {
         
         Ok(())
     }
+
+    fn search(&self, query: &str, publisher: Option<&str>, limit: Option<usize>) -> Result<Vec<PackageInfo>> {
+        todo!()
+    }
 }
 
 impl RestBackend {
