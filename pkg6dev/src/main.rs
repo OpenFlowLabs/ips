@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, warn};
 use tracing_subscriber::fmt;
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
@@ -106,15 +105,34 @@ fn diff_component(
     replacements: &Option<Vec<String>>,
     output_manifest: &Option<PathBuf>,
 ) -> Result<()> {
+    // Validate component path
+    let component_path_ref = component_path.as_ref();
+    if !component_path_ref.exists() || !component_path_ref.is_dir() {
+        return Err(Pkg6DevError::ComponentPathError {
+            path: component_path_ref.to_path_buf(),
+        });
+    }
+
+    // Process replacements
     let replacements = if let Some(replacements) = replacements {
+        // Validate replacement format
+        for replacement in replacements {
+            if !replacement.contains(':') {
+                return Err(Pkg6DevError::ReplacementFormatError {
+                    value: replacement.clone(),
+                });
+            }
+        }
         let map = parse_tripplet_replacements(replacements);
         Some(map)
     } else {
         None
     };
 
+    // Read directory contents
     let files = read_dir(&component_path).map_err(|e| Pkg6DevError::IoError(e))?;
 
+    // Filter for manifest files
     let manifest_files: Vec<String> = files
         .filter_map(std::result::Result::ok)
         .filter(|d| {
@@ -127,28 +145,39 @@ fn diff_component(
         .map(|e| e.path().into_os_string().into_string().unwrap())
         .collect();
 
-    let sample_manifest_file = &component_path
-        .as_ref()
-        .join("manifests/sample-manifest.p5m");
+    // Check for sample manifest
+    let sample_manifest_file = &component_path_ref.join("manifests/sample-manifest.p5m");
+    if !sample_manifest_file.exists() {
+        return Err(Pkg6DevError::ManifestNotFoundError {
+            path: sample_manifest_file.to_path_buf(),
+        });
+    }
 
+    // Parse manifests
     // Use std::result::Result here to avoid confusion with our custom Result type
     let manifests_res: std::result::Result<Vec<Manifest>, ActionError> =
         manifest_files.iter().map(Manifest::parse_file).collect();
 
+    // Parse sample manifest
     let sample_manifest = Manifest::parse_file(sample_manifest_file)?;
 
+    // Unwrap manifests result
     let manifests: Vec<Manifest> = manifests_res.unwrap();
 
+    // Find missing files
     let missing_files =
         find_files_missing_in_manifests(&sample_manifest, manifests.clone(), &replacements)?;
 
+    // Print missing files
     for f in missing_files.clone() {
         println!("file {} is missing in the manifests", f.path);
     }
 
+    // Find removed files
     let removed_files =
         find_removed_files(&sample_manifest, manifests, &component_path, &replacements)?;
 
+    // Print removed files
     for f in removed_files {
         println!(
             "file path={} has been removed from the sample-manifest",
@@ -156,6 +185,7 @@ fn diff_component(
         );
     }
 
+    // Write output manifest if requested
     if let Some(output_manifest) = output_manifest {
         let mut f = OpenOptions::new()
             .write(true)
@@ -171,17 +201,43 @@ fn diff_component(
 }
 
 fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
-    let makefile_path = component_path.as_ref().join("Makefile");
+    // Validate component path
+    let component_path_ref = component_path.as_ref();
+    if !component_path_ref.exists() || !component_path_ref.is_dir() {
+        return Err(Pkg6DevError::ComponentPathError {
+            path: component_path_ref.to_path_buf(),
+        });
+    }
 
-    // For userland functions, we'll use the From trait implementation for anyhow::Error
-    // that we added to Pkg6DevError
-    let initial_makefile = Makefile::parse_single_file(makefile_path)?;
-    let makefile = initial_makefile.parse_all()?;
+    // Get Makefile path
+    let makefile_path = component_path_ref.join("Makefile");
+    if !makefile_path.exists() {
+        return Err(Pkg6DevError::MakefileParseError {
+            message: format!("Makefile not found at {}", makefile_path.display()),
+        });
+    }
+
+    // Parse Makefile
+    // We'll wrap the anyhow errors with our more specific error types
+    let initial_makefile = Makefile::parse_single_file(&makefile_path)
+        .map_err(|e| Pkg6DevError::MakefileParseError {
+            message: format!("Failed to parse Makefile: {}", e),
+        })?;
+    
+    let makefile = initial_makefile.parse_all()
+        .map_err(|e| Pkg6DevError::MakefileParseError {
+            message: format!("Failed to parse all Makefiles: {}", e),
+        })?;
 
     let mut name = String::new();
 
-    let component = Component::new_from_makefile(&makefile)?;
+    // Get component information
+    let component = Component::new_from_makefile(&makefile)
+        .map_err(|e| Pkg6DevError::ComponentInfoError {
+            message: format!("Failed to get component information: {}", e),
+        })?;
 
+    // Display component information
     if let Some(var) = makefile.get("COMPONENT_NAME") {
         println!("Name: {}", var.replace('\n', "\n\t"));
         if let Some(component_name) = makefile.get_first_value_of_variable_by_name("COMPONENT_NAME")
@@ -194,10 +250,12 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
         println!("Version: {}", var.replace('\n', "\n\t"));
         let latest_version = find_newest_version(&name);
         if latest_version.is_ok() {
-            println!("Latest Version: {}", latest_version?);
+            println!("Latest Version: {}", latest_version.map_err(|e| Pkg6DevError::ComponentInfoError {
+                message: format!("Failed to get latest version: {}", e),
+            })?);
         } else {
             println!(
-                "Error: Could not get latest version info: {:?}",
+                "Error: Could not get latest version info: {}",
                 latest_version.unwrap_err()
             )
         }
@@ -341,18 +399,16 @@ fn publish_package(
 ) -> Result<()> {
     // Check if the manifest file exists
     if !manifest_path.exists() {
-        return Err(Pkg6DevError::Custom(format!(
-            "Manifest file does not exist: {}",
-            manifest_path.display()
-        )));
+        return Err(Pkg6DevError::ManifestFileNotFoundError {
+            path: manifest_path.clone(),
+        });
     }
 
     // Check if the prototype directory exists
     if !prototype_dir.exists() {
-        return Err(Pkg6DevError::Custom(format!(
-            "Prototype directory does not exist: {}",
-            prototype_dir.display()
-        )));
+        return Err(Pkg6DevError::PrototypeDirNotFoundError {
+            path: prototype_dir.clone(),
+        });
     }
 
     // Parse the manifest file
@@ -374,19 +430,16 @@ fn publish_package(
     let publisher_name = if let Some(pub_name) = publisher {
         // Use the explicitly specified publisher
         if !repo.config.publishers.contains(pub_name) {
-            return Err(Pkg6DevError::Custom(format!(
-                "Publisher '{}' does not exist in the repository. Please add it first using pkg6repo add-publisher.", 
-                pub_name
-            )));
+            return Err(Pkg6DevError::PublisherNotFoundError {
+                publisher: pub_name.clone(),
+            });
         }
         pub_name.clone()
     } else {
         // Use the default publisher
         match &repo.config.default_publisher {
             Some(default_pub) => default_pub.clone(),
-            None => return Err(Pkg6DevError::Custom(
-                "No default publisher set in the repository. Please specify a publisher using the --publisher option or set a default publisher.".to_string()
-            ))
+            None => return Err(Pkg6DevError::NoDefaultPublisherError)
         }
     };
 
@@ -408,10 +461,14 @@ fn publish_package(
 
         // Check if the file exists
         if !file_path.exists() {
+            // Instead of just a warning, we could return an error here, but that might be too strict
+            // For now, we'll keep the warning but use a more structured approach
             println!(
                 "Warning: File does not exist in prototype directory: {}",
                 file_path.display()
             );
+            // We continue here instead of returning an error to allow the operation to proceed
+            // with the files that do exist
             continue;
         }
 
