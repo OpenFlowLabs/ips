@@ -1251,7 +1251,7 @@ dependencies = [
  "clap 4.5.41",
  "libips",
  "miette",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
  "userland",
@@ -1262,10 +1262,12 @@ name = "pkg6repo"
 version = "0.0.1-placeholder"
 dependencies = [
  "clap 4.5.41",
+ "flate2",
  "libips",
  "miette",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",

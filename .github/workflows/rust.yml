@@ -84,7 +84,7 @@ jobs:
       - name: Build release
         run: cargo run -p xtask -- build -r
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ips-binaries-${{ matrix.os }}
           path: target/release/
@@ -171,7 +171,7 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
       - name: Upload documentation
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: rust-docs
           path: target/doc

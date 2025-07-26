@@ -1,3 +1,4 @@
+use libips::actions::ActionError;
 use libips::repository;
 use miette::Diagnostic;
 use thiserror::Error;
@@ -39,6 +40,13 @@ pub enum Pkg6RepoError {
         help("Check the JSON format and try again")
     )]
     JsonError(#[from] serde_json::Error),
+
+    #[error("action error: {0}")]
+    #[diagnostic(
+        code(pkg6repo::action_error),
+        help("Check the action format and try again")
+    )]
+    ActionError(#[from] ActionError),
 
     #[error("other error: {0}")]
     #[diagnostic(

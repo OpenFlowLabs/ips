@@ -1,5 +1,7 @@
 mod error;
+mod pkg5_import;
 use error::{Pkg6RepoError, Result};
+use pkg5_import::Pkg5Importer;
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -305,12 +307,27 @@ enum Commands {
         /// Search query
         query: String,
     },
+
+    /// Import a pkg5 repository
+    ImportPkg5 {
+        /// Path to the pkg5 repository (directory or p5p archive)
+        #[clap(short = 's', long)]
+        source: PathBuf,
+
+        /// Path to the destination repository
+        #[clap(short = 'd', long)]
+        destination: PathBuf,
+
+        /// Publisher to import (defaults to the first publisher found)
+        #[clap(short = 'p', long)]
+        publisher: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
-    // Initialize the tracing subscriber with default log level as warning and no decorations
+    // Initialize the tracing subscriber with default log level as debug and no decorations
     fmt::Subscriber::builder()
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(tracing::Level::DEBUG)
         .without_time()
         .with_target(false)
         .with_ansi(false)
@@ -1044,6 +1061,22 @@ fn main() -> Result<()> {
                 }
             }
 
+            Ok(())
+        }
+        Commands::ImportPkg5 {
+            source,
+            destination,
+            publisher,
+        } => {
+            info!("Importing pkg5 repository from {} to {}", source.display(), destination.display());
+            
+            // Create a new Pkg5Importer
+            let mut importer = Pkg5Importer::new(source, destination)?;
+            
+            // Import the repository
+            importer.import(publisher.as_deref())?;
+            
+            info!("Repository imported successfully");
             Ok(())
         }
     }
