@@ -21,7 +21,7 @@ pub use catalog::{CatalogManager, CatalogAttrs, CatalogPart, UpdateLog, CatalogO
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";
 
 /// Information about a publisher in a repository
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PublisherInfo {
     /// Name of the publisher
     pub name: String,
@@ -34,21 +34,21 @@ pub struct PublisherInfo {
 }
 
 /// Information about a repository
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RepositoryInfo {
     /// Information about publishers in the repository
     pub publishers: Vec<PublisherInfo>,
 }
 
 /// Information about a package in a repository
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageInfo {
     /// FMRI (Fault Management Resource Identifier) of the package
     pub fmri: crate::fmri::Fmri,
 }
 
 /// Contents of a package
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PackageContents {
     /// Package identifier (name and version)
     pub package_id: String,

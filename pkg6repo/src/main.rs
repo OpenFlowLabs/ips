@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use std::convert::TryFrom;
 use std::path::PathBuf;
+use serde::Serialize;
 
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 
@@ -9,6 +10,29 @@ use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, Wri
 mod tests;
 #[cfg(test)]
 mod e2e_tests;
+
+// Wrapper structs for JSON serialization
+#[derive(Serialize)]
+struct PropertiesOutput {
+    #[serde(flatten)]
+    properties: std::collections::HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct InfoOutput {
+    publishers: Vec<libips::repository::PublisherInfo>,
+}
+
+#[derive(Serialize)]
+struct PackagesOutput {
+    packages: Vec<libips::repository::PackageInfo>,
+}
+
+#[derive(Serialize)]
+struct SearchOutput {
+    query: String,
+    results: Vec<libips::repository::PackageInfo>,
+}
 
 /// pkg6repo - Image Packaging System repository management utility
 #[derive(Parser, Debug)]
@@ -51,7 +75,7 @@ enum Commands {
         #[clap(short = 'n')]
         dry_run: bool,
         
-        /// Wait for operation to complete
+        /// Wait for the operation to complete
         #[clap(long)]
         synchronous: bool,
         
@@ -239,6 +263,40 @@ enum Commands {
         /// Properties to set (section/property=value)
         property_value: Vec<String>,
     },
+    
+    /// Search for packages in a repository
+    Search {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Output format
+        #[clap(short = 'F')]
+        format: Option<String>,
+        
+        /// Omit headers
+        #[clap(short = 'H')]
+        omit_headers: bool,
+        
+        /// Publisher to search packages for
+        #[clap(short = 'p')]
+        publisher: Option<Vec<String>>,
+        
+        /// SSL key file
+        #[clap(long)]
+        key: Option<PathBuf>,
+        
+        /// SSL certificate file
+        #[clap(long)]
+        cert: Option<PathBuf>,
+        
+        /// Maximum number of results to return
+        #[clap(short = 'n', long = "limit")]
+        limit: Option<usize>,
+        
+        /// Search query
+        query: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -293,59 +351,141 @@ fn main() -> Result<()> {
             
             Ok(())
         },
-        Commands::Get { repo_uri_or_path, format, omit_headers, publisher, key, cert, section_property } => {
+        Commands::Get { repo_uri_or_path, format, omit_headers, publisher, section_property, ..  } => {
             println!("Getting properties from repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
-            // Print headers if not omitted
-            if !omit_headers {
-                println!("{:<10} {:<10} {:<20}", "SECTION", "PROPERTY", "VALUE");
-            }
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
             
-            // Print repository properties
-            for (key, value) in &repo.config.properties {
-                let parts: Vec<&str> = key.split('/').collect();
-                if parts.len() == 2 {
-                    println!("{:<10} {:<10} {:<20}", parts[0], parts[1], value);
-                } else {
-                    println!("{:<10} {:<10} {:<20}", "", key, value);
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<10} {:<10} {:<20}", "SECTION", "PROPERTY", "VALUE");
+                    }
+                    
+                    // Print repository properties
+                    for (key, value) in &repo.config.properties {
+                        let parts: Vec<&str> = key.split('/').collect();
+                        if parts.len() == 2 {
+                            println!("{:<10} {:<10} {:<20}", parts[0], parts[1], value);
+                        } else {
+                            println!("{:<10} {:<10} {:<20}", "", key, value);
+                        }
+                    }
+                },
+                "json" => {
+                    // Create a JSON representation of the properties using serde_json
+                    let properties_output = PropertiesOutput {
+                        properties: repo.config.properties.clone(),
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&properties_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("SECTION\tPROPERTY\tVALUE");
+                    }
+                    
+                    // Print repository properties as tab-separated values
+                    for (key, value) in &repo.config.properties {
+                        let parts: Vec<&str> = key.split('/').collect();
+                        if parts.len() == 2 {
+                            println!("{}\t{}\t{}", parts[0], parts[1], value);
+                        } else {
+                            println!("\t{}\t{}", key, value);
+                        }
+                    }
+                },
+                _ => {
+                    return Err(anyhow!("Unsupported output format: {}", output_format));
                 }
             }
             
             Ok(())
         },
-        Commands::Info { repo_uri_or_path, format, omit_headers, publisher, key, cert } => {
+        Commands::Info { repo_uri_or_path, format, omit_headers, publisher, ..  } => {
             println!("Displaying info for repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get repository info
             let repo_info = repo.get_info()?;
             
-            // Print headers if not omitted
-            if !omit_headers {
-                println!("{:<10} {:<8} {:<6} {:<30}", "PUBLISHER", "PACKAGES", "STATUS", "UPDATED");
-            }
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
             
-            // Print repository info
-            for publisher_info in repo_info.publishers {
-                println!("{:<10} {:<8} {:<6} {:<30}", 
-                    publisher_info.name, 
-                    publisher_info.package_count, 
-                    publisher_info.status, 
-                    publisher_info.updated
-                );
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<10} {:<8} {:<6} {:<30}", "PUBLISHER", "PACKAGES", "STATUS", "UPDATED");
+                    }
+                    
+                    // Print repository info
+                    for publisher_info in repo_info.publishers {
+                        println!("{:<10} {:<8} {:<6} {:<30}", 
+                            publisher_info.name, 
+                            publisher_info.package_count, 
+                            publisher_info.status, 
+                            publisher_info.updated
+                        );
+                    }
+                },
+                "json" => {
+                    // Create a JSON representation of the repository info using serde_json
+                    let info_output = InfoOutput {
+                        publishers: repo_info.publishers,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&info_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("PUBLISHER\tPACKAGES\tSTATUS\tUPDATED");
+                    }
+                    
+                    // Print repository info as tab-separated values
+                    for publisher_info in repo_info.publishers {
+                        println!("{}\t{}\t{}\t{}", 
+                            publisher_info.name, 
+                            publisher_info.package_count, 
+                            publisher_info.status, 
+                            publisher_info.updated
+                        );
+                    }
+                },
+                _ => {
+                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                }
             }
             
             Ok(())
         },
-        Commands::List { repo_uri_or_path, format, omit_headers, publisher, key, cert, pkg_fmri_pattern } => {
+        Commands::List { repo_uri_or_path, format, omit_headers, publisher, pkg_fmri_pattern, ..  } => {
             println!("Listing packages in repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get the publisher if specified
@@ -373,30 +513,73 @@ fn main() -> Result<()> {
             // List packages
             let packages = repo.list_packages(pub_option, pattern_option)?;
             
-            // Print headers if not omitted
-            if !omit_headers {
-                println!("{:<30} {:<15} {:<10}", "NAME", "VERSION", "PUBLISHER");
-            }
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
             
-            // Print packages
-            for pkg_info in packages {
-                // Format version and publisher, handling optional fields
-                let version_str = pkg_info.fmri.version();
-                
-                let publisher_str = match &pkg_info.fmri.publisher {
-                    Some(publisher) => publisher.clone(),
-                    None => String::new(),
-                };
-                
-                println!("{:<30} {:<15} {:<10}", pkg_info.fmri.stem(), version_str, publisher_str);
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<30} {:<15} {:<10}", "NAME", "VERSION", "PUBLISHER");
+                    }
+                    
+                    // Print packages
+                    for pkg_info in packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = pkg_info.fmri.version();
+                        
+                        let publisher_str = match &pkg_info.fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!("{:<30} {:<15} {:<10}", pkg_info.fmri.stem(), version_str, publisher_str);
+                    }
+                },
+                "json" => {
+                    // Create a JSON representation of the packages using serde_json
+                    let packages_output = PackagesOutput {
+                        packages,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&packages_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("NAME\tVERSION\tPUBLISHER");
+                    }
+                    
+                    // Print packages as tab-separated values
+                    for pkg_info in packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = pkg_info.fmri.version();
+                        
+                        let publisher_str = match &pkg_info.fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!("{}\t{}\t{}", pkg_info.fmri.stem(), version_str, publisher_str);
+                    }
+                },
+                _ => {
+                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                }
             }
             
             Ok(())
         },
-        Commands::Contents { repo_uri_or_path, manifest, action_type, key, cert, pkg_fmri_pattern } => {
+        Commands::Contents { repo_uri_or_path, manifest, action_type, pkg_fmri_pattern, ..  } => {
             println!("Showing contents in repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get the pattern if specified
@@ -419,7 +602,7 @@ fn main() -> Result<()> {
                 if let Some(files) = &pkg_contents.files {
                     for path in files {
                         if *manifest {
-                            // If manifest option is specified, print in manifest format
+                            // If a manifest option is specified, print in manifest format
                             println!("file path={} type={}", path, pkg_contents.package_id);
                         } else {
                             // Otherwise, print in table format
@@ -432,7 +615,7 @@ fn main() -> Result<()> {
                 if let Some(directories) = &pkg_contents.directories {
                     for path in directories {
                         if *manifest {
-                            // If manifest option is specified, print in manifest format
+                            // If a manifest option is specified, print in manifest format
                             println!("dir path={} type={}", path, pkg_contents.package_id);
                         } else {
                             // Otherwise, print in table format
@@ -445,7 +628,7 @@ fn main() -> Result<()> {
                 if let Some(links) = &pkg_contents.links {
                     for path in links {
                         if *manifest {
-                            // If manifest option is specified, print in manifest format
+                            // If a manifest option is specified, print in manifest format
                             println!("link path={} type={}", path, pkg_contents.package_id);
                         } else {
                             // Otherwise, print in table format
@@ -458,7 +641,7 @@ fn main() -> Result<()> {
                 if let Some(dependencies) = &pkg_contents.dependencies {
                     for path in dependencies {
                         if *manifest {
-                            // If manifest option is specified, print in manifest format
+                            // If a manifest option is specified, print in manifest format
                             println!("depend path={} type={}", path, pkg_contents.package_id);
                         } else {
                             // Otherwise, print in table format
@@ -471,7 +654,7 @@ fn main() -> Result<()> {
                 if let Some(licenses) = &pkg_contents.licenses {
                     for path in licenses {
                         if *manifest {
-                            // If manifest option is specified, print in manifest format
+                            // If a manifest option is specified, print in manifest format
                             println!("license path={} type={}", path, pkg_contents.package_id);
                         } else {
                             // Otherwise, print in table format
@@ -483,10 +666,12 @@ fn main() -> Result<()> {
             
             Ok(())
         },
-        Commands::Rebuild { repo_uri_or_path, publisher, key, cert, no_catalog, no_index } => {
+        Commands::Rebuild { repo_uri_or_path, publisher, no_catalog, no_index, ..  } => {
             println!("Rebuilding repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get the publisher if specified
@@ -506,10 +691,12 @@ fn main() -> Result<()> {
             println!("Repository rebuilt successfully");
             Ok(())
         },
-        Commands::Refresh { repo_uri_or_path, publisher, key, cert, no_catalog, no_index } => {
+        Commands::Refresh { repo_uri_or_path, publisher, no_catalog, no_index, ..  } => {
             println!("Refreshing repository {}", repo_uri_or_path);
             
             // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
             // Get the publisher if specified
@@ -558,6 +745,90 @@ fn main() -> Result<()> {
             }
             
             println!("Properties set successfully");
+            Ok(())
+        },
+        Commands::Search { repo_uri_or_path, format, omit_headers, publisher, limit, query , .. } => {
+            println!("Searching for packages in repository {}", repo_uri_or_path);
+            
+            // Open the repository
+            // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
+            // For now, we're using FileBackend, which doesn't use these parameters
+            let repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Get the publisher if specified
+            let pub_option = if let Some(publishers) = publisher {
+                if !publishers.is_empty() {
+                    Some(publishers[0].as_str())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            // Search for packages
+            let packages = repo.search(&query, pub_option, *limit)?;
+            
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
+            
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<30} {:<15} {:<10}", "NAME", "VERSION", "PUBLISHER");
+                    }
+                    
+                    // Print packages
+                    for pkg_info in packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = pkg_info.fmri.version();
+                        
+                        let publisher_str = match &pkg_info.fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!("{:<30} {:<15} {:<10}", pkg_info.fmri.stem(), version_str, publisher_str);
+                    }
+                },
+                "json" => {
+                    // Create a JSON representation of the search results using serde_json
+                    let search_output = SearchOutput {
+                        query: query.clone(),
+                        results: packages,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&search_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("NAME\tVERSION\tPUBLISHER");
+                    }
+                    
+                    // Print packages as tab-separated values
+                    for pkg_info in packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = pkg_info.fmri.version();
+                        
+                        let publisher_str = match &pkg_info.fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!("{}\t{}\t{}", pkg_info.fmri.stem(), version_str, publisher_str);
+                    }
+                },
+                _ => {
+                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                }
+            }
+            
             Ok(())
         },
     }
