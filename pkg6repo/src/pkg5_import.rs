@@ -1,11 +1,11 @@
 use crate::error::{Pkg6RepoError, Result};
-use libips::actions::{File as FileAction, Manifest};
+use libips::actions::{Manifest};
 use libips::repository::{FileBackend, ReadableRepository, WritableRepository};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Seek};
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, warn};
 
 /// Represents a pkg5 repository importer
 pub struct Pkg5Importer {
@@ -15,7 +15,7 @@ pub struct Pkg5Importer {
     dest_path: PathBuf,
     /// Whether the source is a p5p archive
     is_p5p: bool,
-    /// Temporary directory for extraction (if source is a p5p archive)
+    /// Temporary directory for extraction (if a source is a p5p archive)
     temp_dir: Option<tempfile::TempDir>,
 }
 
@@ -27,7 +27,7 @@ impl Pkg5Importer {
 
         debug!("Creating Pkg5Importer with source: {}, destination: {}", source_path.display(), dest_path.display());
 
-        // Check if source path exists
+        // Check if a source path exists
         if !source_path.exists() {
             debug!("Source path does not exist: {}", source_path.display());
             return Err(Pkg6RepoError::from(format!(
@@ -37,7 +37,7 @@ impl Pkg5Importer {
         }
         debug!("Source path exists: {}", source_path.display());
 
-        // Determine if source is a p5p archive
+        // Determine if a source is a p5p archive
         let is_p5p = source_path.is_file() && source_path.extension().map_or(false, |ext| ext == "p5p");
         debug!("Source is p5p archive: {}", is_p5p);
 
@@ -170,7 +170,7 @@ impl Pkg5Importer {
             info!("Adding publisher to destination repository: {}", publisher_to_import);
             dest_repo.add_publisher(publisher_to_import)?;
             
-            // Set as default publisher if there isn't one already
+            // Set as the default publisher if there isn't one already
             if dest_repo.config.default_publisher.is_none() {
                 info!("Setting as default publisher: {}", publisher_to_import);
                 dest_repo.set_default_publisher(publisher_to_import)?;
@@ -302,7 +302,7 @@ impl Pkg5Importer {
         publisher: &str,
         manifest_path: &Path,
         pkg_name: &str,
-        ver_name: &str,
+        _ver_name: &str,
         proto_dir: &Path,
     ) -> Result<()> {
         debug!("Importing package version from {}", manifest_path.display());
