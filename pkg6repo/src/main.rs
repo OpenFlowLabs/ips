@@ -324,7 +324,7 @@ fn main() -> Result<()> {
             repo_version,
             uri_or_path,
         } => {
-            println!(
+            info!(
                 "Creating repository version {} at {}",
                 repo_version, uri_or_path
             );
@@ -335,14 +335,14 @@ fn main() -> Result<()> {
             // Create the repository
             let repo = FileBackend::create(uri_or_path, repo_version_enum)?;
 
-            println!("Repository created successfully at {}", repo.path.display());
+            info!("Repository created successfully at {}", repo.path.display());
             Ok(())
         }
         Commands::AddPublisher {
             repo_uri_or_path,
             publisher,
         } => {
-            println!(
+            info!(
                 "Adding publishers {:?} to repository {}",
                 publisher, repo_uri_or_path
             );
@@ -352,11 +352,11 @@ fn main() -> Result<()> {
 
             // Add each publisher
             for p in publisher {
-                println!("Adding publisher: {}", p);
+                info!("Adding publisher: {}", p);
                 repo.add_publisher(p)?;
             }
 
-            println!("Publishers added successfully");
+            info!("Publishers added successfully");
             Ok(())
         }
         Commands::RemovePublisher {
@@ -365,18 +365,18 @@ fn main() -> Result<()> {
             synchronous,
             publisher,
         } => {
-            println!(
+            info!(
                 "Removing publishers {:?} from repository {}",
                 publisher, repo_uri_or_path
             );
-            println!("Dry run: {}, Synchronous: {}", dry_run, synchronous);
+            debug!("Dry run: {}, Synchronous: {}", dry_run, synchronous);
 
             // Open the repository
             let mut repo = FileBackend::open(repo_uri_or_path)?;
 
             // Remove each publisher
             for p in publisher {
-                println!("Removing publisher: {}", p);
+                info!("Removing publisher: {}", p);
                 repo.remove_publisher(p, *dry_run)?;
             }
 
@@ -384,13 +384,13 @@ fn main() -> Result<()> {
             // For FileBackend, operations are already synchronous, so this parameter doesn't have any effect
             // For RestBackend, this would wait for the server to complete the operation before returning
             if *synchronous {
-                println!("Operation completed synchronously");
+                debug!("Operation completed synchronously");
             }
 
             if *dry_run {
-                println!("Dry run completed. No changes were made.");
+                info!("Dry run completed. No changes were made.");
             } else {
-                println!("Publishers removed successfully");
+                info!("Publishers removed successfully");
             }
 
             Ok(())
@@ -403,7 +403,7 @@ fn main() -> Result<()> {
             section_property,
             ..
         } => {
-            println!("Getting properties from repository {}", repo_uri_or_path);
+            info!("Getting properties from repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -526,7 +526,7 @@ fn main() -> Result<()> {
             publisher,
             ..
         } => {
-            println!("Displaying info for repository {}", repo_uri_or_path);
+            info!("Displaying info for repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -620,7 +620,7 @@ fn main() -> Result<()> {
             pkg_fmri_pattern,
             ..
         } => {
-            println!("Listing packages in repository {}", repo_uri_or_path);
+            info!("Listing packages in repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -729,7 +729,7 @@ fn main() -> Result<()> {
             pkg_fmri_pattern,
             ..
         } => {
-            println!("Showing contents in repository {}", repo_uri_or_path);
+            info!("Showing contents in repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -851,7 +851,7 @@ fn main() -> Result<()> {
             no_index,
             ..
         } => {
-            println!("Rebuilding repository {}", repo_uri_or_path);
+            info!("Rebuilding repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -872,7 +872,7 @@ fn main() -> Result<()> {
             // Rebuild repository metadata
             repo.rebuild(pub_option, *no_catalog, *no_index)?;
 
-            println!("Repository rebuilt successfully");
+            info!("Repository rebuilt successfully");
             Ok(())
         }
         Commands::Refresh {
@@ -882,7 +882,7 @@ fn main() -> Result<()> {
             no_index,
             ..
         } => {
-            println!("Refreshing repository {}", repo_uri_or_path);
+            info!("Refreshing repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
@@ -903,7 +903,7 @@ fn main() -> Result<()> {
             // Refresh repository metadata
             repo.refresh(pub_option, *no_catalog, *no_index)?;
 
-            println!("Repository refreshed successfully");
+            info!("Repository refreshed successfully");
             Ok(())
         }
         Commands::Set {
@@ -911,7 +911,7 @@ fn main() -> Result<()> {
             publisher,
             property_value,
         } => {
-            println!("Setting properties for repository {}", repo_uri_or_path);
+            info!("Setting properties for repository {}", repo_uri_or_path);
 
             // Open the repository
             let mut repo = FileBackend::open(repo_uri_or_path)?;
@@ -929,19 +929,19 @@ fn main() -> Result<()> {
 
                 // If a publisher is specified, set the publisher property
                 if let Some(pub_name) = publisher {
-                    println!(
+                    info!(
                         "Setting publisher property {}/{} = {}",
                         pub_name, property, value
                     );
                     repo.set_publisher_property(pub_name, property, value)?;
                 } else {
                     // Otherwise, set the repository property
-                    println!("Setting repository property {} = {}", property, value);
+                    info!("Setting repository property {} = {}", property, value);
                     repo.set_property(property, value)?;
                 }
             }
 
-            println!("Properties set successfully");
+            info!("Properties set successfully");
             Ok(())
         }
         Commands::Search {
@@ -953,7 +953,7 @@ fn main() -> Result<()> {
             query,
             ..
         } => {
-            println!("Searching for packages in repository {}", repo_uri_or_path);
+            info!("Searching for packages in repository {}", repo_uri_or_path);
 
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication

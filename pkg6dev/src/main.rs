@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tracing::{debug, error, info, warn, trace};
 use tracing_subscriber::fmt;
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
@@ -170,7 +171,7 @@ fn diff_component(
 
     // Print missing files
     for f in missing_files.clone() {
-        println!("file {} is missing in the manifests", f.path);
+        debug!("file {} is missing in the manifests", f.path);
     }
 
     // Find removed files
@@ -179,7 +180,7 @@ fn diff_component(
 
     // Print removed files
     for f in removed_files {
-        println!(
+        debug!(
             "file path={} has been removed from the sample-manifest",
             f.path
         );
@@ -239,7 +240,7 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
 
     // Display component information
     if let Some(var) = makefile.get("COMPONENT_NAME") {
-        println!("Name: {}", var.replace('\n', "\n\t"));
+        info!("Name: {}", var.replace('\n', "\n\t"));
         if let Some(component_name) = makefile.get_first_value_of_variable_by_name("COMPONENT_NAME")
         {
             name = component_name;
@@ -247,49 +248,49 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     }
 
     if let Some(var) = makefile.get("COMPONENT_VERSION") {
-        println!("Version: {}", var.replace('\n', "\n\t"));
+        info!("Version: {}", var.replace('\n', "\n\t"));
         let latest_version = find_newest_version(&name);
         if latest_version.is_ok() {
-            println!("Latest Version: {}", latest_version.map_err(|e| Pkg6DevError::ComponentInfoError {
+            info!("Latest Version: {}", latest_version.map_err(|e| Pkg6DevError::ComponentInfoError {
                 message: format!("Failed to get latest version: {}", e),
             })?);
         } else {
-            println!(
-                "Error: Could not get latest version info: {}",
+            warn!(
+                "Could not get latest version info: {}",
                 latest_version.unwrap_err()
             )
         }
     }
 
     if let Some(var) = makefile.get("BUILD_BITS") {
-        println!("Build bits: {}", var.replace('\n', "\n\t"));
+        info!("Build bits: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_BUILD_ACTION") {
-        println!("Build action: {}", var.replace('\n', "\n\t"));
+        info!("Build action: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_PROJECT_URL") {
-        println!("Project URl: {}", var.replace('\n', "\n\t"));
+        info!("Project URl: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_ARCHIVE_URL") {
-        println!("Source URl: {}", var.replace('\n', "\n\t"));
+        info!("Source URl: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_ARCHIVE_HASH") {
-        println!("Source Archive File Hash: {}", var.replace('\n', "\n\t"));
+        info!("Source Archive File Hash: {}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("REQUIRED_PACKAGES") {
-        println!("Dependencies:\n\t{}", var.replace('\n', "\n\t"));
+        info!("Dependencies:\n\t{}", var.replace('\n', "\n\t"));
     }
 
     if let Some(var) = makefile.get("COMPONENT_INSTALL_ACTION") {
-        println!("Install Action:\n\t{}", var);
+        info!("Install Action:\n\t{}", var);
     }
 
-    println!("Component: {:?}", component);
+    info!("Component: {:?}", component);
 
     Ok(())
 }
@@ -412,15 +413,15 @@ fn publish_package(
     }
 
     // Parse the manifest file
-    println!("Parsing manifest file: {}", manifest_path.display());
+    info!("Parsing manifest file: {}", manifest_path.display());
     let manifest = Manifest::parse_file(manifest_path)?;
 
     // Open the repository
-    println!("Opening repository at: {}", repo_path.display());
+    info!("Opening repository at: {}", repo_path.display());
     let repo = match FileBackend::open(repo_path) {
         Ok(repo) => repo,
         Err(_) => {
-            println!("Repository does not exist, creating a new one...");
+            info!("Repository does not exist, creating a new one...");
             // Create a new repository with version 4
             FileBackend::create(repo_path, libips::repository::RepositoryVersion::V4)?
         }
@@ -444,14 +445,14 @@ fn publish_package(
     };
 
     // Begin a transaction
-    println!("Beginning transaction for publisher: {}", publisher_name);
+    info!("Beginning transaction for publisher: {}", publisher_name);
     let mut transaction = repo.begin_transaction()?;
     
     // Set the publisher for the transaction
     transaction.set_publisher(&publisher_name);
 
     // Add files from the prototype directory to the transaction
-    println!(
+    info!(
         "Adding files from prototype directory: {}",
         prototype_dir.display()
     );
@@ -463,8 +464,8 @@ fn publish_package(
         if !file_path.exists() {
             // Instead of just a warning, we could return an error here, but that might be too strict
             // For now, we'll keep the warning but use a more structured approach
-            println!(
-                "Warning: File does not exist in prototype directory: {}",
+            warn!(
+                "File does not exist in prototype directory: {}",
                 file_path.display()
             );
             // We continue here instead of returning an error to allow the operation to proceed
@@ -473,22 +474,22 @@ fn publish_package(
         }
 
         // Add the file to the transaction
-        println!("Adding file: {}", file_action.path);
+        debug!("Adding file: {}", file_action.path);
         transaction.add_file(file_action.clone(), &file_path)?;
     }
 
     // Update the manifest in the transaction
-    println!("Updating manifest in the transaction...");
+    info!("Updating manifest in the transaction...");
     transaction.update_manifest(manifest);
 
     // Commit the transaction
-    println!("Committing transaction...");
+    info!("Committing transaction...");
     transaction.commit()?;
     
     // Regenerate catalog and search index
-    println!("Regenerating catalog and search index...");
+    info!("Regenerating catalog and search index...");
     repo.rebuild(Some(&publisher_name), false, false)?;
 
-    println!("Package published successfully!");
+    info!("Package published successfully!");
     Ok(())
 }
