@@ -7,6 +7,8 @@ use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, Wri
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod e2e_tests;
 
 /// pkg6repo - Image Packaging System repository management utility
 #[derive(Parser, Debug)]

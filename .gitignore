@@ -91,3 +91,4 @@ Cargo.lock
 sample_data/**/build/prototype/i386
 
 .vagrant
+/.output.txt

@@ -10,6 +10,8 @@ use std::collections::HashMap;
 mod file_backend;
 mod rest_backend;
 mod catalog;
+#[cfg(test)]
+mod tests;
 
 pub use file_backend::FileBackend;
 pub use rest_backend::RestBackend;
