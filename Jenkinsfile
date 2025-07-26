@@ -1,3 +1,5 @@
+// This Jenkinsfile is only used for illumos builds.
+// For all other CI workflows, GitHub Actions is used (see .github/workflows/rust.yml)
 pipeline {
     agent {
         node {
