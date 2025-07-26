@@ -57,11 +57,11 @@
 //! assert_eq!(version.timestamp, Some("20200421T195136Z".to_string()));
 //! ```
 
+use diff::Diff;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
-use serde::{Serialize, Deserialize};
-use diff::Diff;
 
 /// Errors that can occur when parsing an FMRI
 #[derive(Debug, Error, PartialEq)]
@@ -146,7 +146,7 @@ impl Version {
             timestamp: None,
         }
     }
-    
+
     /// Helper method to pad a version string to ensure it has at least MAJOR.MINOR.PATCH components
     ///
     /// This method takes a dot-separated version string and ensures it has at least three components
@@ -161,7 +161,7 @@ impl Version {
             _ => format!("{}.{}.{}", parts[0], parts[1], parts[2]), // Use only the first three parts
         }
     }
-    
+
     /// Convert the release component to a semver::Version
     ///
     /// This method attempts to parse the release component as a semver::Version.
@@ -172,7 +172,7 @@ impl Version {
         let version_str = Self::pad_version_string(&self.release);
         version_str.parse()
     }
-    
+
     /// Convert the branch component to a semver::Version
     ///
     /// This method attempts to parse the branch component as a semver::Version.
@@ -186,7 +186,7 @@ impl Version {
             version_str.parse()
         })
     }
-    
+
     /// Convert the build component to a semver::Version
     ///
     /// This method attempts to parse the build component as a semver::Version.
@@ -200,7 +200,7 @@ impl Version {
             version_str.parse()
         })
     }
-    
+
     /// Create a new Version with the given semver::Version as release
     ///
     /// This method creates a new Version with the given semver::Version as release.
@@ -213,7 +213,7 @@ impl Version {
             timestamp: None,
         }
     }
-    
+
     /// Create a Version from semver::Version components
     ///
     /// This method creates a Version from semver::Version components.
@@ -231,7 +231,7 @@ impl Version {
             timestamp,
         }
     }
-    
+
     /// Create a new Version with the given semver::Version as release and branch
     ///
     /// This method creates a new Version with the given semver::Version as release and branch.
@@ -244,7 +244,7 @@ impl Version {
             timestamp: None,
         }
     }
-    
+
     /// Create a new Version with the given semver::Version as release, branch, and build
     ///
     /// This method creates a new Version with the given semver::Version as release, branch, and build.
@@ -261,7 +261,7 @@ impl Version {
             timestamp: None,
         }
     }
-    
+
     /// Create a new Version with the given semver::Version as release, branch, build, and timestamp
     ///
     /// This method creates a new Version with the given semver::Version as release, branch, build, and timestamp.
@@ -279,29 +279,35 @@ impl Version {
             timestamp: Some(timestamp.to_string()),
         }
     }
-    
+
     /// Get all version components as semver::Version objects
     ///
     /// This method returns all version components as semver::Version objects.
     /// If a component is not present or cannot be parsed, it will be None.
-    pub fn to_semver(&self) -> (Result<semver::Version, semver::Error>, Option<Result<semver::Version, semver::Error>>, Option<Result<semver::Version, semver::Error>>) {
+    pub fn to_semver(
+        &self,
+    ) -> (
+        Result<semver::Version, semver::Error>,
+        Option<Result<semver::Version, semver::Error>>,
+        Option<Result<semver::Version, semver::Error>>,
+    ) {
         let release = self.release_to_semver();
         let branch = self.branch_to_semver();
         let build = self.build_to_semver();
-        
+
         (release, branch, build)
     }
-    
+
     /// Check if this version is compatible with semver
     ///
     /// This method checks if all components of this version can be parsed as semver::Version objects.
     pub fn is_semver_compatible(&self) -> bool {
         let (release, branch, build) = self.to_semver();
-        
+
         let release_ok = release.is_ok();
         let branch_ok = branch.map_or(true, |r| r.is_ok());
         let build_ok = build.map_or(true, |r| r.is_ok());
-        
+
         release_ok && branch_ok && build_ok
     }
 
@@ -364,7 +370,10 @@ impl Version {
             if timestamp.is_empty() {
                 return Err(FmriError::InvalidTimestampFormat);
             }
-            if !timestamp.chars().all(|c| c.is_ascii_hexdigit() || c == 'T' || c == 'Z') {
+            if !timestamp
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == 'T' || c == 'Z')
+            {
                 return Err(FmriError::InvalidTimestampFormat);
             }
             version.timestamp = Some(timestamp.to_string());
@@ -431,7 +440,7 @@ impl Version {
         if parts.len() >= 3 {
             // Create a version string with exactly MAJOR.MINOR.PATCH
             let version_str = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
-            
+
             // Try to parse it as a semver version
             if let Err(_) = semver::Version::parse(&version_str) {
                 return false;
@@ -519,12 +528,12 @@ impl Fmri {
             version,
         }
     }
-    
+
     /// Get the stem of the FMRI (the package name without version)
     pub fn stem(&self) -> &str {
         &self.name
     }
-    
+
     /// Get the version of the FMRI as a string
     pub fn version(&self) -> String {
         match &self.version {
@@ -562,35 +571,34 @@ impl Fmri {
         // Check if there's a scheme with a publisher (pkg://publisher/name)
         if let Some(scheme_end) = name_part.find("://") {
             fmri.scheme = name_part[0..scheme_end].to_string();
-            
+
             // Extract the rest after the scheme
             let rest = &name_part[scheme_end + 3..];
-            
+
             // Check if there's a publisher
             if let Some(publisher_end) = rest.find('/') {
                 // If there's a non-empty publisher, set it
                 if publisher_end > 0 {
                     fmri.publisher = Some(rest[0..publisher_end].to_string());
                 }
-                
+
                 // Set the name
                 fmri.name = rest[publisher_end + 1..].to_string();
             } else {
                 // No publisher, just a name
                 fmri.name = rest.to_string();
             }
-        } 
+        }
         // Check if there's a scheme without a publisher (pkg:/name)
         else if let Some(scheme_end) = name_part.find(":/") {
             fmri.scheme = name_part[0..scheme_end].to_string();
-            
+
             // Extract the rest after the scheme
             let rest = &name_part[scheme_end + 2..];
-            
+
             // Set the name
             fmri.name = rest.to_string();
-        } 
-        else {
+        } else {
             // No scheme, just a name
             fmri.name = name_part.to_string();
         }
@@ -635,7 +643,7 @@ impl FromStr for Fmri {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_semver_conversion() {
         // Test release_to_semver
@@ -644,21 +652,21 @@ mod tests {
         assert_eq!(semver.major, 5);
         assert_eq!(semver.minor, 11);
         assert_eq!(semver.patch, 0);
-        
+
         // Test with a full semver version
         let version = Version::new("1.2.3");
         let semver = version.release_to_semver().unwrap();
         assert_eq!(semver.major, 1);
         assert_eq!(semver.minor, 2);
         assert_eq!(semver.patch, 3);
-        
+
         // Test branch_to_semver
         let version = Version::with_branch("5.11", "1");
         let semver = version.branch_to_semver().unwrap().unwrap();
         assert_eq!(semver.major, 1);
         assert_eq!(semver.minor, 0);
         assert_eq!(semver.patch, 0);
-        
+
         // Test with a full semver version
         let mut version = Version::new("5.11");
         version.branch = Some("1.2.3".to_string());
@@ -666,7 +674,7 @@ mod tests {
         assert_eq!(semver.major, 1);
         assert_eq!(semver.minor, 2);
         assert_eq!(semver.patch, 3);
-        
+
         // Test build_to_semver
         let mut version = Version::new("5.11");
         version.build = Some("2020.0.1.0".to_string());
@@ -674,20 +682,20 @@ mod tests {
         assert_eq!(semver.major, 2020);
         assert_eq!(semver.minor, 0);
         assert_eq!(semver.patch, 1);
-        
+
         // Test from_semver
         let release = semver::Version::new(5, 11, 0);
         let branch = Some(semver::Version::new(1, 0, 0));
         let build = Some(semver::Version::new(2020, 0, 1));
         let timestamp = Some("20200421T195136Z".to_string());
-        
+
         let version = Version::from_semver(release, branch, build, timestamp);
         assert_eq!(version.release, "5.11.0");
         assert_eq!(version.branch, Some("1.0.0".to_string()));
         assert_eq!(version.build, Some("2020.0.1".to_string()));
         assert_eq!(version.timestamp, Some("20200421T195136Z".to_string()));
     }
-    
+
     #[test]
     fn test_new_semver_constructors() {
         // Test new_semver
@@ -697,7 +705,7 @@ mod tests {
         assert_eq!(version.branch, None);
         assert_eq!(version.build, None);
         assert_eq!(version.timestamp, None);
-        
+
         // Test with_branch_semver
         let release = semver::Version::new(5, 11, 0);
         let branch = semver::Version::new(1, 0, 0);
@@ -706,7 +714,7 @@ mod tests {
         assert_eq!(version.branch, Some("1.0.0".to_string()));
         assert_eq!(version.build, None);
         assert_eq!(version.timestamp, None);
-        
+
         // Test with_build_semver
         let release = semver::Version::new(5, 11, 0);
         let branch = Some(semver::Version::new(1, 0, 0));
@@ -716,7 +724,7 @@ mod tests {
         assert_eq!(version.branch, Some("1.0.0".to_string()));
         assert_eq!(version.build, Some("2020.0.1".to_string()));
         assert_eq!(version.timestamp, None);
-        
+
         // Test with_timestamp_semver
         let release = semver::Version::new(5, 11, 0);
         let branch = Some(semver::Version::new(1, 0, 0));
@@ -728,43 +736,43 @@ mod tests {
         assert_eq!(version.build, Some("2020.0.1".to_string()));
         assert_eq!(version.timestamp, Some("20200421T195136Z".to_string()));
     }
-    
+
     #[test]
     fn test_to_semver() {
         // Test to_semver with all components
         let mut version = Version::new("5.11");
         version.branch = Some("1.2.3".to_string());
         version.build = Some("2020.0.1".to_string());
-        
+
         let (release, branch, build) = version.to_semver();
-        
+
         assert!(release.is_ok());
         let release = release.unwrap();
         assert_eq!(release.major, 5);
         assert_eq!(release.minor, 11);
         assert_eq!(release.patch, 0);
-        
+
         assert!(branch.is_some());
         let branch = branch.unwrap().unwrap();
         assert_eq!(branch.major, 1);
         assert_eq!(branch.minor, 2);
         assert_eq!(branch.patch, 3);
-        
+
         assert!(build.is_some());
         let build = build.unwrap().unwrap();
         assert_eq!(build.major, 2020);
         assert_eq!(build.minor, 0);
         assert_eq!(build.patch, 1);
-        
+
         // Test is_semver_compatible
         assert!(version.is_semver_compatible());
-        
+
         // Test with invalid semver
         let mut version = Version::new("5.11");
         version.branch = Some("invalid".to_string());
         assert!(!version.is_semver_compatible());
     }
-    
+
     #[test]
     fn test_semver_validation() {
         // Test valid dot-separated vectors
@@ -772,14 +780,14 @@ mod tests {
         assert!(Version::is_valid_dot_vector("5.11"));
         assert!(Version::is_valid_dot_vector("5.11.0"));
         assert!(Version::is_valid_dot_vector("2020.0.1.0"));
-        
+
         // Test invalid dot-separated vectors
         assert!(!Version::is_valid_dot_vector(""));
         assert!(!Version::is_valid_dot_vector(".11"));
         assert!(!Version::is_valid_dot_vector("5."));
         assert!(!Version::is_valid_dot_vector("5..11"));
         assert!(!Version::is_valid_dot_vector("5a.11"));
-        
+
         // Test semver validation
         assert!(Version::is_valid_dot_vector("1.2.3"));
         assert!(Version::is_valid_dot_vector("0.0.0"));
@@ -857,7 +865,8 @@ mod tests {
         assert_eq!(version.to_string(), "5.11-2020.0.1.0");
 
         // Test displaying a release, branch, build, and timestamp
-        let version = Version::with_timestamp("5.11", Some("1"), Some("2020.0.1.0"), "20200421T195136Z");
+        let version =
+            Version::with_timestamp("5.11", Some("1"), Some("2020.0.1.0"), "20200421T195136Z");
         assert_eq!(version.to_string(), "5.11,1-2020.0.1.0:20200421T195136Z");
 
         // Test displaying a release and timestamp (no branch or build)
@@ -908,7 +917,10 @@ mod tests {
         assert_eq!(fmri.version, None);
 
         // Test parsing with scheme, publisher, and version
-        let fmri = Fmri::parse("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z").unwrap();
+        let fmri = Fmri::parse(
+            "pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z",
+        )
+        .unwrap();
         assert_eq!(fmri.scheme, "pkg");
         assert_eq!(fmri.publisher, Some("openindiana.org".to_string()));
         assert_eq!(fmri.name, "web/server/nginx");
@@ -947,14 +959,22 @@ mod tests {
         // Test displaying a name and version
         let version = Version::with_timestamp("5.11", Some("1"), None, "20200421T195136Z");
         let fmri = Fmri::with_version("sunos/coreutils", version);
-        assert_eq!(fmri.to_string(), "pkg:///sunos/coreutils@5.11,1:20200421T195136Z");
+        assert_eq!(
+            fmri.to_string(),
+            "pkg:///sunos/coreutils@5.11,1:20200421T195136Z"
+        );
 
         // Test displaying with publisher
         let fmri = Fmri::with_publisher("openindiana.org", "web/server/nginx", None);
         assert_eq!(fmri.to_string(), "pkg://openindiana.org/web/server/nginx");
 
         // Test displaying with publisher and version
-        let version = Version::with_timestamp("1.18.0", Some("5.11"), Some("2020.0.1.0"), "20200421T195136Z");
+        let version = Version::with_timestamp(
+            "1.18.0",
+            Some("5.11"),
+            Some("2020.0.1.0"),
+            "20200421T195136Z",
+        );
         let fmri = Fmri::with_publisher("openindiana.org", "web/server/nginx", Some(version));
         assert_eq!(
             fmri.to_string(),
@@ -968,31 +988,76 @@ mod tests {
         assert_eq!(Version::parse(""), Err(FmriError::InvalidReleaseFormat));
         assert_eq!(Version::parse(".11"), Err(FmriError::InvalidReleaseFormat));
         assert_eq!(Version::parse("5."), Err(FmriError::InvalidReleaseFormat));
-        assert_eq!(Version::parse("5..11"), Err(FmriError::InvalidReleaseFormat));
-        assert_eq!(Version::parse("5a.11"), Err(FmriError::InvalidReleaseFormat));
+        assert_eq!(
+            Version::parse("5..11"),
+            Err(FmriError::InvalidReleaseFormat)
+        );
+        assert_eq!(
+            Version::parse("5a.11"),
+            Err(FmriError::InvalidReleaseFormat)
+        );
 
         // Test invalid branch format
         assert_eq!(Version::parse("5.11,"), Err(FmriError::InvalidBranchFormat));
-        assert_eq!(Version::parse("5.11,.1"), Err(FmriError::InvalidBranchFormat));
-        assert_eq!(Version::parse("5.11,1."), Err(FmriError::InvalidBranchFormat));
-        assert_eq!(Version::parse("5.11,1..2"), Err(FmriError::InvalidBranchFormat));
-        assert_eq!(Version::parse("5.11,1a.2"), Err(FmriError::InvalidBranchFormat));
+        assert_eq!(
+            Version::parse("5.11,.1"),
+            Err(FmriError::InvalidBranchFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11,1."),
+            Err(FmriError::InvalidBranchFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11,1..2"),
+            Err(FmriError::InvalidBranchFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11,1a.2"),
+            Err(FmriError::InvalidBranchFormat)
+        );
 
         // Test invalid build format
         assert_eq!(Version::parse("5.11-"), Err(FmriError::InvalidBuildFormat));
-        assert_eq!(Version::parse("5.11-.1"), Err(FmriError::InvalidBuildFormat));
-        assert_eq!(Version::parse("5.11-1."), Err(FmriError::InvalidBuildFormat));
-        assert_eq!(Version::parse("5.11-1..2"), Err(FmriError::InvalidBuildFormat));
-        assert_eq!(Version::parse("5.11-1a.2"), Err(FmriError::InvalidBuildFormat));
+        assert_eq!(
+            Version::parse("5.11-.1"),
+            Err(FmriError::InvalidBuildFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11-1."),
+            Err(FmriError::InvalidBuildFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11-1..2"),
+            Err(FmriError::InvalidBuildFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11-1a.2"),
+            Err(FmriError::InvalidBuildFormat)
+        );
 
         // Test invalid timestamp format
-        assert_eq!(Version::parse("5.11:"), Err(FmriError::InvalidTimestampFormat));
-        assert_eq!(Version::parse("5.11:xyz"), Err(FmriError::InvalidTimestampFormat));
+        assert_eq!(
+            Version::parse("5.11:"),
+            Err(FmriError::InvalidTimestampFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11:xyz"),
+            Err(FmriError::InvalidTimestampFormat)
+        );
 
         // Test invalid version format
-        assert_eq!(Version::parse("5.11,1,2"), Err(FmriError::InvalidVersionFormat));
-        assert_eq!(Version::parse("5.11-1-2"), Err(FmriError::InvalidVersionFormat));
-        assert_eq!(Version::parse("5.11:1:2"), Err(FmriError::InvalidVersionFormat));
+        assert_eq!(
+            Version::parse("5.11,1,2"),
+            Err(FmriError::InvalidVersionFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11-1-2"),
+            Err(FmriError::InvalidVersionFormat)
+        );
+        assert_eq!(
+            Version::parse("5.11:1:2"),
+            Err(FmriError::InvalidVersionFormat)
+        );
     }
 
     #[test]
@@ -1001,14 +1066,29 @@ mod tests {
         assert_eq!(Fmri::parse(""), Err(FmriError::InvalidFormat));
         assert_eq!(Fmri::parse("pkg://"), Err(FmriError::InvalidFormat));
         assert_eq!(Fmri::parse("pkg:///"), Err(FmriError::InvalidFormat));
-        assert_eq!(Fmri::parse("pkg://publisher/"), Err(FmriError::InvalidFormat));
+        assert_eq!(
+            Fmri::parse("pkg://publisher/"),
+            Err(FmriError::InvalidFormat)
+        );
         assert_eq!(Fmri::parse("@5.11"), Err(FmriError::InvalidFormat));
-        assert_eq!(Fmri::parse("name@version@extra"), Err(FmriError::InvalidFormat));
+        assert_eq!(
+            Fmri::parse("name@version@extra"),
+            Err(FmriError::InvalidFormat)
+        );
 
         // Test invalid version
         assert_eq!(Fmri::parse("name@"), Err(FmriError::InvalidReleaseFormat));
-        assert_eq!(Fmri::parse("name@5.11,"), Err(FmriError::InvalidBranchFormat));
-        assert_eq!(Fmri::parse("name@5.11-"), Err(FmriError::InvalidBuildFormat));
-        assert_eq!(Fmri::parse("name@5.11:"), Err(FmriError::InvalidTimestampFormat));
+        assert_eq!(
+            Fmri::parse("name@5.11,"),
+            Err(FmriError::InvalidBranchFormat)
+        );
+        assert_eq!(
+            Fmri::parse("name@5.11-"),
+            Err(FmriError::InvalidBuildFormat)
+        );
+        assert_eq!(
+            Fmri::parse("name@5.11:"),
+            Err(FmriError::InvalidTimestampFormat)
+        );
     }
 }

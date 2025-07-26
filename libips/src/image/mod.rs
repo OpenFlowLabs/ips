@@ -1,10 +1,10 @@
 mod properties;
 
+use properties::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use properties::*;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -29,7 +29,7 @@ pub struct Image {
 
 impl Image {
     pub fn new<P: Into<PathBuf>>(path: P) -> Image {
-        Image{
+        Image {
             path: path.into(),
             version: 5,
             variants: HashMap::new(),

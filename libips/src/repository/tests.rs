@@ -8,8 +8,8 @@ mod tests {
     use crate::actions::Manifest;
     use crate::fmri::Fmri;
     use crate::repository::{
-        CatalogManager, FileBackend, ReadableRepository,
-        RepositoryVersion, WritableRepository, REPOSITORY_CONFIG_FILENAME,
+        CatalogManager, FileBackend, ReadableRepository, RepositoryVersion, WritableRepository,
+        REPOSITORY_CONFIG_FILENAME,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -65,7 +65,7 @@ mod tests {
             PathBuf::from("/tmp/pkg6_test/manifests"),
         )
     }
-    
+
     // Helper function to publish a package to a repository
     fn publish_package(
         repo: &mut FileBackend,
@@ -73,26 +73,38 @@ mod tests {
         prototype_dir: &PathBuf,
         publisher: &str,
     ) -> Result<(), anyhow::Error> {
-        println!("Publishing package from manifest: {}", manifest_path.display());
+        println!(
+            "Publishing package from manifest: {}",
+            manifest_path.display()
+        );
         println!("Prototype directory: {}", prototype_dir.display());
         println!("Publisher: {}", publisher);
 
         // Check if the manifest file exists
         if !manifest_path.exists() {
             println!("Error: Manifest file does not exist");
-            return Err(anyhow::anyhow!("Manifest file does not exist: {}", manifest_path.display()));
+            return Err(anyhow::anyhow!(
+                "Manifest file does not exist: {}",
+                manifest_path.display()
+            ));
         }
 
         // Check if the prototype directory exists
         if !prototype_dir.exists() {
             println!("Error: Prototype directory does not exist");
-            return Err(anyhow::anyhow!("Prototype directory does not exist: {}", prototype_dir.display()));
+            return Err(anyhow::anyhow!(
+                "Prototype directory does not exist: {}",
+                prototype_dir.display()
+            ));
         }
 
         // Parse the manifest file
         println!("Parsing manifest file...");
         let manifest = Manifest::parse_file(manifest_path)?;
-        println!("Manifest parsed successfully. Files: {}", manifest.files.len());
+        println!(
+            "Manifest parsed successfully. Files: {}",
+            manifest.files.len()
+        );
 
         // Begin a transaction
         println!("Beginning transaction...");
@@ -103,13 +115,16 @@ mod tests {
         for file_action in manifest.files.iter() {
             // Construct the full path to the file in the prototype directory
             let file_path = prototype_dir.join(&file_action.path);
-            
+
             // Check if the file exists
             if !file_path.exists() {
-                println!("Warning: File does not exist in prototype directory: {}", file_path.display());
+                println!(
+                    "Warning: File does not exist in prototype directory: {}",
+                    file_path.display()
+                );
                 continue;
             }
-            
+
             // Add the file to the transaction
             println!("Adding file: {}", file_action.path);
             transaction.add_file(file_action.clone(), &file_path)?;
@@ -127,14 +142,17 @@ mod tests {
         println!("Committing transaction...");
         transaction.commit()?;
         println!("Transaction committed successfully");
-        
+
         // Debug: Check if the package manifest was stored in the correct location
         let publisher_pkg_dir = repo.path.join("pkg").join(publisher);
-        println!("Publisher package directory: {}", publisher_pkg_dir.display());
-        
+        println!(
+            "Publisher package directory: {}",
+            publisher_pkg_dir.display()
+        );
+
         if publisher_pkg_dir.exists() {
             println!("Publisher directory exists");
-            
+
             // List files in the publisher directory
             if let Ok(entries) = std::fs::read_dir(&publisher_pkg_dir) {
                 println!("Files in publisher directory:");
@@ -257,15 +275,15 @@ mod tests {
 
         // Check that the files were published
         assert!(repo_path.join("file").exists());
-        
+
         // Get repository information
         let repo_info = repo.get_info().unwrap();
-        
+
         // Check that the publisher information is correct
         assert_eq!(repo_info.publishers.len(), 1);
         let publisher_info = &repo_info.publishers[0];
         assert_eq!(publisher_info.name, "test");
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
@@ -291,13 +309,13 @@ mod tests {
 
         // List packages
         let packages = repo.list_packages(Some("test"), None).unwrap();
-        
+
         // Check that packages were listed
         assert!(!packages.is_empty());
-        
+
         // Check that the package name is correct
         assert_eq!(packages[0].fmri.name, "example");
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
@@ -323,20 +341,22 @@ mod tests {
 
         // Show contents
         let contents = repo.show_contents(Some("test"), None, None).unwrap();
-        
+
         // Check that contents were shown
         assert!(!contents.is_empty());
-        
+
         // Check that the contents include the expected files
         let package_contents = &contents[0];
         assert!(package_contents.files.is_some());
         let files = package_contents.files.as_ref().unwrap();
-        
+
         // Check for specific files
         assert!(files.iter().any(|f| f.contains("usr/bin/hello")));
-        assert!(files.iter().any(|f| f.contains("usr/share/doc/example/README.txt")));
+        assert!(files
+            .iter()
+            .any(|f| f.contains("usr/share/doc/example/README.txt")));
         assert!(files.iter().any(|f| f.contains("etc/config/example.conf")));
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
@@ -365,13 +385,13 @@ mod tests {
 
         // Search for packages
         let results = repo.search("example", Some("test"), None).unwrap();
-        
+
         // Check that search results were returned
         assert!(!results.is_empty());
-        
+
         // Check that the package name is correct
         assert_eq!(results[0].fmri.name, "example");
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }

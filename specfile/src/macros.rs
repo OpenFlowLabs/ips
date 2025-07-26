@@ -1,15 +1,13 @@
+use anyhow::Result;
 use pest::Parser;
 use pest_derive::Parser;
 use std::collections::HashMap;
 use thiserror::Error;
-use anyhow::Result;
 
 #[derive(Debug, Error)]
 pub enum MacroParserError {
     #[error("macro does not exist: {macro_name}")]
-    DoesNotExist {
-        macro_name: String,
-    }
+    DoesNotExist { macro_name: String },
 }
 
 #[derive(Parser)]
@@ -18,17 +16,17 @@ struct InternalMacroParser;
 
 #[derive(Default, Debug)]
 pub struct MacroParser {
-    pub macros: HashMap<String, String>
+    pub macros: HashMap<String, String>,
 }
 
 #[derive(Default, Debug)]
 pub struct Macro {
     pub name: String,
-    pub parameters: Vec<String>
+    pub parameters: Vec<String>,
 }
 
 impl MacroParser {
-    pub fn parse(&self ,raw_string: String) -> Result<String> {
+    pub fn parse(&self, raw_string: String) -> Result<String> {
         let mut return_string = String::new();
 
         for (i, line) in raw_string.lines().enumerate() {
@@ -91,9 +89,10 @@ impl MacroParser {
 
     fn get_variable(&self, macro_name: &str) -> Result<&str> {
         if self.macros.contains_key(macro_name) {
-            return Ok(self.macros[macro_name].as_str())
+            return Ok(self.macros[macro_name].as_str());
         }
-        Err(MacroParserError::DoesNotExist {macro_name: macro_name.into()})?
+        Err(MacroParserError::DoesNotExist {
+            macro_name: macro_name.into(),
+        })?
     }
 }
-

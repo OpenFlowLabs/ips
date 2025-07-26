@@ -4,12 +4,12 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::digest::{Digest, DigestAlgorithm, DigestError, DigestSource};
+use diff::Diff;
 use object::Object;
+use serde::{Deserialize, Serialize};
 use std::io::Error as IOError;
 use std::path::Path;
 use std::result::Result as StdResult;
-use diff::Diff;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 type Result<T> = StdResult<T, PayloadError>;

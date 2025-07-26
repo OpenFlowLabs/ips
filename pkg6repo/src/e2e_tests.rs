@@ -103,7 +103,11 @@ mod e2e_tests {
 
         // Create a repository using pkg6repo
         let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
-        assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create repository: {:?}",
+            result.err()
+        );
 
         // Check that the repository was created
         assert!(repo_path.exists());
@@ -126,15 +130,19 @@ mod e2e_tests {
 
         // Create a repository using pkg6repo
         let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
-        assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create repository: {:?}",
+            result.err()
+        );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&[
-            "add-publisher",
-            repo_path.to_str().unwrap(),
-            "example.com",
-        ]);
-        assert!(result.is_ok(), "Failed to add publisher: {:?}", result.err());
+        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "example.com"]);
+        assert!(
+            result.is_ok(),
+            "Failed to add publisher: {:?}",
+            result.err()
+        );
 
         // Check that the publisher was added
         assert!(repo_path.join("catalog").join("example.com").exists());
@@ -155,15 +163,19 @@ mod e2e_tests {
 
         // Create a repository using pkg6repo
         let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
-        assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create repository: {:?}",
+            result.err()
+        );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&[
-            "add-publisher",
-            repo_path.to_str().unwrap(),
-            "test",
-        ]);
-        assert!(result.is_ok(), "Failed to add publisher: {:?}", result.err());
+        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        assert!(
+            result.is_ok(),
+            "Failed to add publisher: {:?}",
+            result.err()
+        );
 
         // Publish a package using pkg6dev
         let manifest_path = manifest_dir.join("example.p5m");
@@ -173,17 +185,25 @@ mod e2e_tests {
             prototype_dir.to_str().unwrap(),
             repo_path.to_str().unwrap(),
         ]);
-        assert!(result.is_ok(), "Failed to publish package: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to publish package: {:?}",
+            result.err()
+        );
 
         // Check that the package was published
-        let result = run_pkg6repo(&[
-            "list",
-            repo_path.to_str().unwrap(),
-        ]);
-        assert!(result.is_ok(), "Failed to list packages: {:?}", result.err());
-        
+        let result = run_pkg6repo(&["list", repo_path.to_str().unwrap()]);
+        assert!(
+            result.is_ok(),
+            "Failed to list packages: {:?}",
+            result.err()
+        );
+
         let output = result.unwrap();
-        assert!(output.contains("example"), "Package not found in repository");
+        assert!(
+            output.contains("example"),
+            "Package not found in repository"
+        );
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -200,15 +220,19 @@ mod e2e_tests {
 
         // Create a repository using pkg6repo
         let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
-        assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create repository: {:?}",
+            result.err()
+        );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&[
-            "add-publisher",
-            repo_path.to_str().unwrap(),
-            "test",
-        ]);
-        assert!(result.is_ok(), "Failed to add publisher: {:?}", result.err());
+        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        assert!(
+            result.is_ok(),
+            "Failed to add publisher: {:?}",
+            result.err()
+        );
 
         // Publish a package using pkg6dev
         let manifest_path = manifest_dir.join("example.p5m");
@@ -218,20 +242,33 @@ mod e2e_tests {
             prototype_dir.to_str().unwrap(),
             repo_path.to_str().unwrap(),
         ]);
-        assert!(result.is_ok(), "Failed to publish package: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to publish package: {:?}",
+            result.err()
+        );
 
         // Show package contents using pkg6repo
-        let result = run_pkg6repo(&[
-            "contents",
-            repo_path.to_str().unwrap(),
-            "example",
-        ]);
-        assert!(result.is_ok(), "Failed to show package contents: {:?}", result.err());
-        
+        let result = run_pkg6repo(&["contents", repo_path.to_str().unwrap(), "example"]);
+        assert!(
+            result.is_ok(),
+            "Failed to show package contents: {:?}",
+            result.err()
+        );
+
         let output = result.unwrap();
-        assert!(output.contains("usr/bin/hello"), "File not found in package contents");
-        assert!(output.contains("usr/share/doc/example/README.txt"), "File not found in package contents");
-        assert!(output.contains("etc/config/example.conf"), "File not found in package contents");
+        assert!(
+            output.contains("usr/bin/hello"),
+            "File not found in package contents"
+        );
+        assert!(
+            output.contains("usr/share/doc/example/README.txt"),
+            "File not found in package contents"
+        );
+        assert!(
+            output.contains("etc/config/example.conf"),
+            "File not found in package contents"
+        );
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -248,15 +285,19 @@ mod e2e_tests {
 
         // Create a repository using pkg6repo
         let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
-        assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create repository: {:?}",
+            result.err()
+        );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&[
-            "add-publisher",
-            repo_path.to_str().unwrap(),
-            "test",
-        ]);
-        assert!(result.is_ok(), "Failed to add publisher: {:?}", result.err());
+        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        assert!(
+            result.is_ok(),
+            "Failed to add publisher: {:?}",
+            result.err()
+        );
 
         // Publish the first package using pkg6dev
         let manifest_path1 = manifest_dir.join("example.p5m");
@@ -266,7 +307,11 @@ mod e2e_tests {
             prototype_dir.to_str().unwrap(),
             repo_path.to_str().unwrap(),
         ]);
-        assert!(result.is_ok(), "Failed to publish first package: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to publish first package: {:?}",
+            result.err()
+        );
 
         // Publish the second package using pkg6dev
         let manifest_path2 = manifest_dir.join("example2.p5m");
@@ -276,18 +321,29 @@ mod e2e_tests {
             prototype_dir.to_str().unwrap(),
             repo_path.to_str().unwrap(),
         ]);
-        assert!(result.is_ok(), "Failed to publish second package: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to publish second package: {:?}",
+            result.err()
+        );
 
         // List packages using pkg6repo
-        let result = run_pkg6repo(&[
-            "list",
-            repo_path.to_str().unwrap(),
-        ]);
-        assert!(result.is_ok(), "Failed to list packages: {:?}", result.err());
-        
+        let result = run_pkg6repo(&["list", repo_path.to_str().unwrap()]);
+        assert!(
+            result.is_ok(),
+            "Failed to list packages: {:?}",
+            result.err()
+        );
+
         let output = result.unwrap();
-        assert!(output.contains("example"), "First package not found in repository");
-        assert!(output.contains("example2"), "Second package not found in repository");
+        assert!(
+            output.contains("example"),
+            "First package not found in repository"
+        );
+        assert!(
+            output.contains("example2"),
+            "Second package not found in repository"
+        );
 
         // Clean up
         cleanup_test_dir(&test_dir);

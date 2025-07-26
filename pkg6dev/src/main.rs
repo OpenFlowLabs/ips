@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use libips::actions::{ActionError, File, Manifest};
-use libips::repository::{ReadableRepository, WritableRepository, FileBackend};
+use libips::repository::{FileBackend, ReadableRepository, WritableRepository};
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
@@ -325,12 +325,18 @@ fn publish_package(
 ) -> Result<()> {
     // Check if the manifest file exists
     if !manifest_path.exists() {
-        return Err(anyhow!("Manifest file does not exist: {}", manifest_path.display()));
+        return Err(anyhow!(
+            "Manifest file does not exist: {}",
+            manifest_path.display()
+        ));
     }
 
     // Check if the prototype directory exists
     if !prototype_dir.exists() {
-        return Err(anyhow!("Prototype directory does not exist: {}", prototype_dir.display()));
+        return Err(anyhow!(
+            "Prototype directory does not exist: {}",
+            prototype_dir.display()
+        ));
     }
 
     // Parse the manifest file
@@ -368,17 +374,23 @@ fn publish_package(
     let mut transaction = repo.begin_transaction()?;
 
     // Add files from the prototype directory to the transaction
-    println!("Adding files from prototype directory: {}", prototype_dir.display());
+    println!(
+        "Adding files from prototype directory: {}",
+        prototype_dir.display()
+    );
     for file_action in manifest.files.iter() {
         // Construct the full path to the file in the prototype directory
         let file_path = prototype_dir.join(&file_action.path);
-        
+
         // Check if the file exists
         if !file_path.exists() {
-            println!("Warning: File does not exist in prototype directory: {}", file_path.display());
+            println!(
+                "Warning: File does not exist in prototype directory: {}",
+                file_path.display()
+            );
             continue;
         }
-        
+
         // Add the file to the transaction
         println!("Adding file: {}", file_action.path);
         transaction.add_file(file_action.clone(), &file_path)?;

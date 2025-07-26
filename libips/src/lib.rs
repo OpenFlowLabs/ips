@@ -7,8 +7,8 @@
 pub mod actions;
 pub mod digest;
 pub mod fmri;
-pub mod payload;
 pub mod image;
+pub mod payload;
 pub mod repository;
 
 #[cfg(test)]
@@ -987,12 +987,17 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
                 ..Dependency::default()
             },
             Dependency {
-                fmri: Some(Fmri::parse("pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951").unwrap()),
+                fmri: Some(
+                    Fmri::parse("pkg:/system/file-system/nfs@0.5.11,5.11-2020.0.1.19951").unwrap(),
+                ),
                 dependency_type: "incorporate".to_string(),
                 ..Dependency::default()
             },
             Dependency {
-                fmri: Some(Fmri::parse("pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951").unwrap()),
+                fmri: Some(
+                    Fmri::parse("pkg:/system/data/hardware-registry@2020.2.22,5.11-2020.0.1.19951")
+                        .unwrap(),
+                ),
                 dependency_type: "incorporate".to_string(),
                 facets: hashmap! {
                     "version-lock.system/data/hardware-registry".to_string() => Facet{
@@ -1038,7 +1043,7 @@ depend facet.version-lock.system/mozilla-nss=true fmri=system/mozilla-nss@3.51.1
             } else {
                 assert_eq!(dependency.fmri.is_none(), test_results[pos].fmri.is_none());
             }
-            
+
             assert_eq!(
                 dependency.dependency_type,
                 test_results[pos].dependency_type

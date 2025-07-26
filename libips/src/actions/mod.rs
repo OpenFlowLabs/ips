@@ -8,16 +8,16 @@
 use crate::digest::Digest;
 use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadError};
+use diff::Diff;
 use pest::Parser;
 use pest_derive::Parser;
+use serde::{Deserialize, Serialize};
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::fs::read_to_string;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::str::FromStr;
-use diff::Diff;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 type Result<T> = StdResult<T, ActionError>;
@@ -289,23 +289,19 @@ impl From<Action> for Dependency {
         }
         for prop in props {
             match prop.key.as_str() {
-                "fmri" => {
-                    match Fmri::parse(&prop.value) {
-                        Ok(fmri) => dep.fmri = Some(fmri),
-                        Err(err) => {
-                            eprintln!("Error parsing FMRI '{}': {}", prop.value, err);
-                            dep.fmri = None;
-                        }
+                "fmri" => match Fmri::parse(&prop.value) {
+                    Ok(fmri) => dep.fmri = Some(fmri),
+                    Err(err) => {
+                        eprintln!("Error parsing FMRI '{}': {}", prop.value, err);
+                        dep.fmri = None;
                     }
                 },
                 "type" => dep.dependency_type = prop.value,
-                "predicate" => {
-                    match Fmri::parse(&prop.value) {
-                        Ok(fmri) => dep.predicate = Some(fmri),
-                        Err(err) => {
-                            eprintln!("Error parsing predicate FMRI '{}': {}", prop.value, err);
-                            dep.predicate = None;
-                        }
+                "predicate" => match Fmri::parse(&prop.value) {
+                    Ok(fmri) => dep.predicate = Some(fmri),
+                    Err(err) => {
+                        eprintln!("Error parsing predicate FMRI '{}': {}", prop.value, err);
+                        dep.predicate = None;
                     }
                 },
                 "root-image" => dep.root_image = prop.value,

@@ -431,7 +431,7 @@ impl Transaction {
 
         // Move the manifest to its final location in the repository
         // Store in both the pkg directory and the trans directory as required
-        
+
         // Extract package name from manifest
         let mut package_name = String::from("unknown");
         for attr in &self.manifest.attributes {
@@ -442,7 +442,7 @@ impl Transaction {
                 }
             }
         }
-        
+
         // Determine the pkg directory path based on publisher
         let pkg_manifest_path = if let Some(publisher) = &self.publisher {
             // Create publisher directory if it doesn't exist
@@ -450,14 +450,14 @@ impl Transaction {
             if !publisher_dir.exists() {
                 fs::create_dir_all(&publisher_dir)?;
             }
-            
+
             // Store in publisher-specific directory with package name
             publisher_dir.join(format!("{}.manifest", package_name))
         } else {
             // Store in root pkg directory (legacy behavior)
             self.repo.join("pkg").join("manifest")
         };
-        
+
         let trans_manifest_path = self
             .repo
             .join("trans")
@@ -623,7 +623,8 @@ impl ReadableRepository for FileBackend {
                         let path = entry.path();
 
                         // Skip directories, only process files with .manifest extension
-                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest") {
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest")
+                        {
                             // Parse the manifest file to get real package information
                             match Manifest::parse_file(&path) {
                                 Ok(manifest) => {
@@ -765,7 +766,8 @@ impl ReadableRepository for FileBackend {
                         let path = entry.path();
 
                         // Skip directories, only process files with .manifest extension
-                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest") {
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest")
+                        {
                             // Parse the manifest file to get package information
                             match Manifest::parse_file(&path) {
                                 Ok(manifest) => {
@@ -1260,7 +1262,9 @@ impl FileBackend {
     }
 
     /// Get or initialize the catalog manager
-    pub fn get_catalog_manager(&mut self) -> Result<&mut crate::repository::catalog::CatalogManager> {
+    pub fn get_catalog_manager(
+        &mut self,
+    ) -> Result<&mut crate::repository::catalog::CatalogManager> {
         if self.catalog_manager.is_none() {
             let catalog_dir = self.path.join("catalog");
             self.catalog_manager = Some(crate::repository::catalog::CatalogManager::new(

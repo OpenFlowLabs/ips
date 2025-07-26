@@ -3,14 +3,14 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
+use diff::Diff;
+use serde::{Deserialize, Serialize};
 use sha2::Digest as Sha2Digest;
 #[allow(unused_imports)]
 use sha3::Digest as Sha3Digest;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::{convert::TryInto, result::Result as StdResult};
-use diff::Diff;
-use serde::{Deserialize, Serialize};
 use strum::{Display as StrumDisplay, EnumString};
 use thiserror::Error;
 
@@ -19,7 +19,9 @@ type Result<T> = StdResult<T, DigestError>;
 #[allow(dead_code)]
 static DEFAULT_ALGORITHM: DigestAlgorithm = DigestAlgorithm::SHA512;
 
-#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff)]
+#[derive(
+    Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff,
+)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
 ))]
@@ -41,7 +43,9 @@ pub enum DigestAlgorithm {
     SHA3512, // Sha3 version of sha512t
 }
 
-#[derive(Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff)]
+#[derive(
+    Debug, PartialEq, Clone, StrumDisplay, EnumString, Default, Deserialize, Serialize, Diff,
+)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
 ))]
