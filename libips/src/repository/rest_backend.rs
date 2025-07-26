@@ -263,12 +263,12 @@ impl ReadableRepository for RestBackend {
     fn list_packages(
         &self,
         publisher: Option<&str>,
-        pattern: Option<&str>,
+        _pattern: Option<&str>,
     ) -> Result<Vec<PackageInfo>> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to list packages
 
-        let mut packages = Vec::new();
+        let packages = Vec::new();
 
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
@@ -281,7 +281,7 @@ impl ReadableRepository for RestBackend {
         };
 
         // For each publisher, list packages
-        for pub_name in publishers {
+        for _pub_name in publishers {
             // In a real implementation, we would make a REST API call to get package information
             // The API call would return a list of packages with their names, versions, and other metadata
             // We would then parse this information and create PackageInfo structs
@@ -400,9 +400,9 @@ impl ReadableRepository for RestBackend {
 
     fn search(
         &self,
-        query: &str,
-        publisher: Option<&str>,
-        limit: Option<usize>,
+        _query: &str,
+        _publisher: Option<&str>,
+        _limit: Option<usize>,
     ) -> Result<Vec<PackageInfo>> {
         todo!()
     }

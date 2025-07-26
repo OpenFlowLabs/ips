@@ -54,7 +54,7 @@ mod tests {
 
         // Verify that the parsed manifest has the expected attributes
         assert_eq!(parsed_manifest.attributes.len(), 1);
-        assert_eq!(parsed_manifest.attributes[0].key, "name");
-        assert_eq!(parsed_manifest.attributes[0].values[0], "pkg.fmri");
+        assert_eq!(parsed_manifest.attributes[0].key, "pkg.fmri");
+        assert_eq!(parsed_manifest.attributes[0].values[0], "pkg://test/example@1.0.0");
     }
 }
