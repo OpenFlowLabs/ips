@@ -130,40 +130,41 @@ cargo test -p <crate_name>
 
 ### Setting Up Test Environment
 
-The project includes a script to set up the test environment for repository tests:
+The project uses cargo-xtask for automation tasks, including setting up the test environment:
 ```bash
-./setup_test_env.sh
+cargo xtask setup-test-env
 ```
 
-This script:
+This command:
 1. Creates test directories in `/tmp/pkg6_test`
 2. Compiles the applications
 3. Creates a prototype directory structure with sample files
 4. Creates package manifests for testing
 
+The legacy script `./setup_test_env.sh` is still available but is being phased out in favor of cargo-xtask.
+
 ### Writing Tests
 
 - Unit tests should be placed in the same file as the code they're testing, in a `mod tests` block
 - Integration tests should be placed in the `tests` directory of each crate
-- End-to-end tests should use the test environment set up by `setup_test_env.sh`
+- End-to-end tests should use the test environment set up by `cargo xtask setup-test-env`
 
 ## Build Guidelines
 
 ### Building the Project
 
-To build the entire project:
+Using cargo directly:
 ```bash
-cargo build
+cargo build                    # Build the entire project
+cargo build -p <crate_name>    # Build a specific crate
+cargo build --release          # Build with optimizations for release
 ```
 
-To build a specific crate:
+Using cargo-xtask:
 ```bash
-cargo build -p <crate_name>
-```
-
-To build with optimizations for release:
-```bash
-cargo build --release
+cargo xtask build              # Build the entire project
+cargo xtask build -p <crate_name>  # Build a specific crate
+cargo xtask build -r           # Build with optimizations for release
 ```
 
 ### Build Order
@@ -179,6 +180,36 @@ The crates are built in the following order (as specified in the workspace Cargo
 8. crates/*
 
 This order is important as it reflects the dependency hierarchy, with `libips` being the foundation that other crates build upon.
+
+## Cargo-xtask
+
+The project uses [cargo-xtask](https://github.com/matklad/cargo-xtask) for automation of tests and builds. This approach allows us to write build scripts and automation tasks in Rust instead of shell scripts, making them more maintainable and cross-platform.
+
+### Available Commands
+
+The following commands are available through cargo-xtask:
+
+```bash
+cargo xtask setup-test-env    # Set up the test environment for repository tests
+cargo xtask build             # Build the project
+cargo xtask build -r          # Build with release optimizations
+cargo xtask build -p <crate>  # Build a specific crate
+cargo xtask test              # Run tests
+cargo xtask test -r           # Run tests with release optimizations
+cargo xtask test -p <crate>   # Run tests for a specific crate
+cargo xtask fmt               # Format code using cargo fmt
+cargo xtask clippy            # Run clippy for code quality checks
+cargo xtask clean             # Clean build artifacts
+```
+
+### Adding New Commands
+
+To add a new command to cargo-xtask:
+
+1. Edit the `xtask/src/main.rs` file
+2. Add a new variant to the `Commands` enum
+3. Implement a function for the new command
+4. Add a match arm in the `main` function to call your new function
 
 ## Code Style Guidelines
 

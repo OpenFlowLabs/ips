@@ -9,6 +9,7 @@ members = [
   "specfile",
   "ports",
   "crates/*",
+  "xtask",
 ]
 
 resolver = "2"
