@@ -158,6 +158,47 @@ pkg6repo refresh -s /path/to/repository --no-catalog
 pkg6repo refresh -s /path/to/repository --no-index
 ```
 
+### Import pkg5 Repository
+
+Import a pkg5 repository (directory-based or p5p archive) into a pkg6 repository:
+
+```bash
+pkg6repo import-pkg5 --source /path/to/pkg5/repository --destination /path/to/pkg6/repository
+```
+
+You can specify a specific publisher to import:
+
+```bash
+pkg6repo import-pkg5 --source /path/to/pkg5/repository --destination /path/to/pkg6/repository --publisher example.com
+```
+
+#### Importing from a Directory-Based Repository
+
+To import from a directory-based pkg5 repository:
+
+```bash
+pkg6repo import-pkg5 --source /path/to/pkg5/repository/directory --destination /path/to/pkg6/repository
+```
+
+The source directory should contain the pkg5 repository structure with a `publisher` directory and a `pkg5.repository` file.
+
+#### Importing from a p5p Archive
+
+To import from a p5p archive:
+
+```bash
+pkg6repo import-pkg5 --source /path/to/repository.p5p --destination /path/to/pkg6/repository
+```
+
+The p5p archive should be a valid pkg5 repository archive with the standard pkg5 repository structure.
+
+#### Notes
+
+- If the destination repository doesn't exist, it will be created automatically.
+- If no publisher is specified, the first publisher found in the source repository will be used.
+- The import process extracts files from the source repository, decompresses them if necessary, and adds them to the destination repository.
+- After importing, the catalog and search index are automatically rebuilt.
+
 ## License
 
 This project is licensed under the same license as the original IPS implementation.
