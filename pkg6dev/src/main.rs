@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use libips::actions::{ActionError, File, Manifest};
-use libips::repository::{Repository, FileBackend};
+use libips::repository::{ReadableRepository, WritableRepository, FileBackend};
 
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;

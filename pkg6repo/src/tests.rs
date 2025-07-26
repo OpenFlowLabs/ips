@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use libips::repository::{Repository, RepositoryVersion, FileBackend, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo};
+    use libips::repository::{ReadableRepository, WritableRepository, RepositoryVersion, FileBackend, REPOSITORY_CONFIG_FILENAME, PublisherInfo, RepositoryInfo};
     use std::path::PathBuf;
     use std::fs;
 

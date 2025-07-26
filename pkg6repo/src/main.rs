@@ -1,9 +1,9 @@
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use anyhow::{Result, anyhow};
-use std::path::PathBuf;
 use std::convert::TryFrom;
+use std::path::PathBuf;
 
-use libips::repository::{Repository, RepositoryVersion, FileBackend, PublisherInfo, RepositoryInfo, PackageInfo, PackageContents};
+use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 
 #[cfg(test)]
 mod tests;
