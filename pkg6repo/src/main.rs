@@ -370,8 +370,19 @@ fn main() -> Result<()> {
             // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
+            // Process the publisher parameter
+            let pub_names = if let Some(publishers) = publisher {
+                if !publishers.is_empty() {
+                    publishers.clone()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+            
             // Filter properties if section_property is specified
-            let filtered_properties = if let Some(section_props) = section_property {
+            let section_filtered_properties = if let Some(section_props) = section_property {
                 let mut filtered = std::collections::HashMap::new();
                 
                 for section_prop in section_props {
@@ -395,6 +406,22 @@ fn main() -> Result<()> {
             } else {
                 // No filtering, use all properties
                 repo.config.properties.clone()
+            };
+            
+            // Filter properties by publisher if specified
+            let filtered_properties = if !pub_names.is_empty() {
+                let mut filtered = std::collections::HashMap::new();
+                
+                for (key, value) in &section_filtered_properties {
+                    let parts: Vec<&str> = key.split('/').collect();
+                    if parts.len() == 2 && pub_names.contains(&parts[0].to_string()) {
+                        filtered.insert(key.clone(), value.clone());
+                    }
+                }
+                
+                filtered
+            } else {
+                section_filtered_properties
             };
             
             // Determine the output format
@@ -460,8 +487,24 @@ fn main() -> Result<()> {
             // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
+            // Process the publisher parameter
+            let pub_names = if let Some(publishers) = publisher {
+                if !publishers.is_empty() {
+                    publishers.clone()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+            
             // Get repository info
-            let repo_info = repo.get_info()?;
+            let mut repo_info = repo.get_info()?;
+            
+            // Filter publishers if specified
+            if !pub_names.is_empty() {
+                repo_info.publishers.retain(|p| pub_names.contains(&p.name));
+            }
             
             // Determine the output format
             let output_format = format.as_deref().unwrap_or("table");
