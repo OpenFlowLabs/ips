@@ -24,8 +24,8 @@ enum Commands {
     /// Create a new package repository
     Create {
         /// Version of the repository to create
-        #[clap(long, default_value = "4")]
-        version: u32,
+        #[clap(long = "repo-version", default_value = "4")]
+        repo_version: u32,
         
         /// Path or URI of the repository to create
         uri_or_path: String,
@@ -245,14 +245,14 @@ fn main() -> Result<()> {
     let cli = App::parse();
 
     match &cli.command {
-        Commands::Create { version, uri_or_path } => {
-            println!("Creating repository version {} at {}", version, uri_or_path);
+        Commands::Create { repo_version, uri_or_path } => {
+            println!("Creating repository version {} at {}", repo_version, uri_or_path);
             
-            // Convert version to RepositoryVersion
-            let repo_version = RepositoryVersion::try_from(*version)?;
+            // Convert repo_version to RepositoryVersion
+            let repo_version_enum = RepositoryVersion::try_from(*repo_version)?;
             
             // Create the repository
-            let repo = FileBackend::create(uri_or_path, repo_version)?;
+            let repo = FileBackend::create(uri_or_path, repo_version_enum)?;
             
             println!("Repository created successfully at {}", repo.path.display());
             Ok(())

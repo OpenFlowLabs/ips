@@ -119,10 +119,34 @@ mod tests {
         println!("Updating manifest in transaction...");
         transaction.update_manifest(manifest);
 
+        // Set the publisher for the transaction
+        println!("Setting publisher: {}", publisher);
+        transaction.set_publisher(publisher);
+
         // Commit the transaction
         println!("Committing transaction...");
         transaction.commit()?;
         println!("Transaction committed successfully");
+        
+        // Debug: Check if the package manifest was stored in the correct location
+        let publisher_pkg_dir = repo.path.join("pkg").join(publisher);
+        println!("Publisher package directory: {}", publisher_pkg_dir.display());
+        
+        if publisher_pkg_dir.exists() {
+            println!("Publisher directory exists");
+            
+            // List files in the publisher directory
+            if let Ok(entries) = std::fs::read_dir(&publisher_pkg_dir) {
+                println!("Files in publisher directory:");
+                for entry in entries.flatten() {
+                    println!("  {}", entry.path().display());
+                }
+            } else {
+                println!("Failed to read publisher directory");
+            }
+        } else {
+            println!("Publisher directory does not exist");
+        }
 
         // Rebuild the catalog
         println!("Rebuilding catalog...");

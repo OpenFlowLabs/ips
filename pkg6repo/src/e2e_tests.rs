@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod e2e_tests {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::process::Command;
     use std::str;
 
@@ -102,7 +102,7 @@ mod e2e_tests {
         let repo_path = test_dir.join("repo");
 
         // Create a repository using pkg6repo
-        let result = run_pkg6repo(&["create", "-v", "4", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
         assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
 
         // Check that the repository was created
@@ -125,7 +125,7 @@ mod e2e_tests {
         let repo_path = test_dir.join("repo");
 
         // Create a repository using pkg6repo
-        let result = run_pkg6repo(&["create", "-v", "4", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
         assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
 
         // Add a publisher using pkg6repo
@@ -154,7 +154,7 @@ mod e2e_tests {
         let repo_path = test_dir.join("repo");
 
         // Create a repository using pkg6repo
-        let result = run_pkg6repo(&["create", "-v", "4", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
         assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
 
         // Add a publisher using pkg6repo
@@ -199,7 +199,7 @@ mod e2e_tests {
         let repo_path = test_dir.join("repo");
 
         // Create a repository using pkg6repo
-        let result = run_pkg6repo(&["create", "-v", "4", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
         assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
 
         // Add a publisher using pkg6repo
@@ -247,7 +247,7 @@ mod e2e_tests {
         let repo_path = test_dir.join("repo");
 
         // Create a repository using pkg6repo
-        let result = run_pkg6repo(&["create", "-v", "4", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["create", "--repo-version", "4", repo_path.to_str().unwrap()]);
         assert!(result.is_ok(), "Failed to create repository: {:?}", result.err());
 
         // Add a publisher using pkg6repo

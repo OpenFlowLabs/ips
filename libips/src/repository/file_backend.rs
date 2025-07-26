@@ -235,6 +235,8 @@ pub struct Transaction {
     files: Vec<(PathBuf, String)>, // (source_path, sha256)
     /// Repository reference
     repo: PathBuf,
+    /// Publisher name
+    publisher: Option<String>,
 }
 
 impl Transaction {
@@ -257,7 +259,13 @@ impl Transaction {
             manifest: Manifest::new(),
             files: Vec::new(),
             repo: repo_path,
+            publisher: None,
         })
+    }
+
+    /// Set the publisher for this transaction
+    pub fn set_publisher(&mut self, publisher: &str) {
+        self.publisher = Some(publisher.to_string());
     }
 
     /// Update the manifest in the transaction
@@ -423,7 +431,33 @@ impl Transaction {
 
         // Move the manifest to its final location in the repository
         // Store in both the pkg directory and the trans directory as required
-        let pkg_manifest_path = self.repo.join("pkg").join("manifest");
+        
+        // Extract package name from manifest
+        let mut package_name = String::from("unknown");
+        for attr in &self.manifest.attributes {
+            if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                if let Ok(fmri) = Fmri::parse(&attr.values[0]) {
+                    package_name = fmri.name.to_string();
+                    break;
+                }
+            }
+        }
+        
+        // Determine the pkg directory path based on publisher
+        let pkg_manifest_path = if let Some(publisher) = &self.publisher {
+            // Create publisher directory if it doesn't exist
+            let publisher_dir = self.repo.join("pkg").join(publisher);
+            if !publisher_dir.exists() {
+                fs::create_dir_all(&publisher_dir)?;
+            }
+            
+            // Store in publisher-specific directory with package name
+            publisher_dir.join(format!("{}.manifest", package_name))
+        } else {
+            // Store in root pkg directory (legacy behavior)
+            self.repo.join("pkg").join("manifest")
+        };
+        
         let trans_manifest_path = self
             .repo
             .join("trans")
@@ -588,8 +622,8 @@ impl ReadableRepository for FileBackend {
                     for entry in entries.flatten() {
                         let path = entry.path();
 
-                        // Skip directories, only process files (package manifests)
-                        if path.is_file() {
+                        // Skip directories, only process files with .manifest extension
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest") {
                             // Parse the manifest file to get real package information
                             match Manifest::parse_file(&path) {
                                 Ok(manifest) => {
@@ -730,8 +764,8 @@ impl ReadableRepository for FileBackend {
                     for entry in entries.flatten() {
                         let path = entry.path();
 
-                        // Skip directories, only process files (package manifests)
-                        if path.is_file() {
+                        // Skip directories, only process files with .manifest extension
+                        if path.is_file() && path.extension().map_or(false, |ext| ext == "manifest") {
                             // Parse the manifest file to get package information
                             match Manifest::parse_file(&path) {
                                 Ok(manifest) => {
