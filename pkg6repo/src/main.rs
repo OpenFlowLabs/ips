@@ -5,6 +5,8 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::convert::TryFrom;
 use std::path::PathBuf;
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::fmt;
 
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 
@@ -306,6 +308,15 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    // Initialize the tracing subscriber with default log level as warning and no decorations
+    fmt::Subscriber::builder()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_target(false)
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .init();
+    
     let cli = App::parse();
 
     match &cli.command {

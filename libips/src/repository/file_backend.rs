@@ -17,6 +17,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::actions::{File as FileAction, Manifest};
 use crate::digest::Digest;
@@ -423,53 +424,75 @@ impl Transaction {
             }
         }
 
-        // Generate a timestamp for the manifest version
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        // Move the manifest to its final location in the repository
-        // Store in both the pkg directory and the trans directory as required
-
         // Extract package name from manifest
         let mut package_name = String::from("unknown");
         for attr in &self.manifest.attributes {
             if attr.key == "pkg.fmri" && !attr.values.is_empty() {
                 if let Ok(fmri) = Fmri::parse(&attr.values[0]) {
                     package_name = fmri.name.to_string();
+                    debug!("Extracted package name from FMRI: {}", package_name);
                     break;
                 }
             }
         }
 
-        // Determine the pkg directory path based on publisher
-        let pkg_manifest_path = if let Some(publisher) = &self.publisher {
-            // Create publisher directory if it doesn't exist
-            let publisher_dir = self.repo.join("pkg").join(publisher);
-            if !publisher_dir.exists() {
-                fs::create_dir_all(&publisher_dir)?;
+        // Determine the publisher to use
+        let publisher = match &self.publisher {
+            Some(pub_name) => {
+                debug!("Using specified publisher: {}", pub_name);
+                pub_name.clone()
+            },
+            None => {
+                debug!("No publisher specified, trying to use default publisher");
+                // If no publisher is specified, use the default publisher from the repository config
+                let config_path = self.repo.join(REPOSITORY_CONFIG_FILENAME);
+                if config_path.exists() {
+                    let config_content = fs::read_to_string(&config_path)?;
+                    let config: RepositoryConfig = serde_json::from_str(&config_content)?;
+                    match config.default_publisher {
+                        Some(default_pub) => {
+                            debug!("Using default publisher: {}", default_pub);
+                            default_pub
+                        },
+                        None => {
+                            debug!("No default publisher set in repository");
+                            return Err(RepositoryError::Other(
+                                "No publisher specified and no default publisher set in repository".to_string()
+                            ))
+                        }
+                    }
+                } else {
+                    debug!("Repository configuration not found");
+                    return Err(RepositoryError::Other(
+                        "No publisher specified and repository configuration not found".to_string()
+                    ));
+                }
             }
-
-            // Store in publisher-specific directory with package name
-            publisher_dir.join(format!("{}.manifest", package_name))
-        } else {
-            // Store in root pkg directory (legacy behavior)
-            self.repo.join("pkg").join("manifest")
         };
 
-        let trans_manifest_path = self
-            .repo
-            .join("trans")
-            .join(format!("manifest_{}", timestamp));
+        // Create publisher directory if it doesn't exist
+        let publisher_dir = self.repo.join("pkg").join(&publisher);
+        debug!("Publisher directory: {}", publisher_dir.display());
+        if !publisher_dir.exists() {
+            debug!("Creating publisher directory");
+            fs::create_dir_all(&publisher_dir)?;
+        }
+
+        // Store in publisher-specific directory with package name
+        let pkg_manifest_path = publisher_dir.join(format!("{}.manifest", package_name));
+        debug!("Manifest path: {}", pkg_manifest_path.display());
 
         // Copy to pkg directory
+        debug!("Copying manifest from {} to {}", manifest_path.display(), pkg_manifest_path.display());
         fs::copy(&manifest_path, &pkg_manifest_path)?;
 
-        // Move to trans directory
-        fs::rename(manifest_path, trans_manifest_path)?;
+        // Also create a copy in the root pkg directory for backward compatibility
+        // This is temporary and should be removed once all clients are updated
+        debug!("Also creating a copy in the root pkg directory for backward compatibility");
+        let root_manifest_path = self.repo.join("pkg").join("manifest");
+        fs::copy(&manifest_path, &root_manifest_path)?;
 
-        // Clean up the transaction directory (except for the manifest which was moved)
+        // Clean up the transaction directory
         fs::remove_dir_all(self.path)?;
 
         Ok(())
@@ -1201,15 +1224,15 @@ impl WritableRepository for FileBackend {
 
         // For each publisher, rebuild metadata
         for pub_name in publishers {
-            println!("Rebuilding metadata for publisher: {}", pub_name);
+            info!("Rebuilding metadata for publisher: {}", pub_name);
 
             if !no_catalog {
-                println!("Rebuilding catalog...");
+                info!("Rebuilding catalog...");
                 // In a real implementation, we would rebuild the catalog
             }
 
             if !no_index {
-                println!("Rebuilding search index...");
+                info!("Rebuilding search index...");
                 self.build_search_index(&pub_name)?;
             }
         }
@@ -1231,15 +1254,15 @@ impl WritableRepository for FileBackend {
 
         // For each publisher, refresh metadata
         for pub_name in publishers {
-            println!("Refreshing metadata for publisher: {}", pub_name);
+            info!("Refreshing metadata for publisher: {}", pub_name);
 
             if !no_catalog {
-                println!("Refreshing catalog...");
+                info!("Refreshing catalog...");
                 // In a real implementation, we would refresh the catalog
             }
 
             if !no_index {
-                println!("Refreshing search index...");
+                info!("Refreshing search index...");
 
                 // Check if the index exists
                 let index_path = self.path.join("index").join(&pub_name).join("search.json");
@@ -1319,7 +1342,7 @@ impl FileBackend {
 
     /// Generate catalog parts for a publisher
     fn generate_catalog_parts(&mut self, publisher: &str, create_update_log: bool) -> Result<()> {
-        println!("Generating catalog parts for publisher: {}", publisher);
+        info!("Generating catalog parts for publisher: {}", publisher);
 
         // Collect package data first
         let repo_path = self.path.clone();
@@ -1533,7 +1556,7 @@ impl FileBackend {
 
     /// Build a search index for a publisher
     fn build_search_index(&self, publisher: &str) -> Result<()> {
-        println!("Building search index for publisher: {}", publisher);
+        info!("Building search index for publisher: {}", publisher);
 
         // Create a new search index
         let mut index = SearchIndex::new();
@@ -1700,7 +1723,7 @@ impl FileBackend {
         let index_path = self.path.join("index").join(publisher).join("search.json");
         index.save(&index_path)?;
 
-        println!("Search index built for publisher: {}", publisher);
+        info!("Search index built for publisher: {}", publisher);
 
         Ok(())
     }
@@ -1718,10 +1741,11 @@ impl FileBackend {
 
     #[cfg(test)]
     pub fn test_publish_files(&mut self, test_dir: &Path) -> Result<()> {
-        println!("Testing file publishing...");
+        debug!("Testing file publishing...");
 
         // Create a test publisher
-        self.add_publisher("test")?;
+        let publisher = "test";
+        self.add_publisher(publisher)?;
 
         // Create a nested directory structure
         let nested_dir = test_dir.join("nested").join("dir");
@@ -1733,6 +1757,9 @@ impl FileBackend {
 
         // Begin a transaction
         let mut transaction = self.begin_transaction()?;
+        
+        // Set the publisher for the transaction
+        transaction.set_publisher(publisher);
 
         // Create a FileAction from the test file path
         let mut file_action = FileAction::read_from_path(&test_file_path)?;
@@ -1773,14 +1800,21 @@ impl FileBackend {
             return Err(RepositoryError::Other("File was not stored correctly".to_string()));
         }
 
-        // Verify the manifest was updated
-        let manifest_path = self.path.join("pkg").join("manifest");
+        // Verify the manifest was updated in the publisher-specific directory
+        // The manifest should be named "unknown.manifest" since we didn't set a package name
+        let manifest_path = self.path.join("pkg").join(publisher).join("unknown.manifest");
 
         if !manifest_path.exists() {
-            return Err(RepositoryError::Other("Manifest was not created".to_string()));
+            return Err(RepositoryError::Other(format!(
+                "Manifest was not created at the expected location: {}",
+                manifest_path.display()
+            )));
         }
 
-        println!("File publishing test passed!");
+        // Regenerate catalog and search index
+        self.rebuild(Some(publisher), false, false)?;
+
+        debug!("File publishing test passed!");
 
         Ok(())
     }
@@ -1809,12 +1843,18 @@ impl FileBackend {
 
         // Begin a transaction
         let mut transaction = self.begin_transaction()?;
+        
+        // Set the publisher for the transaction
+        transaction.set_publisher(publisher);
 
         // Walk the prototype directory and add files to the transaction
         self.add_files_to_transaction(&mut transaction, proto_dir, proto_dir)?;
 
         // Commit the transaction
         transaction.commit()?;
+        
+        // Regenerate catalog and search index
+        self.rebuild(Some(publisher), false, false)?;
 
         Ok(())
     }

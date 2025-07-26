@@ -12,7 +12,11 @@ keywords = ["packaging", "illumos"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libips = {path = "../libips", version = "0.1.1"}
-userland = {path = "../userland", version = "0.1.1"}
-anyhow = "1.0.59"
-clap = {version = "3.2.16", features = [ "derive" ] }
+libips = {path = "../libips", version = "0.1"}
+userland = {path = "../userland", version = "*"}
+clap = {version = "4", features = [ "derive" ] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "1.0.50"
+anyhow = "1.0"

@@ -1,12 +1,16 @@
+mod error;
+
 use clap::{Parser, Subcommand};
 use libips::actions::{ActionError, File, Manifest};
 use libips::repository::{FileBackend, ReadableRepository, WritableRepository};
 
-use anyhow::{anyhow, Result};
+use error::{Pkg6DevError, Result};
 use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::fmt;
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
 
@@ -53,6 +57,15 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    // Initialize the tracing subscriber with default log level as warning and no decorations
+    fmt::Subscriber::builder()
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_target(false)
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .init();
+    
     let cli = App::parse();
 
     match &cli.command {
@@ -100,7 +113,7 @@ fn diff_component(
         None
     };
 
-    let files = read_dir(&component_path)?;
+    let files = read_dir(&component_path).map_err(|e| Pkg6DevError::IoError(e))?;
 
     let manifest_files: Vec<String> = files
         .filter_map(std::result::Result::ok)
@@ -118,7 +131,8 @@ fn diff_component(
         .as_ref()
         .join("manifests/sample-manifest.p5m");
 
-    let manifests_res: Result<Vec<Manifest>, ActionError> =
+    // Use std::result::Result here to avoid confusion with our custom Result type
+    let manifests_res: std::result::Result<Vec<Manifest>, ActionError> =
         manifest_files.iter().map(Manifest::parse_file).collect();
 
     let sample_manifest = Manifest::parse_file(sample_manifest_file)?;
@@ -147,9 +161,9 @@ fn diff_component(
             .write(true)
             .truncate(true)
             .create(true)
-            .open(output_manifest)?;
+            .open(output_manifest).map_err(|e| Pkg6DevError::IoError(e))?;
         for action in missing_files {
-            writeln!(&mut f, "file path={}", action.path)?;
+            writeln!(&mut f, "file path={}", action.path).map_err(|e| Pkg6DevError::IoError(e))?;
         }
     }
 
@@ -159,6 +173,8 @@ fn diff_component(
 fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let makefile_path = component_path.as_ref().join("Makefile");
 
+    // For userland functions, we'll use the From trait implementation for anyhow::Error
+    // that we added to Pkg6DevError
     let initial_makefile = Makefile::parse_single_file(makefile_path)?;
     let makefile = initial_makefile.parse_all()?;
 
@@ -325,18 +341,18 @@ fn publish_package(
 ) -> Result<()> {
     // Check if the manifest file exists
     if !manifest_path.exists() {
-        return Err(anyhow!(
+        return Err(Pkg6DevError::Custom(format!(
             "Manifest file does not exist: {}",
             manifest_path.display()
-        ));
+        )));
     }
 
     // Check if the prototype directory exists
     if !prototype_dir.exists() {
-        return Err(anyhow!(
+        return Err(Pkg6DevError::Custom(format!(
             "Prototype directory does not exist: {}",
             prototype_dir.display()
-        ));
+        )));
     }
 
     // Parse the manifest file
@@ -358,20 +374,28 @@ fn publish_package(
     let publisher_name = if let Some(pub_name) = publisher {
         // Use the explicitly specified publisher
         if !repo.config.publishers.contains(pub_name) {
-            return Err(anyhow!("Publisher '{}' does not exist in the repository. Please add it first using pkg6repo add-publisher.", pub_name));
+            return Err(Pkg6DevError::Custom(format!(
+                "Publisher '{}' does not exist in the repository. Please add it first using pkg6repo add-publisher.", 
+                pub_name
+            )));
         }
         pub_name.clone()
     } else {
         // Use the default publisher
         match &repo.config.default_publisher {
             Some(default_pub) => default_pub.clone(),
-            None => return Err(anyhow!("No default publisher set in the repository. Please specify a publisher using the --publisher option or set a default publisher."))
+            None => return Err(Pkg6DevError::Custom(
+                "No default publisher set in the repository. Please specify a publisher using the --publisher option or set a default publisher.".to_string()
+            ))
         }
     };
 
     // Begin a transaction
     println!("Beginning transaction for publisher: {}", publisher_name);
     let mut transaction = repo.begin_transaction()?;
+    
+    // Set the publisher for the transaction
+    transaction.set_publisher(&publisher_name);
 
     // Add files from the prototype directory to the transaction
     println!(
@@ -403,6 +427,10 @@ fn publish_package(
     // Commit the transaction
     println!("Committing transaction...");
     transaction.commit()?;
+    
+    // Regenerate catalog and search index
+    println!("Regenerating catalog and search index...");
+    repo.rebuild(Some(&publisher_name), false, false)?;
 
     println!("Package published successfully!");
     Ok(())
