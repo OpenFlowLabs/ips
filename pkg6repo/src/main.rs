@@ -184,6 +184,10 @@ enum Commands {
         #[clap(short = 't')]
         action_type: Option<Vec<String>>,
         
+        /// Publisher to show contents for
+        #[clap(short = 'p')]
+        publisher: Option<Vec<String>>,
+        
         /// SSL key file
         #[clap(long)]
         key: Option<PathBuf>,
@@ -343,6 +347,13 @@ fn main() -> Result<()> {
                 repo.remove_publisher(p, *dry_run)?;
             }
             
+            // The synchronous parameter is used to wait for the operation to complete before returning
+            // For FileBackend, operations are already synchronous, so this parameter doesn't have any effect
+            // For RestBackend, this would wait for the server to complete the operation before returning
+            if *synchronous {
+                println!("Operation completed synchronously");
+            }
+            
             if *dry_run {
                 println!("Dry run completed. No changes were made.");
             } else {
@@ -359,6 +370,33 @@ fn main() -> Result<()> {
             // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
             
+            // Filter properties if section_property is specified
+            let filtered_properties = if let Some(section_props) = section_property {
+                let mut filtered = std::collections::HashMap::new();
+                
+                for section_prop in section_props {
+                    // Check if the section_property contains a slash (section/property)
+                    if section_prop.contains('/') {
+                        // Exact match for section/property
+                        if let Some(value) = repo.config.properties.get(section_prop) {
+                            filtered.insert(section_prop.clone(), value.clone());
+                        }
+                    } else {
+                        // Match section only
+                        for (key, value) in &repo.config.properties {
+                            if key.starts_with(&format!("{}/", section_prop)) {
+                                filtered.insert(key.clone(), value.clone());
+                            }
+                        }
+                    }
+                }
+                
+                filtered
+            } else {
+                // No filtering, use all properties
+                repo.config.properties.clone()
+            };
+            
             // Determine the output format
             let output_format = format.as_deref().unwrap_or("table");
             
@@ -370,7 +408,7 @@ fn main() -> Result<()> {
                     }
                     
                     // Print repository properties
-                    for (key, value) in &repo.config.properties {
+                    for (key, value) in &filtered_properties {
                         let parts: Vec<&str> = key.split('/').collect();
                         if parts.len() == 2 {
                             println!("{:<10} {:<10} {:<20}", parts[0], parts[1], value);
@@ -574,13 +612,24 @@ fn main() -> Result<()> {
             
             Ok(())
         },
-        Commands::Contents { repo_uri_or_path, manifest, action_type, pkg_fmri_pattern, ..  } => {
+        Commands::Contents { repo_uri_or_path, manifest, action_type, publisher, pkg_fmri_pattern, ..  } => {
             println!("Showing contents in repository {}", repo_uri_or_path);
             
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
             // For now, we're using FileBackend, which doesn't use these parameters
             let repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Get the publisher if specified
+            let pub_option = if let Some(publishers) = publisher {
+                if !publishers.is_empty() {
+                    Some(publishers[0].as_str())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             
             // Get the pattern if specified
             let pattern_option = if let Some(patterns) = pkg_fmri_pattern {
@@ -594,7 +643,7 @@ fn main() -> Result<()> {
             };
             
             // Show contents
-            let contents = repo.show_contents(None, pattern_option, action_type.as_deref())?;
+            let contents = repo.show_contents(pub_option, pattern_option, action_type.as_deref())?;
             
             // Print contents
             for pkg_contents in contents {
