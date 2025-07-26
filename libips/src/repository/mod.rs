@@ -3,9 +3,159 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
 use std::collections::HashMap;
-use std::path::Path;
+use std::io;
+use std::path::{Path, StripPrefixError};
+use miette::Diagnostic;
+use thiserror::Error;
+
+/// Result type for repository operations
+pub type Result<T> = std::result::Result<T, RepositoryError>;
+
+/// Errors that can occur in repository operations
+#[derive(Debug, Error, Diagnostic)]
+pub enum RepositoryError {
+    #[error("unsupported repository version: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::unsupported_version),
+        help("Supported repository versions: 4")
+    )]
+    UnsupportedVersion(u32),
+
+    #[error("repository not found at {0}")]
+    #[diagnostic(
+        code(ips::repository_error::not_found),
+        help("Check that the repository path exists and is accessible")
+    )]
+    NotFound(String),
+
+    #[error("publisher {0} not found")]
+    #[diagnostic(
+        code(ips::repository_error::publisher_not_found),
+        help("Check that the publisher name is correct and exists in the repository")
+    )]
+    PublisherNotFound(String),
+
+    #[error("publisher {0} already exists")]
+    #[diagnostic(
+        code(ips::repository_error::publisher_exists),
+        help("Use a different publisher name or remove the existing publisher first")
+    )]
+    PublisherExists(String),
+
+    #[error("failed to read repository configuration: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::config_read),
+        help("Check that the repository configuration file exists and is valid")
+    )]
+    ConfigReadError(String),
+
+    #[error("failed to write repository configuration: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::config_write),
+        help("Check that the repository directory is writable")
+    )]
+    ConfigWriteError(String),
+
+    #[error("failed to create directory: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::directory_create),
+        help("Check that the parent directory exists and is writable")
+    )]
+    DirectoryCreateError(String),
+
+    #[error("failed to read file: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::file_read),
+        help("Check that the file exists and is readable")
+    )]
+    FileReadError(String),
+
+    #[error("failed to write file: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::file_write),
+        help("Check that the directory is writable")
+    )]
+    FileWriteError(String),
+
+    #[error("failed to parse JSON: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::json_parse),
+        help("Check that the JSON file is valid")
+    )]
+    JsonParseError(String),
+
+    #[error("failed to serialize JSON: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::json_serialize),
+        help("This is likely a bug in the code")
+    )]
+    JsonSerializeError(String),
+
+    #[error("I/O error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::io),
+        help("Check system resources and permissions")
+    )]
+    IoError(#[from] io::Error),
+
+    #[error("other error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::other),
+        help("See error message for details")
+    )]
+    Other(String),
+
+    #[error("JSON error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::json_error),
+        help("Check the JSON format and try again")
+    )]
+    JsonError(String),
+
+    #[error("digest error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::digest_error),
+        help("Check the digest format and try again")
+    )]
+    DigestError(String),
+
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    ActionError(#[from] ActionError),
+
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    CatalogError(#[from] catalog::CatalogError),
+
+    #[error("path prefix error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::path_prefix),
+        help("Check that the path is valid and within the expected directory")
+    )]
+    PathPrefixError(String),
+}
+
+// Implement From for common error types
+impl From<serde_json::Error> for RepositoryError {
+    fn from(err: serde_json::Error) -> Self {
+        RepositoryError::JsonError(err.to_string())
+    }
+}
+
+impl From<DigestError> for RepositoryError {
+    fn from(err: DigestError) -> Self {
+        RepositoryError::DigestError(err.to_string())
+    }
+}
+
+
+impl From<StripPrefixError> for RepositoryError {
+    fn from(err: StripPrefixError) -> Self {
+        RepositoryError::PathPrefixError(err.to_string())
+    }
+}
+
 
 mod catalog;
 mod file_backend;
@@ -13,9 +163,11 @@ mod rest_backend;
 #[cfg(test)]
 mod tests;
 
-pub use catalog::{CatalogAttrs, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog};
+pub use catalog::{CatalogAttrs, CatalogError, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog};
 pub use file_backend::FileBackend;
 pub use rest_backend::RestBackend;
+use crate::actions::ActionError;
+use crate::digest::DigestError;
 
 /// Repository configuration filename
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";
@@ -77,12 +229,12 @@ impl Default for RepositoryVersion {
 }
 
 impl std::convert::TryFrom<u32> for RepositoryVersion {
-    type Error = anyhow::Error;
+    type Error = RepositoryError;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> std::result::Result<Self, Self::Error> {
         match value {
             4 => Ok(RepositoryVersion::V4),
-            _ => Err(anyhow::anyhow!("Unsupported repository version: {}", value)),
+            _ => Err(RepositoryError::UnsupportedVersion(value)),
         }
     }
 }

@@ -17,8 +17,9 @@ keywords = ["packaging", "illumos"]
 
 [dependencies]
 regex = "1.5.5"
-anyhow = "1.0.56"
-thiserror = "1.0.30"
+thiserror = "1.0.50"
+miette = "7.6.0"
+tracing = "0.1.37"
 maplit = "0.1.6"
 object = "0.23.0"
 sha2 = "0.9.3"
@@ -32,6 +33,5 @@ flate2 = "1.0.28"
 lz4 = "1.24.0"
 semver = { version = "1.0.20", features = ["serde"] }
 diff-struct = "0.5.3"
-searchy = "0.5.0"
-tantivy = { version = "0.24.2", features = ["mmap"] }
 chrono = "0.4.41"
+tempfile = "3.20.0"

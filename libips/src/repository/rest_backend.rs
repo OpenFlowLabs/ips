@@ -3,12 +3,11 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
 use super::{
     PackageContents, PackageInfo, PublisherInfo, ReadableRepository, RepositoryConfig,
-    RepositoryInfo, RepositoryVersion, WritableRepository,
+    RepositoryError, RepositoryInfo, RepositoryVersion, Result, WritableRepository,
 };
 
 /// Repository implementation that uses a REST API
@@ -97,7 +96,7 @@ impl WritableRepository for RestBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -130,7 +129,7 @@ impl WritableRepository for RestBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -162,7 +161,7 @@ impl WritableRepository for RestBackend {
 
         // Check if the publisher exists
         if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(anyhow!("Publisher does not exist: {}", publisher));
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
         }
 
         // Set the default publisher
@@ -199,7 +198,7 @@ impl WritableRepository for RestBackend {
 
         // Check if the publisher exists
         if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(anyhow!("Publisher does not exist: {}", publisher));
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
         }
 
         // Create the property key in the format "publisher/property"
@@ -274,7 +273,7 @@ impl ReadableRepository for RestBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {

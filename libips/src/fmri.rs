@@ -58,25 +58,55 @@
 //! ```
 
 use diff::Diff;
+use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 
 /// Errors that can occur when parsing an FMRI
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, Diagnostic, PartialEq)]
 pub enum FmriError {
     #[error("invalid FMRI format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_format),
+        help("FMRI should be in the format: [scheme://][publisher/]name[@version]")
+    )]
     InvalidFormat,
+    
     #[error("invalid version format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_version_format),
+        help("Version should be in the format: release[,branch][-build][:timestamp]")
+    )]
     InvalidVersionFormat,
+    
     #[error("invalid release format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_release_format),
+        help("Release should be a dot-separated vector of digits (e.g., 5.11)")
+    )]
     InvalidReleaseFormat,
+    
     #[error("invalid branch format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_branch_format),
+        help("Branch should be a dot-separated vector of digits (e.g., 1)")
+    )]
     InvalidBranchFormat,
+    
     #[error("invalid build format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_build_format),
+        help("Build should be a dot-separated vector of digits (e.g., 2020.0.1.0)")
+    )]
     InvalidBuildFormat,
+    
     #[error("invalid timestamp format")]
+    #[diagnostic(
+        code(ips::fmri_error::invalid_timestamp_format),
+        help("Timestamp should be a hexadecimal string (e.g., 20200421T195136Z)")
+    )]
     InvalidTimestampFormat,
 }
 

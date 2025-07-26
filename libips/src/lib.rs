@@ -10,6 +10,7 @@ pub mod fmri;
 pub mod image;
 pub mod payload;
 pub mod repository;
+mod test_json_manifest;
 
 #[cfg(test)]
 mod tests {

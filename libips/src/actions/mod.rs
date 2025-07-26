@@ -9,6 +9,7 @@ use crate::digest::Digest;
 use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadError};
 use diff::Diff;
+use miette::Diagnostic;
 use pest::Parser;
 use pest_derive::Parser;
 use serde::{Deserialize, Serialize};
@@ -22,21 +23,29 @@ use thiserror::Error;
 
 type Result<T> = StdResult<T, ActionError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum ActionError {
     #[error(transparent)]
+    #[diagnostic(transparent)]
     PayloadError(#[from] PayloadError),
 
     #[error(transparent)]
+    #[diagnostic(transparent)]
     FileError(#[from] FileError),
 
     #[error("value {0} is not a boolean")]
+    #[diagnostic(
+        code(ips::action_error::invalid_boolean),
+        help("Boolean values must be 'true', 'false', 't', or 'f'.")
+    )]
     NotBooleanValue(String),
 
     #[error(transparent)]
+    #[diagnostic(code(ips::action_error::io))]
     IOError(#[from] std::io::Error),
 
     #[error(transparent)]
+    #[diagnostic(code(ips::action_error::parser))]
     ParserError(#[from] pest::error::Error<Rule>),
 }
 
@@ -256,9 +265,13 @@ impl FacetedAction for File {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum FileError {
     #[error("file path is not a string")]
+    #[diagnostic(
+        code(ips::action_error::file::invalid_path),
+        help("The file path must be convertible to a valid string.")
+    )]
     FilePathIsNoStringError,
 }
 
@@ -538,7 +551,15 @@ impl Manifest {
 
     pub fn parse_file<P: AsRef<Path>>(f: P) -> Result<Manifest> {
         let content = read_to_string(f)?;
-        Manifest::parse_string(content)
+        
+        // Try to parse as JSON first
+        match serde_json::from_str::<Manifest>(&content) {
+            Ok(manifest) => Ok(manifest),
+            Err(_) => {
+                // If JSON parsing fails, fall back to string format
+                Manifest::parse_string(content)
+            }
+        }
     }
 
     pub fn parse_string(content: String) -> Result<Manifest> {
@@ -630,11 +651,20 @@ impl Default for ActionKind {
 }
 
 //TODO Multierror and no failure for these cases
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum ManifestError {
     #[error("unknown action {action:?} at line {line:?}")]
+    #[diagnostic(
+        code(ips::action_error::manifest::unknown_action),
+        help("Check the action name and make sure it's one of the supported action types.")
+    )]
     UnknownAction { line: usize, action: String },
+    
     #[error("action string \"{action:?}\" at line {line:?} is invalid: {message:?}")]
+    #[diagnostic(
+        code(ips::action_error::manifest::invalid_action),
+        help("Check the action format and fix the syntax error.")
+    )]
     InvalidAction {
         line: usize,
         action: String,

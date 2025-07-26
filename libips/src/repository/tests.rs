@@ -8,8 +8,8 @@ mod tests {
     use crate::actions::Manifest;
     use crate::fmri::Fmri;
     use crate::repository::{
-        CatalogManager, FileBackend, ReadableRepository, RepositoryVersion, WritableRepository,
-        REPOSITORY_CONFIG_FILENAME,
+        CatalogManager, FileBackend, ReadableRepository, RepositoryError, RepositoryVersion, Result,
+        WritableRepository, REPOSITORY_CONFIG_FILENAME,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -72,7 +72,7 @@ mod tests {
         manifest_path: &PathBuf,
         prototype_dir: &PathBuf,
         publisher: &str,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<()> {
         println!(
             "Publishing package from manifest: {}",
             manifest_path.display()
@@ -83,18 +83,16 @@ mod tests {
         // Check if the manifest file exists
         if !manifest_path.exists() {
             println!("Error: Manifest file does not exist");
-            return Err(anyhow::anyhow!(
-                "Manifest file does not exist: {}",
-                manifest_path.display()
+            return Err(RepositoryError::FileReadError(
+                format!("Manifest file does not exist: {}", manifest_path.display())
             ));
         }
 
         // Check if the prototype directory exists
         if !prototype_dir.exists() {
             println!("Error: Prototype directory does not exist");
-            return Err(anyhow::anyhow!(
-                "Prototype directory does not exist: {}",
-                prototype_dir.display()
+            return Err(RepositoryError::NotFound(
+                format!("Prototype directory does not exist: {}", prototype_dir.display())
             ));
         }
 

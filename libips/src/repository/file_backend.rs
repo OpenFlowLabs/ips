@@ -3,7 +3,7 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::{anyhow, Result};
+use super::{Result, RepositoryError};
 use flate2::write::GzEncoder;
 use flate2::Compression as GzipCompression;
 use lz4::EncoderBuilder;
@@ -315,12 +315,12 @@ impl Transaction {
         if temp_file_path.exists() {
             // If it exists, remove it to avoid any issues with existing content
             fs::remove_file(&temp_file_path)
-                .map_err(|e| anyhow!("Failed to remove existing temp file: {}", e))?;
+                .map_err(|e| RepositoryError::FileWriteError(format!("Failed to remove existing temp file: {}", e)))?;
         }
 
         // Read the file content
         let file_content = fs::read(file_path)
-            .map_err(|e| anyhow!("Failed to read file {}: {}", file_path.display(), e))?;
+            .map_err(|e| RepositoryError::FileReadError(format!("Failed to read file {}: {}", file_path.display(), e)))?;
 
         // Create a payload with the hash information if it doesn't exist
         let mut updated_file_action = file_action;
@@ -338,16 +338,16 @@ impl Transaction {
                 // Write the file content to the encoder
                 encoder
                     .write_all(&file_content)
-                    .map_err(|e| anyhow!("Failed to write data to Gzip encoder: {}", e))?;
+                    .map_err(|e| RepositoryError::Other(format!("Failed to write data to Gzip encoder: {}", e)))?;
 
                 // Finish the compression and get the compressed data
                 let compressed_data = encoder
                     .finish()
-                    .map_err(|e| anyhow!("Failed to finish Gzip compression: {}", e))?;
+                    .map_err(|e| RepositoryError::Other(format!("Failed to finish Gzip compression: {}", e)))?;
 
                 // Write the compressed data to the temp file
                 fs::write(&temp_file_path, &compressed_data)
-                    .map_err(|e| anyhow!("Failed to write compressed data to temp file: {}", e))?;
+                    .map_err(|e| RepositoryError::FileWriteError(format!("Failed to write compressed data to temp file: {}", e)))?;
 
                 // Calculate hash of the compressed data
                 let mut hasher = Sha256::new();
@@ -358,19 +358,19 @@ impl Transaction {
                 // Create an LZ4 encoder with default compression level
                 let mut encoder = EncoderBuilder::new()
                     .build(Vec::new())
-                    .map_err(|e| anyhow!("Failed to create LZ4 encoder: {}", e))?;
+                    .map_err(|e| RepositoryError::Other(format!("Failed to create LZ4 encoder: {}", e)))?;
 
                 // Write the file content to the encoder
                 encoder
                     .write_all(&file_content)
-                    .map_err(|e| anyhow!("Failed to write data to LZ4 encoder: {}", e))?;
+                    .map_err(|e| RepositoryError::Other(format!("Failed to write data to LZ4 encoder: {}", e)))?;
 
                 // Finish the compression and get the compressed data
                 let (compressed_data, _) = encoder.finish();
 
                 // Write the compressed data to the temp file
                 fs::write(&temp_file_path, &compressed_data).map_err(|e| {
-                    anyhow!("Failed to write LZ4 compressed data to temp file: {}", e)
+                    RepositoryError::FileWriteError(format!("Failed to write LZ4 compressed data to temp file: {}", e))
                 })?;
 
                 // Calculate hash of the compressed data
@@ -510,7 +510,7 @@ impl ReadableRepository for FileBackend {
 
         // Check if the repository directory exists
         if !path.exists() {
-            return Err(anyhow!("Repository does not exist: {}", path.display()));
+            return Err(RepositoryError::NotFound(path.display().to_string()));
         }
 
         // Load the repository configuration
@@ -595,7 +595,7 @@ impl ReadableRepository for FileBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -611,9 +611,8 @@ impl ReadableRepository for FileBackend {
             if publisher_pkg_dir.exists() {
                 // Verify that the publisher is in the config
                 if !self.config.publishers.contains(&pub_name) {
-                    return Err(anyhow!(
-                        "Publisher directory exists but is not in the repository configuration: {}",
-                        pub_name
+                    return Err(RepositoryError::Other(
+                        format!("Publisher directory exists but is not in the repository configuration: {}", pub_name)
                     ));
                 }
 
@@ -746,7 +745,7 @@ impl ReadableRepository for FileBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -987,8 +986,13 @@ impl ReadableRepository for FileBackend {
         publisher: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<PackageInfo>> {
+        println!("Searching for packages with query: {}", query);
+        println!("Publisher: {:?}", publisher);
+        println!("Limit: {:?}", limit);
+
         // If no publisher is specified, use the default publisher if available
         let publisher = publisher.or_else(|| self.config.default_publisher.as_deref());
+        println!("Effective publisher: {:?}", publisher);
 
         // If still no publisher, we need to search all publishers
         let publishers = if let Some(pub_name) = publisher {
@@ -996,34 +1000,55 @@ impl ReadableRepository for FileBackend {
         } else {
             self.config.publishers.clone()
         };
+        println!("Publishers to search: {:?}", publishers);
 
         let mut results = Vec::new();
 
         // For each publisher, search the index
         for pub_name in publishers {
+            println!("Searching publisher: {}", pub_name);
+            
             // Check if the index exists
+            let index_path = self.path.join("index").join(&pub_name).join("search.json");
+            println!("Index path: {}", index_path.display());
+            println!("Index exists: {}", index_path.exists());
+            
             if let Ok(Some(index)) = self.get_search_index(&pub_name) {
+                println!("Got search index for publisher: {}", pub_name);
+                println!("Index terms: {:?}", index.terms.keys().collect::<Vec<_>>());
+                
                 // Search the index
                 let fmris = index.search(query, limit);
+                println!("Search results (FMRIs): {:?}", fmris);
 
                 // Convert FMRIs to PackageInfo
                 for fmri_str in fmris {
                     if let Ok(fmri) = Fmri::parse(&fmri_str) {
+                        println!("Adding package to results: {}", fmri);
                         results.push(PackageInfo { fmri });
+                    } else {
+                        println!("Failed to parse FMRI: {}", fmri_str);
                     }
                 }
             } else {
+                println!("No search index found for publisher: {}", pub_name);
+                println!("Falling back to simple search");
+                
                 // If the index doesn't exist, fall back to the simple search
                 let all_packages = self.list_packages(Some(&pub_name), None)?;
+                println!("All packages: {:?}", all_packages);
 
                 // Filter packages by the query string
                 let matching_packages: Vec<PackageInfo> = all_packages
                     .into_iter()
                     .filter(|pkg| {
                         // Match against package name
-                        pkg.fmri.stem().contains(query)
+                        let matches = pkg.fmri.stem().contains(query);
+                        println!("Package: {}, Matches: {}", pkg.fmri.stem(), matches);
+                        matches
                     })
                     .collect();
+                println!("Matching packages: {:?}", matching_packages);
 
                 // Add matching packages to the results
                 results.extend(matching_packages);
@@ -1035,6 +1060,7 @@ impl ReadableRepository for FileBackend {
             results.truncate(max_results);
         }
 
+        println!("Final search results: {:?}", results);
         Ok(results)
     }
 }
@@ -1111,13 +1137,13 @@ impl WritableRepository for FileBackend {
                 // Remove the catalog directory if it exists
                 if catalog_dir.exists() {
                     fs::remove_dir_all(&catalog_dir)
-                        .map_err(|e| anyhow!("Failed to remove catalog directory: {}", e))?;
+                        .map_err(|e| RepositoryError::Other(format!("Failed to remove catalog directory: {}", e)))?;
                 }
 
                 // Remove the package directory if it exists
                 if pkg_dir.exists() {
                     fs::remove_dir_all(&pkg_dir)
-                        .map_err(|e| anyhow!("Failed to remove package directory: {}", e))?;
+                        .map_err(|e| RepositoryError::Other(format!("Failed to remove package directory: {}", e)))?;
                 }
 
                 // Save the updated configuration
@@ -1146,7 +1172,7 @@ impl WritableRepository for FileBackend {
     ) -> Result<()> {
         // Check if the publisher exists
         if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(anyhow!("Publisher does not exist: {}", publisher));
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
         }
 
         // Create the property key in the format "publisher/property"
@@ -1166,7 +1192,7 @@ impl WritableRepository for FileBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -1196,7 +1222,7 @@ impl WritableRepository for FileBackend {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(anyhow!("Publisher does not exist: {}", pub_name));
+                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
             vec![pub_name.to_string()]
         } else {
@@ -1235,7 +1261,7 @@ impl WritableRepository for FileBackend {
     fn set_default_publisher(&mut self, publisher: &str) -> Result<()> {
         // Check if the publisher exists
         if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(anyhow!("Publisher does not exist: {}", publisher));
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
         }
 
         // Set the default publisher
@@ -1729,10 +1755,10 @@ impl FileBackend {
         let actual_path = &transaction.manifest.files[0].path;
 
         if actual_path != expected_path {
-            return Err(anyhow!(
-                "Path in FileAction is incorrect. Expected: {}, Actual: {}",
+            return Err(RepositoryError::Other(
+                format!("Path in FileAction is incorrect. Expected: {}, Actual: {}",
                 expected_path,
-                actual_path
+                actual_path)
             ));
         }
 
@@ -1744,14 +1770,14 @@ impl FileBackend {
         let stored_file_path = self.path.join("file").join(&hash);
 
         if !stored_file_path.exists() {
-            return Err(anyhow!("File was not stored correctly"));
+            return Err(RepositoryError::Other("File was not stored correctly".to_string()));
         }
 
         // Verify the manifest was updated
         let manifest_path = self.path.join("pkg").join("manifest");
 
         if !manifest_path.exists() {
-            return Err(anyhow!("Manifest was not created"));
+            return Err(RepositoryError::Other("Manifest was not created".to_string()));
         }
 
         println!("File publishing test passed!");
@@ -1770,15 +1796,15 @@ impl FileBackend {
 
         // Check if the prototype directory exists
         if !proto_dir.exists() {
-            return Err(anyhow!(
+            return Err(RepositoryError::NotFound(format!(
                 "Prototype directory does not exist: {}",
                 proto_dir.display()
-            ));
+            )));
         }
 
         // Check if the publisher exists
         if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(anyhow!("Publisher does not exist: {}", publisher));
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
         }
 
         // Begin a transaction

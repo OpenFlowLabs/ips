@@ -5,6 +5,7 @@
 
 use crate::digest::{Digest, DigestAlgorithm, DigestError, DigestSource};
 use diff::Diff;
+use miette::Diagnostic;
 use object::Object;
 use serde::{Deserialize, Serialize};
 use std::io::Error as IOError;
@@ -14,11 +15,17 @@ use thiserror::Error;
 
 type Result<T> = StdResult<T, PayloadError>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum PayloadError {
-    #[error("io error: {0}")]
+    #[error("I/O error: {0}")]
+    #[diagnostic(
+        code(ips::payload_error::io),
+        help("Check system resources and permissions")
+    )]
     IOError(#[from] IOError),
-    #[error("digest error: {0}")]
+    
+    #[error(transparent)]
+    #[diagnostic(transparent)]
     DigestError(#[from] DigestError),
 }
 

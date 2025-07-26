@@ -3,14 +3,73 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
+use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use thiserror::Error;
 
 use crate::fmri::Fmri;
+
+/// Errors that can occur in catalog operations
+#[derive(Debug, Error, Diagnostic)]
+pub enum CatalogError {
+    #[error("catalog part does not exist: {name}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::part_not_found),
+        help("Check that the catalog part exists and is accessible")
+    )]
+    CatalogPartNotFound {
+        name: String,
+    },
+
+    #[error("catalog part not loaded: {name}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::part_not_loaded),
+        help("Load the catalog part before attempting to save it")
+    )]
+    CatalogPartNotLoaded {
+        name: String,
+    },
+
+    #[error("update log not loaded: {name}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::update_log_not_loaded),
+        help("Load the update log before attempting to save it")
+    )]
+    UpdateLogNotLoaded {
+        name: String,
+    },
+
+    #[error("update log does not exist: {name}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::update_log_not_found),
+        help("Check that the update log exists and is accessible")
+    )]
+    UpdateLogNotFound {
+        name: String,
+    },
+
+    #[error("failed to serialize JSON: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::json_serialize),
+        help("This is likely a bug in the code")
+    )]
+    JsonSerializationError(#[from] serde_json::Error),
+
+    #[error("I/O error: {0}")]
+    #[diagnostic(
+        code(ips::repository_error::catalog::io),
+        help("Check system resources and permissions")
+    )]
+    IoError(#[from] io::Error),
+}
+
+/// Result type for catalog operations
+pub type Result<T> = std::result::Result<T, CatalogError>;
 
 /// Format a SystemTime as an ISO-8601 'basic format' date in UTC
 fn format_iso8601_basic(time: &SystemTime) -> String {
@@ -393,7 +452,9 @@ impl CatalogManager {
             self.parts.insert(name.to_string(), part);
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Catalog part does not exist: {}", name))
+            Err(CatalogError::CatalogPartNotFound {
+                name: name.to_string(),
+            })
         }
     }
 
@@ -404,7 +465,9 @@ impl CatalogManager {
             part.save(&part_path)?;
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Catalog part not loaded: {}", name))
+            Err(CatalogError::CatalogPartNotLoaded {
+                name: name.to_string(),
+            })
         }
     }
 
@@ -453,7 +516,9 @@ impl CatalogManager {
 
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Update log not loaded: {}", name))
+            Err(CatalogError::UpdateLogNotLoaded {
+                name: name.to_string(),
+            })
         }
     }
 
@@ -465,7 +530,9 @@ impl CatalogManager {
             self.update_logs.insert(name.to_string(), log);
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Update log does not exist: {}", name))
+            Err(CatalogError::UpdateLogNotFound {
+                name: name.to_string(),
+            })
         }
     }
 

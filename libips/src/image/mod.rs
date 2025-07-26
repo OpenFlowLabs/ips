@@ -1,18 +1,27 @@
 mod properties;
 
 use properties::*;
+use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum ImageError {
-    //Implement derives for IO error and serde_json error
-    #[error(transparent)]
+    #[error("I/O error: {0}")]
+    #[diagnostic(
+        code(ips::image_error::io),
+        help("Check system resources and permissions")
+    )]
     IO(#[from] std::io::Error),
-    #[error(transparent)]
+    
+    #[error("JSON error: {0}")]
+    #[diagnostic(
+        code(ips::image_error::json),
+        help("Check the JSON format and try again")
+    )]
     Json(#[from] serde_json::Error),
 }
 
