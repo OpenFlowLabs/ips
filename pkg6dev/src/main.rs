@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, info, warn, trace};
+use tracing::{debug, info, warn};
 use tracing_subscriber::fmt;
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn parse_tripplet_replacements(replacements: &[String]) -> HashMap<String, String> {
+fn parse_triplet_replacements(replacements: &[String]) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for pair in replacements
         .iter()
@@ -124,7 +124,7 @@ fn diff_component(
                 });
             }
         }
-        let map = parse_tripplet_replacements(replacements);
+        let map = parse_triplet_replacements(replacements);
         Some(map)
     } else {
         None
@@ -146,7 +146,7 @@ fn diff_component(
         .map(|e| e.path().into_os_string().into_string().unwrap())
         .collect();
 
-    // Check for sample manifest
+    // Check for the sample manifest
     let sample_manifest_file = &component_path_ref.join("manifests/sample-manifest.p5m");
     if !sample_manifest_file.exists() {
         return Err(Pkg6DevError::ManifestNotFoundError {
@@ -163,7 +163,7 @@ fn diff_component(
     let sample_manifest = Manifest::parse_file(sample_manifest_file)?;
 
     // Unwrap manifests result
-    let manifests: Vec<Manifest> = manifests_res.unwrap();
+    let manifests: Vec<Manifest> = manifests_res?;
 
     // Find missing files
     let missing_files =
@@ -210,7 +210,7 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
         });
     }
 
-    // Get Makefile path
+    // Get a Makefile path
     let makefile_path = component_path_ref.join("Makefile");
     if !makefile_path.exists() {
         return Err(Pkg6DevError::MakefileParseError {
@@ -390,7 +390,7 @@ fn make_file_map(files: Vec<File>) -> HashMap<String, File> {
 ///
 /// This function:
 /// 1. Opens the repository at the specified path
-/// 2. Parses the manifest file
+/// 2. Parses manifest file
 /// 3. Uses the FileBackend's publish_files method to publish the files from the prototype directory
 fn publish_package(
     manifest_path: &PathBuf,
@@ -462,15 +462,7 @@ fn publish_package(
 
         // Check if the file exists
         if !file_path.exists() {
-            // Instead of just a warning, we could return an error here, but that might be too strict
-            // For now, we'll keep the warning but use a more structured approach
-            warn!(
-                "File does not exist in prototype directory: {}",
-                file_path.display()
-            );
-            // We continue here instead of returning an error to allow the operation to proceed
-            // with the files that do exist
-            continue;
+            return Err(Pkg6DevError::FileNotFoundInPrototypeError{path: file_path.clone()})
         }
 
         // Add the file to the transaction
