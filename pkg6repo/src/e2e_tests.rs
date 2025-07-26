@@ -137,7 +137,7 @@ mod e2e_tests {
         );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "example.com"]);
+        let result = run_pkg6repo(&["add-publisher", "-s", repo_path.to_str().unwrap(), "example.com"]);
         assert!(
             result.is_ok(),
             "Failed to add publisher: {:?}",
@@ -170,7 +170,7 @@ mod e2e_tests {
         );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        let result = run_pkg6repo(&["add-publisher", "-s", repo_path.to_str().unwrap(), "test"]);
         assert!(
             result.is_ok(),
             "Failed to add publisher: {:?}",
@@ -192,7 +192,7 @@ mod e2e_tests {
         );
 
         // Check that the package was published
-        let result = run_pkg6repo(&["list", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["list", "-s", repo_path.to_str().unwrap()]);
         assert!(
             result.is_ok(),
             "Failed to list packages: {:?}",
@@ -227,7 +227,7 @@ mod e2e_tests {
         );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        let result = run_pkg6repo(&["add-publisher", "-s", repo_path.to_str().unwrap(), "test"]);
         assert!(
             result.is_ok(),
             "Failed to add publisher: {:?}",
@@ -249,7 +249,7 @@ mod e2e_tests {
         );
 
         // Show package contents using pkg6repo
-        let result = run_pkg6repo(&["contents", repo_path.to_str().unwrap(), "example"]);
+        let result = run_pkg6repo(&["contents", "-s", repo_path.to_str().unwrap(), "example"]);
         assert!(
             result.is_ok(),
             "Failed to show package contents: {:?}",
@@ -292,7 +292,7 @@ mod e2e_tests {
         );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&["add-publisher", repo_path.to_str().unwrap(), "test"]);
+        let result = run_pkg6repo(&["add-publisher", "-s", repo_path.to_str().unwrap(), "test"]);
         assert!(
             result.is_ok(),
             "Failed to add publisher: {:?}",
@@ -328,7 +328,7 @@ mod e2e_tests {
         );
 
         // List packages using pkg6repo
-        let result = run_pkg6repo(&["list", repo_path.to_str().unwrap()]);
+        let result = run_pkg6repo(&["list", "-s", repo_path.to_str().unwrap()]);
         assert!(
             result.is_ok(),
             "Failed to list packages: {:?}",

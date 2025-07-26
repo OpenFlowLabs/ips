@@ -13,10 +13,8 @@ keywords = ["packaging", "illumos"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
-anyhow = "1.0"
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "1.0.50"
 libips = { path = "../libips" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-[dev-dependencies]
-tempfile = "3.8"

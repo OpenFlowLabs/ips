@@ -1,4 +1,6 @@
-use anyhow::{anyhow, Result};
+mod error;
+use error::{Pkg6RepoError, Result};
+
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::convert::TryFrom;
@@ -500,7 +502,7 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
                 }
             }
 
@@ -593,7 +595,7 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
                 }
             }
 
@@ -702,7 +704,7 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
                 }
             }
 
@@ -908,7 +910,7 @@ fn main() -> Result<()> {
                 // Split the property=value string
                 let parts: Vec<&str> = prop_val.split('=').collect();
                 if parts.len() != 2 {
-                    return Err(anyhow!("Invalid property=value format: {}", prop_val));
+                    return Err(Pkg6RepoError::InvalidPropertyValueFormat(prop_val.to_string()));
                 }
 
                 let property = parts[0];
@@ -1027,7 +1029,7 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(anyhow!("Unsupported output format: {}", output_format));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
                 }
             }
 
