@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info};
 
 use crate::actions::{File as FileAction, Manifest};
 use crate::digest::Digest;
@@ -64,7 +64,7 @@ impl SearchIndex {
             .or_insert_with(HashSet::new)
             .insert(fmri.to_string());
 
-        // Add the package to the packages map
+        // Add the package to the package map
         self.packages.insert(fmri.to_string(), name.to_string());
     }
 
@@ -120,13 +120,13 @@ impl SearchIndex {
 
     /// Search the index for packages matching a query
     fn search(&self, query: &str, limit: Option<usize>) -> Vec<String> {
-        // Convert query to lowercase for case-insensitive search
+        // Convert a query to lowercase for case-insensitive search
         let query = query.to_lowercase();
 
         // Split the query into terms
         let terms: Vec<&str> = query.split_whitespace().collect();
 
-        // If no terms, return empty result
+        // If no terms, return an empty result
         if terms.is_empty() {
             return Vec::new();
         }
@@ -250,7 +250,7 @@ impl Transaction {
             .as_secs();
         let id = format!("trans_{}", timestamp);
 
-        // Create transaction directory
+        // Create a transaction directory
         let trans_path = repo_path.join("trans").join(&id);
         fs::create_dir_all(&trans_path)?;
 
@@ -280,7 +280,7 @@ impl Transaction {
     /// - Merges other types of actions (attributes, directories, dependencies, licenses, links) from both manifests
     pub fn update_manifest(&mut self, manifest: Manifest) {
         // Keep track of file paths that are already in the transaction's manifest
-        let existing_file_paths: std::collections::HashSet<String> =
+        let existing_file_paths: HashSet<String> =
             self.manifest.files.iter().map(|f| f.path.clone()).collect();
 
         // Add file actions from the provided manifest that don't exist in the transaction's manifest
@@ -333,7 +333,7 @@ impl Transaction {
         // Compress the file based on the selected algorithm
         let compressed_hash = match compression_algorithm {
             PayloadCompressionAlgorithm::Gzip => {
-                // Create a Gzip encoder with default compression level
+                // Create a Gzip encoder with the default compression level
                 let mut encoder = GzEncoder::new(Vec::new(), GzipCompression::default());
 
                 // Write the file content to the encoder
@@ -356,7 +356,7 @@ impl Transaction {
                 format!("{:x}", hasher.finalize())
             }
             PayloadCompressionAlgorithm::LZ4 => {
-                // Create an LZ4 encoder with default compression level
+                // Create an LZ4 encoder with the default compression level
                 let mut encoder = EncoderBuilder::new()
                     .build(Vec::new())
                     .map_err(|e| RepositoryError::Other(format!("Failed to create LZ4 encoder: {}", e)))?;
@@ -381,7 +381,7 @@ impl Transaction {
             }
         };
 
-        // Add file to the list for later processing during commit
+        // Add a file to the list for later processing during commit
         self.files
             .push((temp_file_path.clone(), compressed_hash.clone()));
 
@@ -470,7 +470,7 @@ impl Transaction {
             }
         };
 
-        // Create publisher directory if it doesn't exist
+        // Create a publisher directory if it doesn't exist
         let publisher_dir = self.repo.join("pkg").join(&publisher);
         debug!("Publisher directory: {}", publisher_dir.display());
         if !publisher_dir.exists() {
@@ -587,7 +587,7 @@ impl ReadableRepository for FileBackend {
 
             // Format the timestamp in ISO 8601 format
             let updated = if latest_timestamp == SystemTime::UNIX_EPOCH {
-                // If no files were found, use current time
+                // If no files were found, use the current time
                 let now = SystemTime::now();
                 format_iso8601_timestamp(&now)
             } else {
@@ -671,8 +671,8 @@ impl ReadableRepository for FileBackend {
                                                                 }
                                                             }
                                                             Err(err) => {
-                                                                // Log the error but fall back to simple string contains
-                                                                eprintln!("Error compiling regex pattern '{}': {}", pat, err);
+                                                                // Log the error but fall back to the simple string contains
+                                                                error!("FileBackend::list_packages: Error compiling regex pattern '{}': {}", pat, err);
                                                                 if !parsed_fmri.stem().contains(pat)
                                                                 {
                                                                     continue;
@@ -704,8 +704,8 @@ impl ReadableRepository for FileBackend {
                                                 }
                                                 Err(err) => {
                                                     // Log the error but continue processing
-                                                    eprintln!(
-                                                        "Error parsing FMRI '{}': {}",
+                                                    error!(
+                                                        "FileBackend::list_packages: Error parsing FMRI '{}': {}",
                                                         fmri, err
                                                     );
                                                 }
@@ -715,8 +715,8 @@ impl ReadableRepository for FileBackend {
                                 }
                                 Err(err) => {
                                     // Log the error but continue processing other files
-                                    eprintln!(
-                                        "Error parsing manifest file {}: {}",
+                                    error!(
+                                        "FileBackend::list_packages: Error parsing manifest file {}: {}",
                                         path.display(),
                                         err
                                     );
@@ -742,7 +742,7 @@ impl ReadableRepository for FileBackend {
         // We don't need to get the list of packages since we'll process the manifests directly
 
         // Use a HashMap to store package information
-        let mut packages = std::collections::HashMap::new();
+        let mut packages = HashMap::new();
 
         // Define a struct to hold the content vectors for each package
         struct PackageContentVectors {
@@ -816,8 +816,8 @@ impl ReadableRepository for FileBackend {
                                                                 }
                                                             }
                                                             Err(err) => {
-                                                                // Log the error but fall back to simple string contains
-                                                                eprintln!("Error compiling regex pattern '{}': {}", pat, err);
+                                                                // Log the error but fall back to the simple string contains
+                                                                error!("FileBackend::show_contents: Error compiling regex pattern '{}': {}", pat, err);
                                                                 if !parsed_fmri.stem().contains(pat)
                                                                 {
                                                                     continue;
@@ -842,8 +842,8 @@ impl ReadableRepository for FileBackend {
                                                 }
                                                 Err(err) => {
                                                     // Log the error but continue processing
-                                                    eprintln!(
-                                                        "Error parsing FMRI '{}': {}",
+                                                    error!(
+                                                        "FileBackend::show_contents: Error parsing FMRI '{}': {}",
                                                         fmri, err
                                                     );
                                                 }
@@ -940,8 +940,8 @@ impl ReadableRepository for FileBackend {
                                 }
                                 Err(err) => {
                                     // Log the error but continue processing other files
-                                    eprintln!(
-                                        "Error parsing manifest file {}: {}",
+                                    error!(
+                                        "FileBackend::show_contents: Error parsing manifest file {}: {}",
                                         path.display(),
                                         err
                                     );
@@ -1009,13 +1009,13 @@ impl ReadableRepository for FileBackend {
         publisher: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<PackageInfo>> {
-        println!("Searching for packages with query: {}", query);
-        println!("Publisher: {:?}", publisher);
-        println!("Limit: {:?}", limit);
+        debug!("Searching for packages with query: {}", query);
+        debug!("Publisher: {:?}", publisher);
+        debug!("Limit: {:?}", limit);
 
         // If no publisher is specified, use the default publisher if available
         let publisher = publisher.or_else(|| self.config.default_publisher.as_deref());
-        println!("Effective publisher: {:?}", publisher);
+        debug!("Effective publisher: {:?}", publisher);
 
         // If still no publisher, we need to search all publishers
         let publishers = if let Some(pub_name) = publisher {
@@ -1023,43 +1023,43 @@ impl ReadableRepository for FileBackend {
         } else {
             self.config.publishers.clone()
         };
-        println!("Publishers to search: {:?}", publishers);
+        debug!("Publishers to search: {:?}", publishers);
 
         let mut results = Vec::new();
 
         // For each publisher, search the index
         for pub_name in publishers {
-            println!("Searching publisher: {}", pub_name);
+            debug!("Searching publisher: {}", pub_name);
             
             // Check if the index exists
             let index_path = self.path.join("index").join(&pub_name).join("search.json");
-            println!("Index path: {}", index_path.display());
-            println!("Index exists: {}", index_path.exists());
+            debug!("Index path: {}", index_path.display());
+            debug!("Index exists: {}", index_path.exists());
             
             if let Ok(Some(index)) = self.get_search_index(&pub_name) {
-                println!("Got search index for publisher: {}", pub_name);
-                println!("Index terms: {:?}", index.terms.keys().collect::<Vec<_>>());
+                debug!("Got search index for publisher: {}", pub_name);
+                debug!("Index terms: {:?}", index.terms.keys().collect::<Vec<_>>());
                 
                 // Search the index
                 let fmris = index.search(query, limit);
-                println!("Search results (FMRIs): {:?}", fmris);
+                debug!("Search results (FMRIs): {:?}", fmris);
 
                 // Convert FMRIs to PackageInfo
                 for fmri_str in fmris {
                     if let Ok(fmri) = Fmri::parse(&fmri_str) {
-                        println!("Adding package to results: {}", fmri);
+                        debug!("Adding package to results: {}", fmri);
                         results.push(PackageInfo { fmri });
                     } else {
-                        println!("Failed to parse FMRI: {}", fmri_str);
+                        debug!("Failed to parse FMRI: {}", fmri_str);
                     }
                 }
             } else {
-                println!("No search index found for publisher: {}", pub_name);
-                println!("Falling back to simple search");
+                debug!("No search index found for publisher: {}", pub_name);
+                debug!("Falling back to simple search");
                 
                 // If the index doesn't exist, fall back to the simple search
                 let all_packages = self.list_packages(Some(&pub_name), None)?;
-                println!("All packages: {:?}", all_packages);
+                debug!("All packages: {:?}", all_packages);
 
                 // Filter packages by the query string
                 let matching_packages: Vec<PackageInfo> = all_packages
@@ -1067,11 +1067,11 @@ impl ReadableRepository for FileBackend {
                     .filter(|pkg| {
                         // Match against package name
                         let matches = pkg.fmri.stem().contains(query);
-                        println!("Package: {}, Matches: {}", pkg.fmri.stem(), matches);
+                        debug!("Package: {}, Matches: {}", pkg.fmri.stem(), matches);
                         matches
                     })
                     .collect();
-                println!("Matching packages: {:?}", matching_packages);
+                debug!("Matching packages: {:?}", matching_packages);
 
                 // Add matching packages to the results
                 results.extend(matching_packages);
@@ -1083,7 +1083,7 @@ impl ReadableRepository for FileBackend {
             results.truncate(max_results);
         }
 
-        println!("Final search results: {:?}", results);
+        debug!("Final search results: {:?}", results);
         Ok(results)
     }
 }
@@ -1135,7 +1135,7 @@ impl WritableRepository for FileBackend {
             fs::create_dir_all(self.path.join("catalog").join(publisher))?;
             fs::create_dir_all(self.path.join("pkg").join(publisher))?;
 
-            // Set as default publisher if no default publisher is set
+            // Set as the default publisher if no default publisher is set
             if self.config.default_publisher.is_none() {
                 self.config.default_publisher = Some(publisher.to_string());
             }
@@ -1325,6 +1325,7 @@ impl FileBackend {
     }
 
     /// URL encode a string for use in a filename
+    #[allow(dead_code)]
     fn url_encode(s: &str) -> String {
         let mut result = String::new();
         for c in s.chars() {
@@ -1341,6 +1342,7 @@ impl FileBackend {
     }
 
     /// Generate catalog parts for a publisher
+    #[allow(dead_code)]
     fn generate_catalog_parts(&mut self, publisher: &str, create_update_log: bool) -> Result<()> {
         info!("Generating catalog parts for publisher: {}", publisher);
 
@@ -1384,8 +1386,8 @@ impl FileBackend {
             }
 
             // Read the manifest
-            let manifest_content = std::fs::read_to_string(&manifest_path)?;
-            let manifest = crate::actions::Manifest::parse_string(manifest_content.clone())?;
+            let manifest_content = fs::read_to_string(&manifest_path)?;
+            let manifest = Manifest::parse_string(manifest_content.clone())?;
 
             // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
             let mut hasher = sha2::Sha256::new();
@@ -1443,18 +1445,18 @@ impl FileBackend {
 
             // Prepare update entry if needed
             if create_update_log {
-                let mut catalog_parts = std::collections::HashMap::new();
+                let mut catalog_parts = HashMap::new();
 
                 // Add dependency actions to update entry
                 if !dependency_actions.is_empty() {
-                    let mut actions = std::collections::HashMap::new();
+                    let mut actions = HashMap::new();
                     actions.insert("actions".to_string(), dependency_actions);
                     catalog_parts.insert("catalog.dependency.C".to_string(), actions);
                 }
 
                 // Add summary actions to update entry
                 if !summary_actions.is_empty() {
-                    let mut actions = std::collections::HashMap::new();
+                    let mut actions = HashMap::new();
                     actions.insert("actions".to_string(), summary_actions);
                     catalog_parts.insert("catalog.summary.C".to_string(), actions);
                 }
@@ -1497,7 +1499,7 @@ impl FileBackend {
 
         // Create and populate the update log if needed
         if create_update_log {
-            let now = std::time::SystemTime::now();
+            let now = SystemTime::now();
             let timestamp = format_iso8601_timestamp(&now);
             let update_log_name = format!("update.{}Z.C", timestamp.split('.').next().unwrap());
 
@@ -1515,7 +1517,7 @@ impl FileBackend {
         }
 
         // Update catalog attributes
-        let now = std::time::SystemTime::now();
+        let now = SystemTime::now();
         let timestamp = format_iso8601_timestamp(&now);
 
         let attrs = catalog_manager.attrs_mut();
@@ -1696,8 +1698,8 @@ impl FileBackend {
                                             }
                                             Err(err) => {
                                                 // Log the error but continue processing
-                                                eprintln!(
-                                                    "Error parsing FMRI '{}': {}",
+                                                error!(
+                                                "FileBackend::build_search_index: Error parsing FMRI '{}': {}",
                                                     fmri_str, err
                                                 );
                                             }
@@ -1707,8 +1709,8 @@ impl FileBackend {
                             }
                             Err(err) => {
                                 // Log the error but continue processing other files
-                                eprintln!(
-                                    "Error parsing manifest file {}: {}",
+                                error!(
+                                "FileBackend::build_search_index: Error parsing manifest file {}: {}",
                                     path.display(),
                                     err
                                 );
