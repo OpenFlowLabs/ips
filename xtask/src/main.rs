@@ -2,13 +2,14 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // Constants
 const TEST_BASE_DIR: &str = "/tmp/pkg6_test";
 const PROTOTYPE_DIR: &str = "/tmp/pkg6_test/prototype";
 const MANIFEST_DIR: &str = "/tmp/pkg6_test/manifests";
+const E2E_TEST_BIN_DIR: &str = "/tmp/pkg6_test/bin";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -44,6 +45,16 @@ enum Commands {
         package: Option<String>,
     },
     
+    /// Build binaries for end-to-end tests
+    BuildE2E,
+    
+    /// Run end-to-end tests using pre-built binaries
+    RunE2E {
+        /// Specific test to run (runs all e2e tests if not specified)
+        #[arg(short, long)]
+        test: Option<String>,
+    },
+    
     /// Format code
     Fmt,
     
@@ -61,6 +72,8 @@ fn main() -> Result<()> {
         Commands::SetupTestEnv => setup_test_env(),
         Commands::Build { release, package } => build(release, package),
         Commands::Test { release, package } => test(release, package),
+        Commands::BuildE2E => build_e2e(),
+        Commands::RunE2E { test } => run_e2e(test),
         Commands::Fmt => fmt(),
         Commands::Clippy => clippy(),
         Commands::Clean => clean(),
@@ -71,10 +84,26 @@ fn main() -> Result<()> {
 fn setup_test_env() -> Result<()> {
     println!("Setting up test environment...");
     
-    // Clean up any existing test directories
+    // Clean up any existing test directories except the bin directory
     if Path::new(TEST_BASE_DIR).exists() {
         println!("Cleaning up existing test directory...");
-        fs::remove_dir_all(TEST_BASE_DIR).context("Failed to remove existing test directory")?;
+        
+        // Remove subdirectories individually, preserving the bin directory
+        let entries = fs::read_dir(TEST_BASE_DIR).context("Failed to read test directory")?;
+        for entry in entries {
+            let entry = entry.context("Failed to read directory entry")?;
+            let path = entry.path();
+            
+            // Skip the bin directory
+            if path.is_dir() && path.file_name().unwrap_or_default() != "bin" {
+                fs::remove_dir_all(&path).context(format!("Failed to remove directory: {:?}", path))?;
+            } else if path.is_file() {
+                fs::remove_file(&path).context(format!("Failed to remove file: {:?}", path))?;
+            }
+        }
+    } else {
+        // Create the base directory if it doesn't exist
+        fs::create_dir_all(TEST_BASE_DIR).context("Failed to create test base directory")?;
     }
     
     // Create test directories
@@ -228,6 +257,85 @@ fn clean() -> Result<()> {
         .arg("clean")
         .status()
         .context("Failed to clean build artifacts")?;
+    
+    Ok(())
+}
+
+/// Build binaries for end-to-end tests
+fn build_e2e() -> Result<()> {
+    println!("Building binaries for end-to-end tests...");
+    
+    // Create the bin directory if it doesn't exist
+    fs::create_dir_all(E2E_TEST_BIN_DIR).context("Failed to create bin directory")?;
+    
+    // Build pkg6repo in release mode
+    println!("Building pkg6repo...");
+    Command::new("cargo")
+        .args(["build", "--release", "--package", "pkg6repo"])
+        .status()
+        .context("Failed to build pkg6repo")?;
+    
+    // Build pkg6dev in release mode
+    println!("Building pkg6dev...");
+    Command::new("cargo")
+        .args(["build", "--release", "--package", "pkg6dev"])
+        .status()
+        .context("Failed to build pkg6dev")?;
+    
+    // Copy the binaries to the bin directory
+    let target_dir = PathBuf::from("target/release");
+    
+    println!("Copying binaries to test directory...");
+    fs::copy(
+        target_dir.join("pkg6repo"),
+        PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6repo"),
+    )
+    .context("Failed to copy pkg6repo binary")?;
+    
+    fs::copy(
+        target_dir.join("pkg6dev"),
+        PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6dev"),
+    )
+    .context("Failed to copy pkg6dev binary")?;
+    
+    println!("End-to-end test binaries built successfully!");
+    println!("Binaries are located at: {}", E2E_TEST_BIN_DIR);
+    
+    Ok(())
+}
+
+/// Run end-to-end tests using pre-built binaries
+fn run_e2e(test: &Option<String>) -> Result<()> {
+    println!("Running end-to-end tests...");
+    
+    // Check if the binaries exist
+    let pkg6repo_bin = PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6repo");
+    let pkg6dev_bin = PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6dev");
+    
+    if !pkg6repo_bin.exists() || !pkg6dev_bin.exists() {
+        println!("Pre-built binaries not found. Building them first...");
+        build_e2e()?;
+    }
+    
+    // Set up the test environment
+    setup_test_env()?;
+    
+    // Run the tests
+    let mut cmd = Command::new("cargo");
+    cmd.arg("test");
+    
+    if let Some(test_name) = test {
+        cmd.args(["--package", "pkg6repo", "--test", "e2e_tests", test_name]);
+    } else {
+        cmd.args(["--package", "pkg6repo", "--test", "e2e_tests"]);
+    }
+    
+    // Set the environment variable for the test binaries
+    cmd.env("PKG6_TEST_BIN_DIR", E2E_TEST_BIN_DIR);
+    
+    cmd.status().context("Failed to run end-to-end tests")?;
+    
+    println!("End-to-end tests completed!");
     
     Ok(())
 }

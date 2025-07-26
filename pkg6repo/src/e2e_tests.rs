@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod e2e_tests {
+    use std::env;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -12,6 +13,17 @@ mod e2e_tests {
 
     // The base directory for all test repositories
     const TEST_REPO_BASE_DIR: &str = "/tmp/pkg6repo_e2e_test";
+    
+    // Get the path to the pre-built binaries
+    fn get_bin_dir() -> PathBuf {
+        match env::var("PKG6_TEST_BIN_DIR") {
+            Ok(dir) => PathBuf::from(dir),
+            Err(_) => {
+                // Fallback to the default location if the environment variable is not set
+                PathBuf::from("/tmp/pkg6_test/bin")
+            }
+        }
+    }
 
     // Helper function to create a unique test directory
     fn create_test_dir(test_name: &str) -> PathBuf {
@@ -35,24 +47,20 @@ mod e2e_tests {
         }
     }
 
-    // Helper function to run the setup script
+    // Helper function to set up the test environment
     fn run_setup_script() -> (PathBuf, PathBuf) {
-        // Get the project root directory
-        let output = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
+        // Run the xtask setup-test-env command
+        let output = Command::new("cargo")
+            .args(["run", "-p", "xtask", "--", "setup-test-env"])
             .output()
-            .expect("Failed to execute git command");
-
-        let project_root = String::from_utf8(output.stdout)
-            .expect("Invalid UTF-8 output")
-            .trim()
-            .to_string();
-
-        // Run the setup script
-        Command::new("bash")
-            .arg(format!("{}/setup_test_env.sh", project_root))
-            .status()
-            .expect("Failed to run setup script");
+            .expect("Failed to run xtask setup-test-env");
+            
+        if !output.status.success() {
+            panic!(
+                "Failed to set up test environment: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
         // Return the paths to the prototype and manifest directories
         (
@@ -63,10 +71,18 @@ mod e2e_tests {
 
     // Helper function to run pkg6repo command
     fn run_pkg6repo(args: &[&str]) -> Result<String, String> {
-        let output = Command::new("cargo")
-            .arg("run")
-            .arg("--bin")
-            .arg("pkg6repo")
+        let bin_dir = get_bin_dir();
+        let pkg6repo_bin = bin_dir.join("pkg6repo");
+        
+        // Check if the binary exists
+        if !pkg6repo_bin.exists() {
+            return Err(format!(
+                "pkg6repo binary not found at {}. Run 'cargo xtask build-e2e' first.",
+                pkg6repo_bin.display()
+            ));
+        }
+        
+        let output = Command::new(pkg6repo_bin)
             .args(args)
             .output()
             .expect("Failed to execute pkg6repo command");
@@ -80,10 +96,18 @@ mod e2e_tests {
 
     // Helper function to run pkg6dev command
     fn run_pkg6dev(args: &[&str]) -> Result<String, String> {
-        let output = Command::new("cargo")
-            .arg("run")
-            .arg("--bin")
-            .arg("pkg6dev")
+        let bin_dir = get_bin_dir();
+        let pkg6dev_bin = bin_dir.join("pkg6dev");
+        
+        // Check if the binary exists
+        if !pkg6dev_bin.exists() {
+            return Err(format!(
+                "pkg6dev binary not found at {}. Run 'cargo xtask build-e2e' first.",
+                pkg6dev_bin.display()
+            ));
+        }
+        
+        let output = Command::new(pkg6dev_bin)
             .args(args)
             .output()
             .expect("Failed to execute pkg6dev command");
@@ -181,9 +205,9 @@ mod e2e_tests {
         let manifest_path = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            manifest_path.to_str().unwrap(),
-            prototype_dir.to_str().unwrap(),
-            repo_path.to_str().unwrap(),
+            "--manifest-path", manifest_path.to_str().unwrap(),
+            "--prototype-dir", prototype_dir.to_str().unwrap(),
+            "--repo-path", repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -238,9 +262,9 @@ mod e2e_tests {
         let manifest_path = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            manifest_path.to_str().unwrap(),
-            prototype_dir.to_str().unwrap(),
-            repo_path.to_str().unwrap(),
+            "--manifest-path", manifest_path.to_str().unwrap(),
+            "--prototype-dir", prototype_dir.to_str().unwrap(),
+            "--repo-path", repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -303,9 +327,9 @@ mod e2e_tests {
         let manifest_path1 = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            manifest_path1.to_str().unwrap(),
-            prototype_dir.to_str().unwrap(),
-            repo_path.to_str().unwrap(),
+            "--manifest-path", manifest_path1.to_str().unwrap(),
+            "--prototype-dir", prototype_dir.to_str().unwrap(),
+            "--repo-path", repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -317,9 +341,9 @@ mod e2e_tests {
         let manifest_path2 = manifest_dir.join("example2.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            manifest_path2.to_str().unwrap(),
-            prototype_dir.to_str().unwrap(),
-            repo_path.to_str().unwrap(),
+            "--manifest-path", manifest_path2.to_str().unwrap(),
+            "--prototype-dir", prototype_dir.to_str().unwrap(),
+            "--repo-path", repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
