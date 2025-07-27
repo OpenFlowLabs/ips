@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use tracing_subscriber::fmt;
 
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
@@ -80,10 +80,6 @@ enum Commands {
         /// Perform a dry run
         #[clap(short = 'n')]
         dry_run: bool,
-
-        /// Wait for the operation to complete
-        #[clap(long)]
-        synchronous: bool,
 
         /// Publishers to remove
         publisher: Vec<String>,
@@ -325,7 +321,7 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Initialize the tracing subscriber with default log level as debug and no decorations
+    // Initialize the tracing subscriber with the default log level as debug and no decorations
     fmt::Subscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
         .without_time()
@@ -379,14 +375,13 @@ fn main() -> Result<()> {
         Commands::RemovePublisher {
             repo_uri_or_path,
             dry_run,
-            synchronous,
             publisher,
         } => {
             info!(
                 "Removing publishers {:?} from repository {}",
                 publisher, repo_uri_or_path
             );
-            debug!("Dry run: {}, Synchronous: {}", dry_run, synchronous);
+            debug!("Dry run: {}", dry_run);
 
             // Open the repository
             let mut repo = FileBackend::open(repo_uri_or_path)?;
@@ -395,13 +390,6 @@ fn main() -> Result<()> {
             for p in publisher {
                 info!("Removing publisher: {}", p);
                 repo.remove_publisher(p, *dry_run)?;
-            }
-
-            // The synchronous parameter is used to wait for the operation to complete before returning
-            // For FileBackend, operations are already synchronous, so this parameter doesn't have any effect
-            // For RestBackend, this would wait for the server to complete the operation before returning
-            if *synchronous {
-                debug!("Operation completed synchronously");
             }
 
             if *dry_run {
