@@ -492,12 +492,6 @@ impl Transaction {
         debug!("Copying manifest from {} to {}", manifest_path.display(), pkg_manifest_path.display());
         fs::copy(&manifest_path, &pkg_manifest_path)?;
 
-        // Also create a copy in the root pkg directory for backward compatibility
-        // This is temporary and should be removed once all clients are updated
-        debug!("Also creating a copy in the root pkg directory for backward compatibility");
-        let root_manifest_path = self.repo.join("pkg").join("manifest");
-        fs::copy(&manifest_path, &root_manifest_path)?;
-
         // Clean up the transaction directory
         fs::remove_dir_all(self.path)?;
 
