@@ -868,7 +868,7 @@ fn main() -> Result<()> {
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
             // For now, we're using FileBackend, which doesn't use these parameters
-            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            let repo = FileBackend::open(repo_uri_or_path)?;
 
             // Get the publisher if specified
             let pub_option = if let Some(publishers) = publisher {
@@ -899,7 +899,7 @@ fn main() -> Result<()> {
             // Open the repository
             // In a real implementation with RestBackend, the key and cert parameters would be used for SSL authentication
             // For now, we're using FileBackend, which doesn't use these parameters
-            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            let repo = FileBackend::open(repo_uri_or_path)?;
 
             // Get the publisher if specified
             let pub_option = if let Some(publishers) = publisher {

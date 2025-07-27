@@ -1227,14 +1227,18 @@ impl WritableRepository for FileBackend {
     }
 
     /// Rebuild repository metadata
-    fn rebuild(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+        debug!("rebuild called with publisher: {:?}, no_catalog: {}, no_index: {}", publisher, no_catalog, no_index);
+        
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
                 return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
             }
+            debug!("rebuild: using specified publisher: {}", pub_name);
             vec![pub_name.to_string()]
         } else {
+            debug!("rebuild: using all publishers: {:?}", self.config.publishers);
             self.config.publishers.clone()
         };
 
@@ -1244,7 +1248,7 @@ impl WritableRepository for FileBackend {
 
             if !no_catalog {
                 info!("Rebuilding catalog...");
-                self.generate_catalog_parts(&pub_name, true)?;
+                self.rebuild_catalog(&pub_name, true)?;
             }
 
             if !no_index {
@@ -1257,7 +1261,7 @@ impl WritableRepository for FileBackend {
     }
 
     /// Refresh repository metadata
-    fn refresh(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -1274,7 +1278,7 @@ impl WritableRepository for FileBackend {
 
             if !no_catalog {
                 info!("Refreshing catalog...");
-                self.generate_catalog_parts(&pub_name, true)?;
+                self.rebuild_catalog(&pub_name, true)?;
             }
 
             if !no_index {
@@ -1313,6 +1317,275 @@ impl FileBackend {
         fs::create_dir_all(self.path.join("pkg"))?;
         fs::create_dir_all(self.path.join("trans"))?;
 
+        Ok(())
+    }
+    
+    /// Rebuild catalog for a publisher
+    ///
+    /// This method generates catalog files for a publisher and stores them in the publisher's
+    /// subdirectory within the catalog directory.
+    pub fn rebuild_catalog(&self, publisher: &str, create_update_log: bool) -> Result<()> {
+        info!("Rebuilding catalog for publisher: {}", publisher);
+        debug!("Catalog directory path: {}", self.path.join("catalog").display());
+        
+        // Create the catalog directory for the publisher if it doesn't exist
+        let catalog_dir = self.path.join("catalog").join(publisher);
+        debug!("Publisher catalog directory: {}", catalog_dir.display());
+        fs::create_dir_all(&catalog_dir)?;
+        debug!("Created publisher catalog directory");
+        
+        // Collect package data
+        let packages = self.list_packages(Some(publisher), None)?;
+        
+        // Prepare data structures for catalog parts
+        let mut base_entries = Vec::new();
+        let mut dependency_entries = Vec::new();
+        let mut summary_entries = Vec::new();
+        let mut update_entries = Vec::new();
+        
+        // Track package counts
+        let mut package_count = 0;
+        let mut package_version_count = 0;
+        
+        // Process each package
+        for package in packages {
+            let fmri = &package.fmri;
+            let stem = fmri.stem();
+            
+            // Skip if no version
+            if fmri.version().is_empty() {
+                continue;
+            }
+            
+            // Get the package manifest
+            let pkg_dir = self.path.join("pkg").join(publisher).join(stem);
+            if !pkg_dir.exists() {
+                continue;
+            }
+            
+            // Get the package version
+            let version = fmri.version();
+            let encoded_version = Self::url_encode(&version);
+            let manifest_path = pkg_dir.join(encoded_version);
+            
+            if !manifest_path.exists() {
+                continue;
+            }
+            
+            // Read the manifest
+            let manifest_content = fs::read_to_string(&manifest_path)?;
+            let manifest = Manifest::parse_string(manifest_content.clone())?;
+            
+            // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(manifest_content.as_bytes());
+            let signature = format!("{:x}", hasher.finalize());
+            
+            // Add to base entries
+            base_entries.push((fmri.clone(), None, signature.clone()));
+            
+            // Extract dependency actions
+            let mut dependency_actions = Vec::new();
+            for dep in &manifest.dependencies {
+                if let Some(dep_fmri) = &dep.fmri {
+                    dependency_actions.push(format!(
+                        "depend fmri={} type={}",
+                        dep_fmri, dep.dependency_type
+                    ));
+                }
+            }
+            
+            // Extract variant and facet actions
+            for attr in &manifest.attributes {
+                if attr.key.starts_with("variant.") || attr.key.starts_with("facet.") {
+                    let values_str = attr.values.join(" value=");
+                    dependency_actions.push(format!("set name={} value={}", attr.key, values_str));
+                }
+            }
+            
+            // Add to dependency entries if there are dependency actions
+            if !dependency_actions.is_empty() {
+                dependency_entries.push((
+                    fmri.clone(),
+                    Some(dependency_actions.clone()),
+                    signature.clone(),
+                ));
+            }
+            
+            // Extract summary actions (set actions excluding variants and facets)
+            let mut summary_actions = Vec::new();
+            for attr in &manifest.attributes {
+                if !attr.key.starts_with("variant.") && !attr.key.starts_with("facet.") {
+                    let values_str = attr.values.join(" value=");
+                    summary_actions.push(format!("set name={} value={}", attr.key, values_str));
+                }
+            }
+            
+            // Add to summary entries if there are summary actions
+            if !summary_actions.is_empty() {
+                summary_entries.push((
+                    fmri.clone(),
+                    Some(summary_actions.clone()),
+                    signature.clone(),
+                ));
+            }
+            
+            // Prepare update entry if needed
+            if create_update_log {
+                let mut catalog_parts = HashMap::new();
+                
+                // Add dependency actions to update entry
+                if !dependency_actions.is_empty() {
+                    let mut actions = HashMap::new();
+                    actions.insert("actions".to_string(), dependency_actions);
+                    catalog_parts.insert("catalog.dependency.C".to_string(), actions);
+                }
+                
+                // Add summary actions to update entry
+                if !summary_actions.is_empty() {
+                    let mut actions = HashMap::new();
+                    actions.insert("actions".to_string(), summary_actions);
+                    catalog_parts.insert("catalog.summary.C".to_string(), actions);
+                }
+                
+                // Add to update entries
+                update_entries.push((fmri.clone(), catalog_parts, signature));
+            }
+            
+            // Update counts
+            package_count += 1;
+            package_version_count += 1;
+        }
+        
+        // Create and save catalog parts
+        
+        // Create a catalog.attrs file
+        let now = SystemTime::now();
+        let timestamp = format_iso8601_timestamp(&now);
+        
+        // Get the CatalogAttrs struct definition to see what fields it has
+        let mut attrs = crate::repository::catalog::CatalogAttrs {
+            created: timestamp.clone(),
+            last_modified: timestamp.clone(),
+            package_count,
+            package_version_count,
+            parts: HashMap::new(),
+            version: 1, // CatalogVersion::V1 is 1
+            signature: None,
+            updates: HashMap::new(),
+        };
+        
+        // Add part information
+        let base_part_name = "catalog.base.C";
+        attrs.parts.insert(
+            base_part_name.to_string(),
+            crate::repository::catalog::CatalogPartInfo {
+                last_modified: timestamp.clone(),
+                signature_sha1: None,
+            },
+        );
+        
+        let dependency_part_name = "catalog.dependency.C";
+        attrs.parts.insert(
+            dependency_part_name.to_string(),
+            crate::repository::catalog::CatalogPartInfo {
+                last_modified: timestamp.clone(),
+                signature_sha1: None,
+            },
+        );
+        
+        let summary_part_name = "catalog.summary.C";
+        attrs.parts.insert(
+            summary_part_name.to_string(),
+            crate::repository::catalog::CatalogPartInfo {
+                last_modified: timestamp.clone(),
+                signature_sha1: None,
+            },
+        );
+        
+        // Save the catalog.attrs file
+        let attrs_path = catalog_dir.join("catalog.attrs");
+        debug!("Writing catalog.attrs to: {}", attrs_path.display());
+        let attrs_json = serde_json::to_string_pretty(&attrs)?;
+        fs::write(&attrs_path, attrs_json)?;
+        debug!("Wrote catalog.attrs file");
+        
+        // Create and save catalog parts
+        
+        // Base part
+        let base_part_path = catalog_dir.join(base_part_name);
+        debug!("Writing base part to: {}", base_part_path.display());
+        let mut base_part = crate::repository::catalog::CatalogPart::new();
+        for (fmri, actions, signature) in base_entries {
+            base_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        let base_part_json = serde_json::to_string_pretty(&base_part)?;
+        fs::write(&base_part_path, base_part_json)?;
+        debug!("Wrote base part file");
+        
+        // Dependency part
+        let dependency_part_path = catalog_dir.join(dependency_part_name);
+        debug!("Writing dependency part to: {}", dependency_part_path.display());
+        let mut dependency_part = crate::repository::catalog::CatalogPart::new();
+        for (fmri, actions, signature) in dependency_entries {
+            dependency_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        let dependency_part_json = serde_json::to_string_pretty(&dependency_part)?;
+        fs::write(&dependency_part_path, dependency_part_json)?;
+        debug!("Wrote dependency part file");
+        
+        // Summary part
+        let summary_part_path = catalog_dir.join(summary_part_name);
+        debug!("Writing summary part to: {}", summary_part_path.display());
+        let mut summary_part = crate::repository::catalog::CatalogPart::new();
+        for (fmri, actions, signature) in summary_entries {
+            summary_part.add_package(publisher, &fmri, actions, Some(signature));
+        }
+        let summary_part_json = serde_json::to_string_pretty(&summary_part)?;
+        fs::write(&summary_part_path, summary_part_json)?;
+        debug!("Wrote summary part file");
+        
+        // Create and save the update log if needed
+        if create_update_log {
+            debug!("Creating update log");
+            let update_log_name = format!("update.{}Z.C", timestamp.split('.').next().unwrap());
+            let update_log_path = catalog_dir.join(&update_log_name);
+            debug!("Update log path: {}", update_log_path.display());
+            
+            let mut update_log = crate::repository::catalog::UpdateLog::new();
+            debug!("Adding {} updates to the log", update_entries.len());
+            for (fmri, catalog_parts, signature) in update_entries {
+                update_log.add_update(
+                    publisher,
+                    &fmri,
+                    crate::repository::catalog::CatalogOperationType::Add,
+                    catalog_parts,
+                    Some(signature),
+                );
+            }
+            
+            let update_log_json = serde_json::to_string_pretty(&update_log)?;
+            fs::write(&update_log_path, update_log_json)?;
+            debug!("Wrote update log file");
+            
+            // Add an update log to catalog.attrs
+            debug!("Adding update log to catalog.attrs");
+            attrs.updates.insert(
+                update_log_name.clone(),
+                crate::repository::catalog::UpdateLogInfo {
+                    last_modified: timestamp.clone(),
+                    signature_sha1: None,
+                },
+            );
+            
+            // Update the catalog.attrs file with the new update log
+            debug!("Updating catalog.attrs file with new update log");
+            let attrs_json = serde_json::to_string_pretty(&attrs)?;
+            fs::write(catalog_dir.join("catalog.attrs"), attrs_json)?;
+            debug!("Updated catalog.attrs file");
+        }
+        
+        info!("Catalog rebuilt for publisher: {}", publisher);
         Ok(())
     }
     
@@ -1364,220 +1637,6 @@ impl FileBackend {
             }
         }
         result
-    }
-
-    /// Generate catalog parts for a publisher
-    fn generate_catalog_parts(&mut self, publisher: &str, create_update_log: bool) -> Result<()> {
-        info!("Generating catalog parts for publisher: {}", publisher);
-
-        // Collect package data first
-        let repo_path = self.path.clone();
-        let packages = self.list_packages(Some(publisher), None)?;
-
-        // Prepare data structures for catalog parts
-        let mut base_entries = Vec::new();
-        let mut dependency_entries = Vec::new();
-        let mut summary_entries = Vec::new();
-        let mut update_entries = Vec::new();
-
-        // Track package counts
-        let mut package_count = 0;
-        let mut package_version_count = 0;
-
-        // Process each package
-        for package in packages {
-            let fmri = &package.fmri;
-            let stem = fmri.stem();
-
-            // Skip if no version
-            if fmri.version().is_empty() {
-                continue;
-            }
-
-            // Get the package manifest
-            let pkg_dir = repo_path.join("pkg").join(publisher).join(stem);
-            if !pkg_dir.exists() {
-                continue;
-            }
-
-            // Get the package version
-            let version = fmri.version();
-            let encoded_version = Self::url_encode(&version);
-            let manifest_path = pkg_dir.join(encoded_version);
-
-            if !manifest_path.exists() {
-                continue;
-            }
-
-            // Read the manifest
-            let manifest_content = fs::read_to_string(&manifest_path)?;
-            let manifest = Manifest::parse_string(manifest_content.clone())?;
-
-            // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(manifest_content.as_bytes());
-            let signature = format!("{:x}", hasher.finalize());
-
-            // Add to base entries
-            base_entries.push((fmri.clone(), None, signature.clone()));
-
-            // Extract dependency actions
-            let mut dependency_actions = Vec::new();
-            for dep in &manifest.dependencies {
-                if let Some(dep_fmri) = &dep.fmri {
-                    dependency_actions.push(format!(
-                        "depend fmri={} type={}",
-                        dep_fmri, dep.dependency_type
-                    ));
-                }
-            }
-
-            // Extract variant and facet actions
-            for attr in &manifest.attributes {
-                if attr.key.starts_with("variant.") || attr.key.starts_with("facet.") {
-                    let values_str = attr.values.join(" value=");
-                    dependency_actions.push(format!("set name={} value={}", attr.key, values_str));
-                }
-            }
-
-            // Add to dependency entries if there are dependency actions
-            if !dependency_actions.is_empty() {
-                dependency_entries.push((
-                    fmri.clone(),
-                    Some(dependency_actions.clone()),
-                    signature.clone(),
-                ));
-            }
-
-            // Extract summary actions (set actions excluding variants and facets)
-            let mut summary_actions = Vec::new();
-            for attr in &manifest.attributes {
-                if !attr.key.starts_with("variant.") && !attr.key.starts_with("facet.") {
-                    let values_str = attr.values.join(" value=");
-                    summary_actions.push(format!("set name={} value={}", attr.key, values_str));
-                }
-            }
-
-            // Add to summary entries if there are summary actions
-            if !summary_actions.is_empty() {
-                summary_entries.push((
-                    fmri.clone(),
-                    Some(summary_actions.clone()),
-                    signature.clone(),
-                ));
-            }
-
-            // Prepare update entry if needed
-            if create_update_log {
-                let mut catalog_parts = HashMap::new();
-
-                // Add dependency actions to update entry
-                if !dependency_actions.is_empty() {
-                    let mut actions = HashMap::new();
-                    actions.insert("actions".to_string(), dependency_actions);
-                    catalog_parts.insert("catalog.dependency.C".to_string(), actions);
-                }
-
-                // Add summary actions to update entry
-                if !summary_actions.is_empty() {
-                    let mut actions = HashMap::new();
-                    actions.insert("actions".to_string(), summary_actions);
-                    catalog_parts.insert("catalog.summary.C".to_string(), actions);
-                }
-
-                // Add to update entries
-                update_entries.push((fmri.clone(), catalog_parts, signature));
-            }
-
-            // Update counts
-            package_count += 1;
-            package_version_count += 1;
-        }
-
-        // Now get the catalog manager and create the catalog parts
-        let mut catalog_manager = self.get_catalog_manager()?;
-
-        // Create and populate the base part
-        let base_part_name = "catalog.base.C".to_string();
-        let base_part = catalog_manager.create_part(&base_part_name);
-        for (fmri, actions, signature) in base_entries {
-            base_part.add_package(publisher, &fmri, actions, Some(signature));
-        }
-        catalog_manager.save_part(&base_part_name)?;
-
-        // Create and populate dependency part
-        let dependency_part_name = "catalog.dependency.C".to_string();
-        let dependency_part = catalog_manager.create_part(&dependency_part_name);
-        for (fmri, actions, signature) in dependency_entries {
-            dependency_part.add_package(publisher, &fmri, actions, Some(signature));
-        }
-        catalog_manager.save_part(&dependency_part_name)?;
-
-        // Create and populate summary part
-        let summary_part_name = "catalog.summary.C".to_string();
-        let summary_part = catalog_manager.create_part(&summary_part_name);
-        for (fmri, actions, signature) in summary_entries {
-            summary_part.add_package(publisher, &fmri, actions, Some(signature));
-        }
-        catalog_manager.save_part(&summary_part_name)?;
-
-        // Create and populate the update log if needed
-        if create_update_log {
-            let now = SystemTime::now();
-            let timestamp = format_iso8601_timestamp(&now);
-            let update_log_name = format!("update.{}Z.C", timestamp.split('.').next().unwrap());
-
-            let update_log = catalog_manager.create_update_log(&update_log_name);
-            for (fmri, catalog_parts, signature) in update_entries {
-                update_log.add_update(
-                    publisher,
-                    &fmri,
-                    crate::repository::catalog::CatalogOperationType::Add,
-                    catalog_parts,
-                    Some(signature),
-                );
-            }
-            catalog_manager.save_update_log(&update_log_name)?;
-        }
-
-        // Update catalog attributes
-        let now = SystemTime::now();
-        let timestamp = format_iso8601_timestamp(&now);
-
-        let attrs = catalog_manager.attrs_mut();
-        attrs.last_modified = timestamp.clone();
-        attrs.package_count = package_count;
-        attrs.package_version_count = package_version_count;
-
-        // Add part information
-        attrs.parts.insert(
-            base_part_name.clone(),
-            crate::repository::catalog::CatalogPartInfo {
-                last_modified: timestamp.clone(),
-                signature_sha1: None,
-            },
-        );
-
-        attrs.parts.insert(
-            dependency_part_name.clone(),
-            crate::repository::catalog::CatalogPartInfo {
-                last_modified: timestamp.clone(),
-                signature_sha1: None,
-            },
-        );
-
-        attrs.parts.insert(
-            summary_part_name.clone(),
-            crate::repository::catalog::CatalogPartInfo {
-                last_modified: timestamp.clone(),
-                signature_sha1: None,
-            },
-        );
-
-        // Save catalog attributes
-        catalog_manager.save_attrs()?;
-
-        Ok(())
     }
 
     /// Build a search index for a publisher

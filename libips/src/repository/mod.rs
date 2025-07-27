@@ -330,10 +330,10 @@ pub trait WritableRepository {
     ) -> Result<()>;
 
     /// Rebuild repository metadata
-    fn rebuild(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;
+    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;
 
     /// Refresh repository metadata
-    fn refresh(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;
+    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()>;
 
     /// Set the default publisher for the repository
     fn set_default_publisher(&mut self, publisher: &str) -> Result<()>;

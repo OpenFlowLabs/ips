@@ -88,10 +88,50 @@ impl WritableRepository for RestBackend {
         Ok(())
     }
 
-    /// Rebuild repository metadata
-    fn rebuild(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    /// Set a repository property
+    fn set_property(&mut self, property: &str, value: &str) -> Result<()> {
         // This is a stub implementation
-        // In a real implementation, we would make a REST API call to rebuild metadata
+        // In a real implementation, we would make a REST API call to set the property
+
+        self.config
+            .properties
+            .insert(property.to_string(), value.to_string());
+        self.save_config()?;
+
+        Ok(())
+    }
+
+    /// Set a publisher property
+    fn set_publisher_property(
+        &mut self,
+        publisher: &str,
+        property: &str,
+        value: &str,
+    ) -> Result<()> {
+        // This is a stub implementation
+        // In a real implementation, we would make a REST API call to set the publisher property
+
+        // Check if the publisher exists
+        if !self.config.publishers.contains(&publisher.to_string()) {
+            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
+        }
+
+        // Create the property key in the format "publisher/property"
+        let key = format!("{}/{}", publisher, property);
+
+        // Set the property
+        self.config.properties.insert(key, value.to_string());
+
+        // Save the updated configuration
+        self.save_config()?;
+
+        Ok(())
+    }
+
+    /// Rebuild repository metadata
+    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+        // This is a stub implementation
+        // In a real implementation; we would make a REST API call to rebuild metadata
 
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
@@ -122,7 +162,7 @@ impl WritableRepository for RestBackend {
     }
 
     /// Refresh repository metadata
-    fn refresh(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to refresh metadata
 
@@ -166,46 +206,6 @@ impl WritableRepository for RestBackend {
 
         // Set the default publisher
         self.config.default_publisher = Some(publisher.to_string());
-
-        // Save the updated configuration
-        self.save_config()?;
-
-        Ok(())
-    }
-
-    /// Set a repository property
-    fn set_property(&mut self, property: &str, value: &str) -> Result<()> {
-        // This is a stub implementation
-        // In a real implementation, we would make a REST API call to set the property
-
-        self.config
-            .properties
-            .insert(property.to_string(), value.to_string());
-        self.save_config()?;
-
-        Ok(())
-    }
-
-    /// Set a publisher property
-    fn set_publisher_property(
-        &mut self,
-        publisher: &str,
-        property: &str,
-        value: &str,
-    ) -> Result<()> {
-        // This is a stub implementation
-        // In a real implementation, we would make a REST API call to set the publisher property
-
-        // Check if the publisher exists
-        if !self.config.publishers.contains(&publisher.to_string()) {
-            return Err(RepositoryError::PublisherNotFound(publisher.to_string()));
-        }
-
-        // Create the property key in the format "publisher/property"
-        let key = format!("{}/{}", publisher, property);
-
-        // Set the property
-        self.config.properties.insert(key, value.to_string());
 
         // Save the updated configuration
         self.save_config()?;
