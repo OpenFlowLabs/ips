@@ -482,6 +482,12 @@ impl Transaction {
         let pkg_manifest_path = publisher_dir.join(format!("{}.manifest", package_name));
         debug!("Manifest path: {}", pkg_manifest_path.display());
 
+        // Create parent directories if they don't exist
+        if let Some(parent) = pkg_manifest_path.parent() {
+            debug!("Creating parent directories: {}", parent.display());
+            fs::create_dir_all(parent)?;
+        }
+
         // Copy to pkg directory
         debug!("Copying manifest from {} to {}", manifest_path.display(), pkg_manifest_path.display());
         fs::copy(&manifest_path, &pkg_manifest_path)?;
