@@ -8,8 +8,8 @@ use serde::Serialize;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use tracing_subscriber::fmt;
-
+use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::filter::LevelFilter;
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 
 #[cfg(test)]
@@ -322,8 +322,15 @@ enum Commands {
 
 fn main() -> Result<()> {
     // Initialize the tracing subscriber with the default log level as debug and no decorations
+    // Parse the environment filter first, handling any errors with our custom error type
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env()
+        .map_err(|e| Pkg6RepoError::LoggingEnvError(format!("Failed to parse environment filter: {}", e)))?;
+    
     fmt::Subscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter(env_filter)
         .without_time()
         .with_target(false)
         .with_ansi(false)

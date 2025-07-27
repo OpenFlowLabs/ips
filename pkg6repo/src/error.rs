@@ -48,6 +48,13 @@ pub enum Pkg6RepoError {
     )]
     ActionError(#[from] ActionError),
 
+    #[error("logging environment setup error: {0}")]
+    #[diagnostic(
+        code(pkg6repo::logging_env_error),
+        help("Check your logging environment configuration and try again")
+    )]
+    LoggingEnvError(String),
+
     #[error("other error: {0}")]
     #[diagnostic(
         code(pkg6repo::other_error),
