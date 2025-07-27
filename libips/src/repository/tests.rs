@@ -393,4 +393,39 @@ mod tests {
         // Clean up
         cleanup_test_dir(&test_dir);
     }
+    
+    #[test]
+    fn test_file_structure() {
+        // Create a test directory
+        let test_dir = create_test_dir("file_structure");
+        let repo_path = test_dir.join("repo");
+        
+        // Create a repository
+        let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
+        
+        // Add a publisher
+        repo.add_publisher("test").unwrap();
+        
+        // Create a test file
+        let test_file_path = test_dir.join("test_file.txt");
+        fs::write(&test_file_path, "This is a test file").unwrap();
+        
+        // Store the file in the repository
+        let hash = repo.store_file(&test_file_path).unwrap();
+        
+        // Check if the file was stored in the correct directory structure
+        let first_two = &hash[0..2];
+        let next_two = &hash[2..4];
+        let expected_path = repo_path.join("file").join(first_two).join(next_two).join(&hash);
+        
+        // Verify that the file exists at the expected path
+        assert!(expected_path.exists(), "File was not stored at the expected path: {}", expected_path.display());
+        
+        // Verify that the file does NOT exist at the old path
+        let old_path = repo_path.join("file").join(&hash);
+        assert!(!old_path.exists(), "File was stored at the old path: {}", old_path.display());
+        
+        // Clean up
+        cleanup_test_dir(&test_dir);
+    }
 }

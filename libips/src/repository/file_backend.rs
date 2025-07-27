@@ -197,7 +197,8 @@ pub struct FileBackend {
     pub path: PathBuf,
     pub config: RepositoryConfig,
     /// Catalog manager for handling catalog operations
-    catalog_manager: Option<crate::repository::catalog::CatalogManager>,
+    /// Uses RefCell for interior mutability to allow mutation through immutable references
+    catalog_manager: Option<std::cell::RefCell<crate::repository::catalog::CatalogManager>>,
 }
 
 /// Format a SystemTime as an ISO 8601 timestamp string
@@ -415,8 +416,23 @@ impl Transaction {
 
         // Copy files to their final location
         for (source_path, hash) in self.files {
-            // Create the destination path in the files directory
-            let dest_path = self.repo.join("file").join(&hash);
+            // Create the destination path using the new directory structure
+            let dest_path = if hash.len() < 4 {
+                // Fallback for very short hashes (shouldn't happen with SHA256)
+                self.repo.join("file").join(&hash)
+            } else {
+                // Extract the first two and next two characters from the hash
+                let first_two = &hash[0..2];
+                let next_two = &hash[2..4];
+                
+                // Create the path: $REPO/file/XX/YY/XXYY...
+                self.repo.join("file").join(first_two).join(next_two).join(&hash)
+            };
+
+            // Create parent directories if they don't exist
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
 
             // Copy the file if it doesn't already exist
             if !dest_path.exists() {
@@ -1211,7 +1227,7 @@ impl WritableRepository for FileBackend {
     }
 
     /// Rebuild repository metadata
-    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn rebuild(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -1228,7 +1244,7 @@ impl WritableRepository for FileBackend {
 
             if !no_catalog {
                 info!("Rebuilding catalog...");
-                // In a real implementation, we would rebuild the catalog
+                self.generate_catalog_parts(&pub_name, true)?;
             }
 
             if !no_index {
@@ -1241,7 +1257,7 @@ impl WritableRepository for FileBackend {
     }
 
     /// Refresh repository metadata
-    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn refresh(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -1258,22 +1274,12 @@ impl WritableRepository for FileBackend {
 
             if !no_catalog {
                 info!("Refreshing catalog...");
-                // In a real implementation, we would refresh the catalog
+                self.generate_catalog_parts(&pub_name, true)?;
             }
 
             if !no_index {
                 info!("Refreshing search index...");
-
-                // Check if the index exists
-                let index_path = self.path.join("index").join(&pub_name).join("search.json");
-                if !index_path.exists() {
-                    // If the index doesn't exist, build it
-                    self.build_search_index(&pub_name)?;
-                } else {
-                    // If the index exists, update it
-                    // For simplicity, we'll just rebuild it
-                    self.build_search_index(&pub_name)?;
-                }
+                self.build_search_index(&pub_name)?;
             }
         }
 
@@ -1309,23 +1315,42 @@ impl FileBackend {
 
         Ok(())
     }
+    
+    /// Generate the file path for a given hash using the new directory structure
+    /// The path will be $REPO/file/XX/YY/XXYY... where XX and YY are the first four letters of the hash
+    fn generate_file_path(&self, hash: &str) -> PathBuf {
+        if hash.len() < 4 {
+            // Fallback for very short hashes (shouldn't happen with SHA256)
+            return self.path.join("file").join(hash);
+        }
+        
+        // Extract the first two and next two characters from the hash
+        let first_two = &hash[0..2];
+        let next_two = &hash[2..4];
+        
+        // Create the path: $REPO/file/XX/YY/XXYY...
+        self.path.join("file").join(first_two).join(next_two).join(hash)
+    }
 
     /// Get or initialize the catalog manager
+    /// 
+    /// This method returns a mutable reference to the catalog manager.
+    /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
     pub fn get_catalog_manager(
         &mut self,
-    ) -> Result<&mut crate::repository::catalog::CatalogManager> {
+    ) -> Result<std::cell::RefMut<crate::repository::catalog::CatalogManager>> {
         if self.catalog_manager.is_none() {
             let catalog_dir = self.path.join("catalog");
-            self.catalog_manager = Some(crate::repository::catalog::CatalogManager::new(
-                &catalog_dir,
-            )?);
+            let manager = crate::repository::catalog::CatalogManager::new(&catalog_dir)?;
+            let refcell = std::cell::RefCell::new(manager);
+            self.catalog_manager = Some(refcell);
         }
 
-        Ok(self.catalog_manager.as_mut().unwrap())
+        // This is safe because we just checked that catalog_manager is Some
+        Ok(self.catalog_manager.as_ref().unwrap().borrow_mut())
     }
 
     /// URL encode a string for use in a filename
-    #[allow(dead_code)]
     fn url_encode(s: &str) -> String {
         let mut result = String::new();
         for c in s.chars() {
@@ -1342,7 +1367,6 @@ impl FileBackend {
     }
 
     /// Generate catalog parts for a publisher
-    #[allow(dead_code)]
     fn generate_catalog_parts(&mut self, publisher: &str, create_update_log: bool) -> Result<()> {
         info!("Generating catalog parts for publisher: {}", publisher);
 
@@ -1471,7 +1495,7 @@ impl FileBackend {
         }
 
         // Now get the catalog manager and create the catalog parts
-        let catalog_manager = self.get_catalog_manager()?;
+        let mut catalog_manager = self.get_catalog_manager()?;
 
         // Create and populate the base part
         let base_part_name = "catalog.base.C".to_string();
@@ -1796,7 +1820,7 @@ impl FileBackend {
 
         // Verify the file was stored
         let hash = Transaction::calculate_file_hash(&test_file_path)?;
-        let stored_file_path = self.path.join("file").join(&hash);
+        let stored_file_path = self.generate_file_path(&hash);
 
         if !stored_file_path.exists() {
             return Err(RepositoryError::Other("File was not stored correctly".to_string()));
@@ -1827,7 +1851,7 @@ impl FileBackend {
     }
 
     /// Publish files from a prototype directory
-    pub fn publish_files<P: AsRef<Path>>(&self, proto_dir: P, publisher: &str) -> Result<()> {
+    pub fn publish_files<P: AsRef<Path>>(&mut self, proto_dir: P, publisher: &str) -> Result<()> {
         let proto_dir = proto_dir.as_ref();
 
         // Check if the prototype directory exists
@@ -1901,8 +1925,13 @@ impl FileBackend {
         // Calculate the SHA256 hash of the file
         let hash = Transaction::calculate_file_hash(file_path)?;
 
-        // Create the destination path in the files directory
-        let dest_path = self.path.join("file").join(&hash);
+        // Create the destination path using the new directory structure
+        let dest_path = self.generate_file_path(&hash);
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = dest_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
 
         // Copy the file if it doesn't already exist
         if !dest_path.exists() {

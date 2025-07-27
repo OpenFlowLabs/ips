@@ -89,7 +89,7 @@ impl WritableRepository for RestBackend {
     }
 
     /// Rebuild repository metadata
-    fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn rebuild(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to rebuild metadata
 
@@ -122,7 +122,7 @@ impl WritableRepository for RestBackend {
     }
 
     /// Refresh repository metadata
-    fn refresh(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
+    fn refresh(&mut self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to refresh metadata
 

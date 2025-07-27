@@ -426,7 +426,7 @@ fn publish_package(
 
     // Open the repository
     info!("Opening repository at: {}", repo_path.display());
-    let repo = match FileBackend::open(repo_path) {
+    let mut repo = match FileBackend::open(repo_path) {
         Ok(repo) => repo,
         Err(_) => {
             info!("Repository does not exist, creating a new one...");
