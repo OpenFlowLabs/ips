@@ -42,22 +42,18 @@ mod tests {
 
     // Helper function to run the setup script
     fn run_setup_script() -> (PathBuf, PathBuf) {
-        // Get the project root directory
-        let output = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
+        // Run the xtask setup-test-env command
+        let output = Command::new("cargo")
+            .args(["run", "-p", "xtask", "--", "setup-test-env"])
             .output()
-            .expect("Failed to execute git command");
+            .expect("Failed to run xtask setup-test-env");
 
-        let project_root = String::from_utf8(output.stdout)
-            .expect("Invalid UTF-8 output")
-            .trim()
-            .to_string();
-
-        // Run the setup script
-        Command::new("bash")
-            .arg(format!("{}/setup_test_env.sh", project_root))
-            .status()
-            .expect("Failed to run setup script");
+        if !output.status.success() {
+            panic!(
+                "Failed to set up test environment: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
         // Return the paths to the prototype and manifest directories
         (
