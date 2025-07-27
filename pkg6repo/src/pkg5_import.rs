@@ -397,8 +397,20 @@ impl Pkg5Importer {
                 let hash = payload.primary_identifier.hash.clone();
 
                 // Determine the file path in the source repository
-                let hash_prefix = &hash[0..2];
-                let file_path = file_dir.join(hash_prefix).join(&hash);
+                // Try the new two-level hierarchy first (first two characters, then next two characters)
+                let first_two = &hash[0..2];
+                let next_two = &hash[2..4];
+                let file_path_new = file_dir.join(first_two).join(next_two).join(&hash);
+                
+                // Fall back to the old one-level hierarchy if the file doesn't exist in the new structure
+                let file_path_old = file_dir.join(first_two).join(&hash);
+                
+                // Use the path that exists
+                let file_path = if file_path_new.exists() {
+                    file_path_new
+                } else {
+                    file_path_old
+                };
 
                 if !file_path.exists() {
                     warn!(
