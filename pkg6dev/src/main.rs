@@ -10,7 +10,8 @@ use std::fs::{read_dir, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
-use tracing_subscriber::fmt;
+use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::filter::LevelFilter;
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
 
@@ -57,9 +58,16 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    // Initialize the tracing subscriber with default log level as warning and no decorations
+    // Initialize the tracing subscriber with the default log level as debug and no decorations
+    // Parse the environment filter first, handling any errors with our custom error type
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into())
+        .from_env()
+        .map_err(|e| Pkg6DevError::LoggingEnvError(format!("Failed to parse environment filter: {}", e)))?;
+    
     fmt::Subscriber::builder()
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter(env_filter)
         .without_time()
         .with_target(false)
         .with_ansi(false)

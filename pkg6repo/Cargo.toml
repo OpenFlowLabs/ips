@@ -1,13 +1,13 @@
 [package]
 name = "pkg6repo"
-version = "0.0.1-placeholder"
-authors = ["Till Wegmueller <till.wegmueller@openflowlabs.com>"]
-edition = "2018"
-license-file = "LICENSE"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license-file.workspace = true
 description = "The repository management utility for IPS written in rust"
-repository = "https://github.com/OpenFlowLabs/pkg6dev"
-readme = "README.md"
-keywords = ["packaging", "illumos"]
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

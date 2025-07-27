@@ -11,5 +11,13 @@ members = [
   "crates/*",
   "xtask",
 ]
-
 resolver = "2"
+
+[workspace.package]
+version = "0.5.1"
+edition = "2024"
+license-file = "LICENSE"
+repository = "https://github.com/OpenFlowLabs/ips"
+readme = "README.md"
+keywords = ["packaging", "illumos"]
+authors = ["Till Wegmueller <toasterson@gmail.com>"]

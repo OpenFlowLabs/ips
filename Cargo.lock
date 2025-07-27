@@ -1403,7 +1403,7 @@ version = "0.0.1-placeholder"
 
 [[package]]
 name = "pkg6dev"
-version = "0.1.1"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap 4.5.41",
@@ -1417,7 +1417,7 @@ dependencies = [
 
 [[package]]
 name = "pkg6repo"
-version = "0.0.1-placeholder"
+version = "0.5.1"
 dependencies = [
  "clap 4.5.41",
  "flate2",

@@ -126,6 +126,14 @@ pub enum Pkg6DevError {
         path: PathBuf,
     },
 
+    // Logging environment error
+    #[error("logging environment setup error: {0}")]
+    #[diagnostic(
+        code(ips::pkg6dev::logging_env_error),
+        help("Check your logging environment configuration and try again")
+    )]
+    LoggingEnvError(String),
+
     // Generic custom error (for backward compatibility)
     #[error("{0}")]
     #[diagnostic(
