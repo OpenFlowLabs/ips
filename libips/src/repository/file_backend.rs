@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info};
+use walkdir::WalkDir;
 
 use crate::actions::{File as FileAction, Manifest};
 use crate::digest::Digest;
@@ -1988,318 +1989,120 @@ impl FileBackend {
 
         // Check if the publisher directory exists
         if publisher_pkg_dir.exists() {
-            // Walk through the directory and process package manifests
-            if let Ok(entries) = fs::read_dir(&publisher_pkg_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-
-                    if path.is_dir() {
-                        // Recursively search subdirectories
-                        if let Ok(subentries) = fs::read_dir(&path) {
-                            for subentry in subentries.flatten() {
-                                let subpath = subentry.path();
-                                if subpath.is_file() {
-                                    // Try to read the first few bytes of the file to check if it's a manifest file
-                                    let mut file = match fs::File::open(&subpath) {
-                                        Ok(file) => file,
-                                        Err(err) => {
-                                            error!(
-                                                "FileBackend::build_search_index: Error opening file {}: {}",
-                                                subpath.display(),
-                                                err
-                                            );
-                                            continue;
-                                        }
-                                    };
-
-                                    let mut buffer = [0; 1024];
-                                    let bytes_read = match file.read(&mut buffer) {
-                                        Ok(bytes) => bytes,
-                                        Err(err) => {
-                                            error!(
-                                                "FileBackend::build_search_index: Error reading file {}: {}",
-                                                subpath.display(),
-                                                err
-                                            );
-                                            continue;
-                                        }
-                                    };
-
-                                    // Check if the file starts with a valid manifest marker
-                                    if bytes_read == 0
-                                        || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's')
-                                    {
-                                        continue;
-                                    }
-
-                                    // Parse the manifest file to get package information
-                                    match Manifest::parse_file(&subpath) {
-                                        Ok(manifest) => {
-                                            // Look for the pkg.fmri attribute
-                                            for attr in &manifest.attributes {
-                                                if attr.key == "pkg.fmri" && !attr.values.is_empty() {
-                                                    let fmri_str = &attr.values[0];
-
-                                                    // Parse the FMRI using our Fmri type
-                                                    match Fmri::parse(fmri_str) {
-                                                        Ok(parsed_fmri) => {
-                                                            // Create a PackageInfo struct
-                                                            let package_info = PackageInfo {
-                                                                fmri: parsed_fmri.clone(),
-                                                            };
-
-                                                            // Create a PackageContents struct
-                                                            let version = parsed_fmri.version();
-                                                            let package_id = if !version.is_empty() {
-                                                                format!("{}@{}", parsed_fmri.stem(), version)
-                                                            } else {
-                                                                parsed_fmri.stem().to_string()
-                                                            };
-
-                                                            // Extract content information
-                                                            let files = if !manifest.files.is_empty() {
-                                                                Some(
-                                                                    manifest
-                                                                        .files
-                                                                        .iter()
-                                                                        .map(|f| f.path.clone())
-                                                                        .collect(),
-                                                                )
-                                                            } else {
-                                                                None
-                                                            };
-
-                                                            let directories =
-                                                                if !manifest.directories.is_empty() {
-                                                                    Some(
-                                                                        manifest
-                                                                            .directories
-                                                                            .iter()
-                                                                            .map(|d| d.path.clone())
-                                                                            .collect(),
-                                                                    )
-                                                                } else {
-                                                                    None
-                                                                };
-
-                                                            let links = if !manifest.links.is_empty() {
-                                                                Some(
-                                                                    manifest
-                                                                        .links
-                                                                        .iter()
-                                                                        .map(|l| l.path.clone())
-                                                                        .collect(),
-                                                                )
-                                                            } else {
-                                                                None
-                                                            };
-
-                                                            let dependencies =
-                                                                if !manifest.dependencies.is_empty() {
-                                                                    Some(
-                                                                        manifest
-                                                                            .dependencies
-                                                                            .iter()
-                                                                            .filter_map(|d| {
-                                                                                d.fmri
-                                                                                    .as_ref()
-                                                                                    .map(|f| f.to_string())
-                                                                            })
-                                                                            .collect(),
-                                                                    )
-                                                                } else {
-                                                                    None
-                                                                };
-
-                                                            let licenses = if !manifest.licenses.is_empty() {
-                                                                Some(
-                                                                    manifest
-                                                                        .licenses
-                                                                        .iter()
-                                                                        .map(|l| {
-                                                                            if let Some(path_prop) =
-                                                                                l.properties.get("path")
-                                                                            {
-                                                                                path_prop.value.clone()
-                                                                            } else if let Some(license_prop) =
-                                                                                l.properties.get("license")
-                                                                            {
-                                                                                license_prop.value.clone()
-                                                                            } else {
-                                                                                l.payload.clone()
-                                                                            }
-                                                                        })
-                                                                        .collect(),
-                                                                )
-                                                            } else {
-                                                                None
-                                                            };
-
-                                                            // Create a PackageContents struct
-                                                            let package_contents = PackageContents {
-                                                                package_id,
-                                                                files,
-                                                                directories,
-                                                                links,
-                                                                dependencies,
-                                                                licenses,
-                                                            };
-
-                                                            // Add the package to the index
-                                                            index.add_package(&package_info, Some(&package_contents));
-                                                        }
-                                                        Err(err) => {
-                                                            // Log the error but continue processing
-                                                            error!(
-                                                                "FileBackend::build_search_index: Error parsing FMRI '{}': {}",
-                                                                fmri_str, err
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            // Log the error but continue processing other files
-                                            error!(
-                                                "FileBackend::build_search_index: Error parsing manifest file {}: {}",
-                                                subpath.display(),
-                                                err
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if path.is_file() {
-                        // Try to read the first few bytes of the file to check if it's a manifest file
-                        let mut file = match fs::File::open(&path) {
-                            Ok(file) => file,
-                            Err(err) => {
-                                error!(
-                                    "FileBackend::build_search_index: Error opening file {}: {}",
-                                    path.display(),
-                                    err
-                                );
-                                continue;
-                            }
-                        };
-
-                        let mut buffer = [0; 1024];
-                        let bytes_read = match file.read(&mut buffer) {
-                            Ok(bytes) => bytes,
-                            Err(err) => {
-                                error!(
-                                    "FileBackend::build_search_index: Error reading file {}: {}",
-                                    path.display(),
-                                    err
-                                );
-                                continue;
-                            }
-                        };
-
-                        // Check if the file starts with a valid manifest marker
-                        if bytes_read == 0
-                            || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's')
-                        {
+            // Use walkdir to recursively walk through the directory and process package manifests
+            for entry in WalkDir::new(&publisher_pkg_dir)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let path = entry.path();
+                
+                if path.is_file() {
+                    // Try to read the first few bytes of the file to check if it's a manifest file
+                    let mut file = match fs::File::open(&path) {
+                        Ok(file) => file,
+                        Err(err) => {
+                            error!(
+                                "FileBackend::build_search_index: Error opening file {}: {}",
+                                path.display(),
+                                err
+                            );
                             continue;
                         }
-                        // Parse the manifest file to get package information
-                        match Manifest::parse_file(&path) {
-                            Ok(manifest) => {
-                                // Look for the pkg.fmri attribute
-                                for attr in &manifest.attributes {
-                                    if attr.key == "pkg.fmri" && !attr.values.is_empty() {
-                                        let fmri_str = &attr.values[0];
+                    };
 
-                                        // Parse the FMRI using our Fmri type
-                                        match Fmri::parse(fmri_str) {
-                                            Ok(parsed_fmri) => {
-                                                // Create a PackageInfo struct
-                                                let package_info = PackageInfo {
-                                                    fmri: parsed_fmri.clone(),
-                                                };
+                    let mut buffer = [0; 1024];
+                    let bytes_read = match file.read(&mut buffer) {
+                        Ok(bytes) => bytes,
+                        Err(err) => {
+                            error!(
+                                "FileBackend::build_search_index: Error reading file {}: {}",
+                                path.display(),
+                                err
+                            );
+                            continue;
+                        }
+                    };
 
-                                                // Create a PackageContents struct
-                                                let version = parsed_fmri.version();
-                                                let package_id = if !version.is_empty() {
-                                                    format!("{}@{}", parsed_fmri.stem(), version)
-                                                } else {
-                                                    parsed_fmri.stem().to_string()
-                                                };
+                    // Check if the file starts with a valid manifest marker
+                    if bytes_read == 0
+                        || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's')
+                    {
+                        continue;
+                    }
 
-                                                // Extract content information
-                                                let files = if !manifest.files.is_empty() {
+                    // Parse the manifest file to get package information
+                    match Manifest::parse_file(&path) {
+                        Ok(manifest) => {
+                            // Look for the pkg.fmri attribute
+                            for attr in &manifest.attributes {
+                                if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                                    let fmri_str = &attr.values[0];
+
+                                    // Parse the FMRI using our Fmri type
+                                    match Fmri::parse(fmri_str) {
+                                        Ok(parsed_fmri) => {
+                                            // Create a PackageInfo struct
+                                            let package_info = PackageInfo {
+                                                fmri: parsed_fmri.clone(),
+                                            };
+
+                                            // Create a PackageContents struct
+                                            let version = parsed_fmri.version();
+                                            let package_id = if !version.is_empty() {
+                                                format!("{}@{}", parsed_fmri.stem(), version)
+                                            } else {
+                                                parsed_fmri.stem().to_string()
+                                            };
+
+                                            // Extract content information
+                                            let files = if !manifest.files.is_empty() {
+                                                Some(
+                                                    manifest
+                                                        .files
+                                                        .iter()
+                                                        .map(|f| f.path.clone())
+                                                        .collect(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+
+                                            let directories =
+                                                if !manifest.directories.is_empty() {
                                                     Some(
                                                         manifest
-                                                            .files
+                                                            .directories
                                                             .iter()
-                                                            .map(|f| f.path.clone())
+                                                            .map(|d| d.path.clone())
                                                             .collect(),
                                                     )
                                                 } else {
                                                     None
                                                 };
 
-                                                let directories =
-                                                    if !manifest.directories.is_empty() {
-                                                        Some(
-                                                            manifest
-                                                                .directories
-                                                                .iter()
-                                                                .map(|d| d.path.clone())
-                                                                .collect(),
-                                                        )
-                                                    } else {
-                                                        None
-                                                    };
+                                            let links = if !manifest.links.is_empty() {
+                                                Some(
+                                                    manifest
+                                                        .links
+                                                        .iter()
+                                                        .map(|l| l.path.clone())
+                                                        .collect(),
+                                                )
+                                            } else {
+                                                None
+                                            };
 
-                                                let links = if !manifest.links.is_empty() {
+                                            let dependencies =
+                                                if !manifest.dependencies.is_empty() {
                                                     Some(
                                                         manifest
-                                                            .links
+                                                            .dependencies
                                                             .iter()
-                                                            .map(|l| l.path.clone())
-                                                            .collect(),
-                                                    )
-                                                } else {
-                                                    None
-                                                };
-
-                                                let dependencies =
-                                                    if !manifest.dependencies.is_empty() {
-                                                        Some(
-                                                            manifest
-                                                                .dependencies
-                                                                .iter()
-                                                                .filter_map(|d| {
-                                                                    d.fmri
-                                                                        .as_ref()
-                                                                        .map(|f| f.to_string())
-                                                                })
-                                                                .collect(),
-                                                        )
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                let licenses = if !manifest.licenses.is_empty() {
-                                                    Some(
-                                                        manifest
-                                                            .licenses
-                                                            .iter()
-                                                            .map(|l| {
-                                                                if let Some(path_prop) =
-                                                                    l.properties.get("path")
-                                                                {
-                                                                    path_prop.value.clone()
-                                                                } else if let Some(license_prop) =
-                                                                    l.properties.get("license")
-                                                                {
-                                                                    license_prop.value.clone()
-                                                                } else {
-                                                                    l.payload.clone()
-                                                                }
+                                                            .filter_map(|d| {
+                                                                d.fmri
+                                                                    .as_ref()
+                                                                    .map(|f| f.to_string())
                                                             })
                                                             .collect(),
                                                     )
@@ -2307,43 +2110,64 @@ impl FileBackend {
                                                     None
                                                 };
 
-                                                let package_contents = PackageContents {
-                                                    package_id,
-                                                    files,
-                                                    directories,
-                                                    links,
-                                                    dependencies,
-                                                    licenses,
-                                                };
+                                            let licenses = if !manifest.licenses.is_empty() {
+                                                Some(
+                                                    manifest
+                                                        .licenses
+                                                        .iter()
+                                                        .map(|l| {
+                                                            if let Some(path_prop) =
+                                                                l.properties.get("path")
+                                                            {
+                                                                path_prop.value.clone()
+                                                            } else if let Some(license_prop) =
+                                                                l.properties.get("license")
+                                                            {
+                                                                license_prop.value.clone()
+                                                            } else {
+                                                                l.payload.clone()
+                                                            }
+                                                        })
+                                                        .collect(),
+                                                )
+                                            } else {
+                                                None
+                                            };
 
-                                                // Add the package to the index
-                                                index.add_package(
-                                                    &package_info,
-                                                    Some(&package_contents),
-                                                );
+                                            // Create a PackageContents struct
+                                            let package_contents = PackageContents {
+                                                package_id,
+                                                files,
+                                                directories,
+                                                links,
+                                                dependencies,
+                                                licenses,
+                                            };
 
-                                                // Found the package info, no need to check other attributes
-                                                break;
-                                            }
-                                            Err(err) => {
-                                                // Log the error but continue processing
-                                                error!(
+                                            // Add the package to the index
+                                            index.add_package(&package_info, Some(&package_contents));
+                                            
+                                            // Found the package info, no need to check other attributes
+                                            break;
+                                        }
+                                        Err(err) => {
+                                            // Log the error but continue processing
+                                            error!(
                                                 "FileBackend::build_search_index: Error parsing FMRI '{}': {}",
-                                                    fmri_str, err
-                                                );
-                                            }
+                                                fmri_str, err
+                                            );
                                         }
                                     }
                                 }
                             }
-                            Err(err) => {
-                                // Log the error but continue processing other files
-                                error!(
+                        }
+                        Err(err) => {
+                            // Log the error but continue processing other files
+                            error!(
                                 "FileBackend::build_search_index: Error parsing manifest file {}: {}",
-                                    path.display(),
-                                    err
-                                );
-                            }
+                                path.display(),
+                                err
+                            );
                         }
                     }
                 }
