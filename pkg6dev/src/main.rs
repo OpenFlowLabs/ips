@@ -6,12 +6,12 @@ use libips::repository::{FileBackend, ReadableRepository, WritableRepository};
 
 use error::{Pkg6DevError, Result};
 use std::collections::HashMap;
-use std::fs::{read_dir, OpenOptions};
+use std::fs::{OpenOptions, read_dir};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
-use tracing_subscriber::{fmt, EnvFilter};
 use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::{EnvFilter, fmt};
 use userland::repology::find_newest_version;
 use userland::{Component, Makefile};
 
@@ -63,8 +63,10 @@ fn main() -> Result<()> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
         .from_env()
-        .map_err(|e| Pkg6DevError::LoggingEnvError(format!("Failed to parse environment filter: {}", e)))?;
-    
+        .map_err(|e| {
+            Pkg6DevError::LoggingEnvError(format!("Failed to parse environment filter: {}", e))
+        })?;
+
     fmt::Subscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
         .with_env_filter(env_filter)
@@ -73,7 +75,7 @@ fn main() -> Result<()> {
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .init();
-    
+
     let cli = App::parse();
 
     match &cli.command {
@@ -200,7 +202,8 @@ fn diff_component(
             .write(true)
             .truncate(true)
             .create(true)
-            .open(output_manifest).map_err(|e| Pkg6DevError::IoError(e))?;
+            .open(output_manifest)
+            .map_err(|e| Pkg6DevError::IoError(e))?;
         for action in missing_files {
             writeln!(&mut f, "file path={}", action.path).map_err(|e| Pkg6DevError::IoError(e))?;
         }
@@ -228,12 +231,14 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
 
     // Parse Makefile
     // We'll wrap the anyhow errors with our more specific error types
-    let initial_makefile = Makefile::parse_single_file(&makefile_path)
-        .map_err(|e| Pkg6DevError::MakefileParseError {
+    let initial_makefile = Makefile::parse_single_file(&makefile_path).map_err(|e| {
+        Pkg6DevError::MakefileParseError {
             message: format!("Failed to parse Makefile: {}", e),
-        })?;
-    
-    let makefile = initial_makefile.parse_all()
+        }
+    })?;
+
+    let makefile = initial_makefile
+        .parse_all()
         .map_err(|e| Pkg6DevError::MakefileParseError {
             message: format!("Failed to parse all Makefiles: {}", e),
         })?;
@@ -241,8 +246,8 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
     let mut name = String::new();
 
     // Get component information
-    let component = Component::new_from_makefile(&makefile)
-        .map_err(|e| Pkg6DevError::ComponentInfoError {
+    let component =
+        Component::new_from_makefile(&makefile).map_err(|e| Pkg6DevError::ComponentInfoError {
             message: format!("Failed to get component information: {}", e),
         })?;
 
@@ -259,9 +264,12 @@ fn show_component_info<P: AsRef<Path>>(component_path: P) -> Result<()> {
         info!("Version: {}", var.replace('\n', "\n\t"));
         let latest_version = find_newest_version(&name);
         if latest_version.is_ok() {
-            info!("Latest Version: {}", latest_version.map_err(|e| Pkg6DevError::ComponentInfoError {
-                message: format!("Failed to get latest version: {}", e),
-            })?);
+            info!(
+                "Latest Version: {}",
+                latest_version.map_err(|e| Pkg6DevError::ComponentInfoError {
+                    message: format!("Failed to get latest version: {}", e),
+                })?
+            );
         } else {
             warn!(
                 "Could not get latest version info: {}",
@@ -448,14 +456,14 @@ fn publish_package(
         // Use the default publisher
         match &repo.config.default_publisher {
             Some(default_pub) => default_pub.clone(),
-            None => return Err(Pkg6DevError::NoDefaultPublisherError)
+            None => return Err(Pkg6DevError::NoDefaultPublisherError),
         }
     };
 
     // Begin a transaction
     info!("Beginning transaction for publisher: {}", publisher_name);
     let mut transaction = repo.begin_transaction()?;
-    
+
     // Set the publisher for the transaction
     transaction.set_publisher(&publisher_name);
 
@@ -470,7 +478,9 @@ fn publish_package(
 
         // Check if the file exists
         if !file_path.exists() {
-            return Err(Pkg6DevError::FileNotFoundInPrototypeError{path: file_path.clone()})
+            return Err(Pkg6DevError::FileNotFoundInPrototypeError {
+                path: file_path.clone(),
+            });
         }
 
         // Add the file to the transaction
@@ -485,7 +495,7 @@ fn publish_package(
     // Commit the transaction
     info!("Committing transaction...");
     transaction.commit()?;
-    
+
     // Regenerate catalog and search index
     info!("Regenerating catalog and search index...");
     repo.rebuild(Some(&publisher_name), false, false)?;

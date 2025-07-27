@@ -3,10 +3,10 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
+use miette::Diagnostic;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, StripPrefixError};
-use miette::Diagnostic;
 use thiserror::Error;
 
 /// Result type for repository operations
@@ -149,13 +149,11 @@ impl From<DigestError> for RepositoryError {
     }
 }
 
-
 impl From<StripPrefixError> for RepositoryError {
     fn from(err: StripPrefixError) -> Self {
         RepositoryError::PathPrefixError(err.to_string())
     }
 }
-
 
 mod catalog;
 mod file_backend;
@@ -163,11 +161,13 @@ mod rest_backend;
 #[cfg(test)]
 mod tests;
 
-pub use catalog::{CatalogAttrs, CatalogError, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog};
-pub use file_backend::FileBackend;
-pub use rest_backend::RestBackend;
 use crate::actions::ActionError;
 use crate::digest::DigestError;
+pub use catalog::{
+    CatalogAttrs, CatalogError, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog,
+};
+pub use file_backend::FileBackend;
+pub use rest_backend::RestBackend;
 
 /// Repository configuration filename
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";

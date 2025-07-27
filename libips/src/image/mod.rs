@@ -1,7 +1,7 @@
 mod properties;
 
-use properties::*;
 use miette::Diagnostic;
+use properties::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,7 +16,7 @@ pub enum ImageError {
         help("Check system resources and permissions")
     )]
     IO(#[from] std::io::Error),
-    
+
     #[error("JSON error: {0}")]
     #[diagnostic(
         code(ips::image_error::json),

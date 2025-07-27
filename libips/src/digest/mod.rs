@@ -155,7 +155,7 @@ pub enum DigestError {
         help("Use one of the supported algorithms: sha1, sha256t, sha512t, sha512t_256, sha3256t, sha3512t_256, sha3512t")
     )]
     UnknownAlgorithm { algorithm: String },
-    
+
     #[error("digest {digest:?} is not formatted properly: {details:?}")]
     #[diagnostic(
         code(ips::digest_error::invalid_format),

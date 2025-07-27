@@ -4,13 +4,13 @@ use error::{Pkg6RepoError, Result};
 use pkg5_import::Pkg5Importer;
 
 use clap::{Parser, Subcommand};
+use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 use serde::Serialize;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use tracing::{debug, info};
-use tracing_subscriber::{fmt, EnvFilter};
 use tracing_subscriber::filter::LevelFilter;
-use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[cfg(test)]
 mod e2e_tests;
@@ -326,8 +326,10 @@ fn main() -> Result<()> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into())
         .from_env()
-        .map_err(|e| Pkg6RepoError::LoggingEnvError(format!("Failed to parse environment filter: {}", e)))?;
-    
+        .map_err(|e| {
+            Pkg6RepoError::LoggingEnvError(format!("Failed to parse environment filter: {}", e))
+        })?;
+
     fmt::Subscriber::builder()
         .with_max_level(tracing::Level::DEBUG)
         .with_env_filter(env_filter)
@@ -336,7 +338,7 @@ fn main() -> Result<()> {
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .init();
-    
+
     let cli = App::parse();
 
     match &cli.command {
@@ -525,7 +527,9 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
                 }
             }
 
@@ -618,7 +622,9 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
                 }
             }
 
@@ -727,7 +733,9 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
                 }
             }
 
@@ -933,7 +941,9 @@ fn main() -> Result<()> {
                 // Split the property=value string
                 let parts: Vec<&str> = prop_val.split('=').collect();
                 if parts.len() != 2 {
-                    return Err(Pkg6RepoError::InvalidPropertyValueFormat(prop_val.to_string()));
+                    return Err(Pkg6RepoError::InvalidPropertyValueFormat(
+                        prop_val.to_string(),
+                    ));
                 }
 
                 let property = parts[0];
@@ -1052,7 +1062,9 @@ fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    return Err(Pkg6RepoError::UnsupportedOutputFormat(output_format.to_string()));
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
                 }
             }
 
@@ -1063,14 +1075,18 @@ fn main() -> Result<()> {
             destination,
             publisher,
         } => {
-            info!("Importing pkg5 repository from {} to {}", source.display(), destination.display());
-            
+            info!(
+                "Importing pkg5 repository from {} to {}",
+                source.display(),
+                destination.display()
+            );
+
             // Create a new Pkg5Importer
             let mut importer = Pkg5Importer::new(source, destination)?;
-            
+
             // Import the repository
             importer.import(publisher.as_deref())?;
-            
+
             info!("Repository imported successfully");
             Ok(())
         }

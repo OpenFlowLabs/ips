@@ -22,36 +22,28 @@ pub enum CatalogError {
         code(ips::repository_error::catalog::part_not_found),
         help("Check that the catalog part exists and is accessible")
     )]
-    CatalogPartNotFound {
-        name: String,
-    },
+    CatalogPartNotFound { name: String },
 
     #[error("catalog part not loaded: {name}")]
     #[diagnostic(
         code(ips::repository_error::catalog::part_not_loaded),
         help("Load the catalog part before attempting to save it")
     )]
-    CatalogPartNotLoaded {
-        name: String,
-    },
+    CatalogPartNotLoaded { name: String },
 
     #[error("update log not loaded: {name}")]
     #[diagnostic(
         code(ips::repository_error::catalog::update_log_not_loaded),
         help("Load the update log before attempting to save it")
     )]
-    UpdateLogNotLoaded {
-        name: String,
-    },
+    UpdateLogNotLoaded { name: String },
 
     #[error("update log does not exist: {name}")]
     #[diagnostic(
         code(ips::repository_error::catalog::update_log_not_found),
         help("Check that the update log exists and is accessible")
     )]
-    UpdateLogNotFound {
-        name: String,
-    },
+    UpdateLogNotFound { name: String },
 
     #[error("failed to serialize JSON: {0}")]
     #[diagnostic(

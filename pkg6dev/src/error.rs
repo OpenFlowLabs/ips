@@ -41,27 +41,21 @@ pub enum Pkg6DevError {
         code(ips::pkg6dev::component_path_error),
         help("Ensure the component path exists and is a directory")
     )]
-    ComponentPathError {
-        path: PathBuf,
-    },
+    ComponentPathError { path: PathBuf },
 
     #[error("manifest not found: {path}")]
     #[diagnostic(
         code(ips::pkg6dev::manifest_not_found),
         help("Ensure the manifest file exists at the specified path")
     )]
-    ManifestNotFoundError {
-        path: PathBuf,
-    },
+    ManifestNotFoundError { path: PathBuf },
 
     #[error("replacement format error: {value} is not in the format 'key:value'")]
     #[diagnostic(
         code(ips::pkg6dev::replacement_format_error),
         help("Replacements must be in the format 'key:value'")
     )]
-    ReplacementFormatError {
-        value: String,
-    },
+    ReplacementFormatError { value: String },
 
     // Makefile-related errors
     #[error("makefile parse error: {message}")]
@@ -69,18 +63,14 @@ pub enum Pkg6DevError {
         code(ips::pkg6dev::makefile_parse_error),
         help("Check the Makefile syntax and try again")
     )]
-    MakefileParseError {
-        message: String,
-    },
+    MakefileParseError { message: String },
 
     #[error("component info error: {message}")]
     #[diagnostic(
         code(ips::pkg6dev::component_info_error),
         help("Check the component information and try again")
     )]
-    ComponentInfoError {
-        message: String,
-    },
+    ComponentInfoError { message: String },
 
     // Package publishing errors
     #[error("manifest file not found: {path}")]
@@ -88,27 +78,21 @@ pub enum Pkg6DevError {
         code(ips::pkg6dev::manifest_file_not_found),
         help("Ensure the manifest file exists at the specified path")
     )]
-    ManifestFileNotFoundError {
-        path: PathBuf,
-    },
+    ManifestFileNotFoundError { path: PathBuf },
 
     #[error("prototype directory not found: {path}")]
     #[diagnostic(
         code(ips::pkg6dev::prototype_dir_not_found),
         help("Ensure the prototype directory exists at the specified path")
     )]
-    PrototypeDirNotFoundError {
-        path: PathBuf,
-    },
+    PrototypeDirNotFoundError { path: PathBuf },
 
     #[error("publisher not found: {publisher}")]
     #[diagnostic(
         code(ips::pkg6dev::publisher_not_found),
         help("Add the publisher to the repository using pkg6repo add-publisher")
     )]
-    PublisherNotFoundError {
-        publisher: String,
-    },
+    PublisherNotFoundError { publisher: String },
 
     #[error("no default publisher set")]
     #[diagnostic(
@@ -122,9 +106,7 @@ pub enum Pkg6DevError {
         code(ips::pkg6dev::file_not_found_in_prototype),
         help("Ensure the file exists in the prototype directory")
     )]
-    FileNotFoundInPrototypeError {
-        path: PathBuf,
-    },
+    FileNotFoundInPrototypeError { path: PathBuf },
 
     // Logging environment error
     #[error("logging environment setup error: {0}")]

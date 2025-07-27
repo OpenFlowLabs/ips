@@ -73,35 +73,35 @@ pub enum FmriError {
         help("FMRI should be in the format: [scheme://][publisher/]name[@version]")
     )]
     InvalidFormat,
-    
+
     #[error("invalid version format")]
     #[diagnostic(
         code(ips::fmri_error::invalid_version_format),
         help("Version should be in the format: release[,branch][-build][:timestamp]")
     )]
     InvalidVersionFormat,
-    
+
     #[error("invalid release format")]
     #[diagnostic(
         code(ips::fmri_error::invalid_release_format),
         help("Release should be a dot-separated vector of digits (e.g., 5.11)")
     )]
     InvalidReleaseFormat,
-    
+
     #[error("invalid branch format")]
     #[diagnostic(
         code(ips::fmri_error::invalid_branch_format),
         help("Branch should be a dot-separated vector of digits (e.g., 1)")
     )]
     InvalidBranchFormat,
-    
+
     #[error("invalid build format")]
     #[diagnostic(
         code(ips::fmri_error::invalid_build_format),
         help("Build should be a dot-separated vector of digits (e.g., 2020.0.1.0)")
     )]
     InvalidBuildFormat,
-    
+
     #[error("invalid timestamp format")]
     #[diagnostic(
         code(ips::fmri_error::invalid_timestamp_format),

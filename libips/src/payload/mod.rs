@@ -23,7 +23,7 @@ pub enum PayloadError {
         help("Check system resources and permissions")
     )]
     IOError(#[from] IOError),
-    
+
     #[error(transparent)]
     #[diagnostic(transparent)]
     DigestError(#[from] DigestError),

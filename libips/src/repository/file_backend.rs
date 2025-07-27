@@ -3,7 +3,7 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{Result, RepositoryError};
+use super::{RepositoryError, Result};
 use flate2::write::GzEncoder;
 use flate2::Compression as GzipCompression;
 use lz4::EncoderBuilder;
@@ -316,13 +316,22 @@ impl Transaction {
         // Check if the temp file already exists
         if temp_file_path.exists() {
             // If it exists, remove it to avoid any issues with existing content
-            fs::remove_file(&temp_file_path)
-                .map_err(|e| RepositoryError::FileWriteError(format!("Failed to remove existing temp file: {}", e)))?;
+            fs::remove_file(&temp_file_path).map_err(|e| {
+                RepositoryError::FileWriteError(format!(
+                    "Failed to remove existing temp file: {}",
+                    e
+                ))
+            })?;
         }
 
         // Read the file content
-        let file_content = fs::read(file_path)
-            .map_err(|e| RepositoryError::FileReadError(format!("Failed to read file {}: {}", file_path.display(), e)))?;
+        let file_content = fs::read(file_path).map_err(|e| {
+            RepositoryError::FileReadError(format!(
+                "Failed to read file {}: {}",
+                file_path.display(),
+                e
+            ))
+        })?;
 
         // Create a payload with the hash information if it doesn't exist
         let mut updated_file_action = file_action;
@@ -338,18 +347,22 @@ impl Transaction {
                 let mut encoder = GzEncoder::new(Vec::new(), GzipCompression::default());
 
                 // Write the file content to the encoder
-                encoder
-                    .write_all(&file_content)
-                    .map_err(|e| RepositoryError::Other(format!("Failed to write data to Gzip encoder: {}", e)))?;
+                encoder.write_all(&file_content).map_err(|e| {
+                    RepositoryError::Other(format!("Failed to write data to Gzip encoder: {}", e))
+                })?;
 
                 // Finish the compression and get the compressed data
-                let compressed_data = encoder
-                    .finish()
-                    .map_err(|e| RepositoryError::Other(format!("Failed to finish Gzip compression: {}", e)))?;
+                let compressed_data = encoder.finish().map_err(|e| {
+                    RepositoryError::Other(format!("Failed to finish Gzip compression: {}", e))
+                })?;
 
                 // Write the compressed data to the temp file
-                fs::write(&temp_file_path, &compressed_data)
-                    .map_err(|e| RepositoryError::FileWriteError(format!("Failed to write compressed data to temp file: {}", e)))?;
+                fs::write(&temp_file_path, &compressed_data).map_err(|e| {
+                    RepositoryError::FileWriteError(format!(
+                        "Failed to write compressed data to temp file: {}",
+                        e
+                    ))
+                })?;
 
                 // Calculate hash of the compressed data
                 let mut hasher = Sha256::new();
@@ -358,21 +371,24 @@ impl Transaction {
             }
             PayloadCompressionAlgorithm::LZ4 => {
                 // Create an LZ4 encoder with the default compression level
-                let mut encoder = EncoderBuilder::new()
-                    .build(Vec::new())
-                    .map_err(|e| RepositoryError::Other(format!("Failed to create LZ4 encoder: {}", e)))?;
+                let mut encoder = EncoderBuilder::new().build(Vec::new()).map_err(|e| {
+                    RepositoryError::Other(format!("Failed to create LZ4 encoder: {}", e))
+                })?;
 
                 // Write the file content to the encoder
-                encoder
-                    .write_all(&file_content)
-                    .map_err(|e| RepositoryError::Other(format!("Failed to write data to LZ4 encoder: {}", e)))?;
+                encoder.write_all(&file_content).map_err(|e| {
+                    RepositoryError::Other(format!("Failed to write data to LZ4 encoder: {}", e))
+                })?;
 
                 // Finish the compression and get the compressed data
                 let (compressed_data, _) = encoder.finish();
 
                 // Write the compressed data to the temp file
                 fs::write(&temp_file_path, &compressed_data).map_err(|e| {
-                    RepositoryError::FileWriteError(format!("Failed to write LZ4 compressed data to temp file: {}", e))
+                    RepositoryError::FileWriteError(format!(
+                        "Failed to write LZ4 compressed data to temp file: {}",
+                        e
+                    ))
                 })?;
 
                 // Calculate hash of the compressed data
@@ -424,9 +440,13 @@ impl Transaction {
                 // Extract the first two and next two characters from the hash
                 let first_two = &hash[0..2];
                 let next_two = &hash[2..4];
-                
+
                 // Create the path: $REPO/file/XX/YY/XXYY...
-                self.repo.join("file").join(first_two).join(next_two).join(&hash)
+                self.repo
+                    .join("file")
+                    .join(first_two)
+                    .join(next_two)
+                    .join(&hash)
             };
 
             // Create parent directories if they don't exist
@@ -460,7 +480,7 @@ impl Transaction {
             Some(pub_name) => {
                 debug!("Using specified publisher: {}", pub_name);
                 pub_name.clone()
-            },
+            }
             None => {
                 debug!("No publisher specified, trying to use default publisher");
                 // If no publisher is specified, use the default publisher from the repository config
@@ -472,18 +492,19 @@ impl Transaction {
                         Some(default_pub) => {
                             debug!("Using default publisher: {}", default_pub);
                             default_pub
-                        },
+                        }
                         None => {
                             debug!("No default publisher set in repository");
                             return Err(RepositoryError::Other(
-                                "No publisher specified and no default publisher set in repository".to_string()
-                            ))
+                                "No publisher specified and no default publisher set in repository"
+                                    .to_string(),
+                            ));
                         }
                     }
                 } else {
                     debug!("Repository configuration not found");
                     return Err(RepositoryError::Other(
-                        "No publisher specified and repository configuration not found".to_string()
+                        "No publisher specified and repository configuration not found".to_string(),
                     ));
                 }
             }
@@ -498,7 +519,12 @@ impl Transaction {
         }
 
         // Construct the manifest path using the helper method
-        let pkg_manifest_path = FileBackend::construct_manifest_path(&self.repo, &publisher, &package_stem, &package_version);
+        let pkg_manifest_path = FileBackend::construct_manifest_path(
+            &self.repo,
+            &publisher,
+            &package_stem,
+            &package_version,
+        );
         debug!("Manifest path: {}", pkg_manifest_path.display());
 
         // Create parent directories if they don't exist
@@ -508,7 +534,11 @@ impl Transaction {
         }
 
         // Copy to pkg directory
-        debug!("Copying manifest from {} to {}", manifest_path.display(), pkg_manifest_path.display());
+        debug!(
+            "Copying manifest from {} to {}",
+            manifest_path.display(),
+            pkg_manifest_path.display()
+        );
         fs::copy(&manifest_path, &pkg_manifest_path)?;
 
         // Clean up the transaction directory
@@ -653,13 +683,19 @@ impl ReadableRepository for FileBackend {
             if publisher_pkg_dir.exists() {
                 // Verify that the publisher is in the config
                 if !self.config.publishers.contains(&pub_name) {
-                    return Err(RepositoryError::Other(
-                        format!("Publisher directory exists but is not in the repository configuration: {}", pub_name)
-                    ));
+                    return Err(RepositoryError::Other(format!(
+                        "Publisher directory exists but is not in the repository configuration: {}",
+                        pub_name
+                    )));
                 }
 
                 // Recursively walk through the directory and collect package manifests
-                self.find_manifests_recursive(&publisher_pkg_dir, &pub_name, pattern, &mut packages)?;
+                self.find_manifests_recursive(
+                    &publisher_pkg_dir,
+                    &pub_name,
+                    pattern,
+                    &mut packages,
+                )?;
             }
         }
 
@@ -964,16 +1000,16 @@ impl ReadableRepository for FileBackend {
         // For each publisher, search the index
         for pub_name in publishers {
             debug!("Searching publisher: {}", pub_name);
-            
+
             // Check if the index exists
             let index_path = self.path.join("index").join(&pub_name).join("search.json");
             debug!("Index path: {}", index_path.display());
             debug!("Index exists: {}", index_path.exists());
-            
+
             if let Ok(Some(index)) = self.get_search_index(&pub_name) {
                 debug!("Got search index for publisher: {}", pub_name);
                 debug!("Index terms: {:?}", index.terms.keys().collect::<Vec<_>>());
-                
+
                 // Search the index
                 let fmris = index.search(query, limit);
                 debug!("Search results (FMRIs): {:?}", fmris);
@@ -990,7 +1026,7 @@ impl ReadableRepository for FileBackend {
             } else {
                 debug!("No search index found for publisher: {}", pub_name);
                 debug!("Falling back to simple search");
-                
+
                 // If the index doesn't exist, fall back to the simple search
                 let all_packages = self.list_packages(Some(&pub_name), None)?;
                 debug!("All packages: {:?}", all_packages);
@@ -1093,14 +1129,16 @@ impl WritableRepository for FileBackend {
 
                 // Remove the catalog directory if it exists
                 if catalog_dir.exists() {
-                    fs::remove_dir_all(&catalog_dir)
-                        .map_err(|e| RepositoryError::Other(format!("Failed to remove catalog directory: {}", e)))?;
+                    fs::remove_dir_all(&catalog_dir).map_err(|e| {
+                        RepositoryError::Other(format!("Failed to remove catalog directory: {}", e))
+                    })?;
                 }
 
                 // Remove the package directory if it exists
                 if pkg_dir.exists() {
-                    fs::remove_dir_all(&pkg_dir)
-                        .map_err(|e| RepositoryError::Other(format!("Failed to remove package directory: {}", e)))?;
+                    fs::remove_dir_all(&pkg_dir).map_err(|e| {
+                        RepositoryError::Other(format!("Failed to remove package directory: {}", e))
+                    })?;
                 }
 
                 // Save the updated configuration
@@ -1146,8 +1184,11 @@ impl WritableRepository for FileBackend {
 
     /// Rebuild repository metadata
     fn rebuild(&self, publisher: Option<&str>, no_catalog: bool, no_index: bool) -> Result<()> {
-        debug!("rebuild called with publisher: {:?}, no_catalog: {}, no_index: {}", publisher, no_catalog, no_index);
-        
+        debug!(
+            "rebuild called with publisher: {:?}, no_catalog: {}, no_index: {}",
+            publisher, no_catalog, no_index
+        );
+
         // Filter publishers if specified
         let publishers = if let Some(pub_name) = publisher {
             if !self.config.publishers.contains(&pub_name.to_string()) {
@@ -1156,7 +1197,10 @@ impl WritableRepository for FileBackend {
             debug!("rebuild: using specified publisher: {}", pub_name);
             vec![pub_name.to_string()]
         } else {
-            debug!("rebuild: using all publishers: {:?}", self.config.publishers);
+            debug!(
+                "rebuild: using all publishers: {:?}",
+                self.config.publishers
+            );
             self.config.publishers.clone()
         };
 
@@ -1227,7 +1271,12 @@ impl WritableRepository for FileBackend {
 
 impl FileBackend {
     /// Helper method to construct a manifest path consistently
-    fn construct_manifest_path(base_path: &Path, publisher: &str, stem: &str, version: &str) -> PathBuf {
+    fn construct_manifest_path(
+        base_path: &Path,
+        publisher: &str,
+        stem: &str,
+        version: &str,
+    ) -> PathBuf {
         let pkg_dir = base_path.join("pkg").join(publisher).join(stem);
         let encoded_version = Self::url_encode(version);
         pkg_dir.join(encoded_version)
@@ -1253,26 +1302,36 @@ impl FileBackend {
                     let mut file = match fs::File::open(&path) {
                         Ok(file) => file,
                         Err(err) => {
-                            error!("FileBackend::find_manifests_recursive: Error opening file {}: {}", path.display(), err);
+                            error!(
+                                "FileBackend::find_manifests_recursive: Error opening file {}: {}",
+                                path.display(),
+                                err
+                            );
                             continue;
                         }
                     };
-                    
+
                     let mut buffer = [0; 1024];
                     let bytes_read = match file.read(&mut buffer) {
                         Ok(bytes) => bytes,
                         Err(err) => {
-                            error!("FileBackend::find_manifests_recursive: Error reading file {}: {}", path.display(), err);
+                            error!(
+                                "FileBackend::find_manifests_recursive: Error reading file {}: {}",
+                                path.display(),
+                                err
+                            );
                             continue;
                         }
                     };
-                    
+
                     // Check if the file starts with a valid manifest marker
                     // For example, if it's a JSON file, it should start with '{'
-                    if bytes_read == 0 || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's') {
+                    if bytes_read == 0
+                        || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's')
+                    {
                         continue;
                     }
-                    
+
                     // Process manifest files
                     match Manifest::parse_file(&path) {
                         Ok(manifest) => {
@@ -1307,7 +1366,8 @@ impl FileBackend {
                                             // If the publisher is not set in the FMRI, use the current publisher
                                             if parsed_fmri.publisher.is_none() {
                                                 let mut fmri_with_publisher = parsed_fmri.clone();
-                                                fmri_with_publisher.publisher = Some(publisher.to_string());
+                                                fmri_with_publisher.publisher =
+                                                    Some(publisher.to_string());
 
                                                 // Create a PackageInfo struct and add it to the list
                                                 packages.push(PackageInfo {
@@ -1360,76 +1420,83 @@ impl FileBackend {
 
         Ok(())
     }
-    
+
     /// Rebuild catalog for a publisher
     ///
     /// This method generates catalog files for a publisher and stores them in the publisher's
     /// subdirectory within the catalog directory.
     pub fn rebuild_catalog(&self, publisher: &str, create_update_log: bool) -> Result<()> {
         info!("Rebuilding catalog for publisher: {}", publisher);
-        debug!("Catalog directory path: {}", self.path.join("catalog").display());
-        
+        debug!(
+            "Catalog directory path: {}",
+            self.path.join("catalog").display()
+        );
+
         // Create the catalog directory for the publisher if it doesn't exist
         let catalog_dir = self.path.join("catalog").join(publisher);
         debug!("Publisher catalog directory: {}", catalog_dir.display());
         fs::create_dir_all(&catalog_dir)?;
         debug!("Created publisher catalog directory");
-        
+
         // Collect package data
         let packages = self.list_packages(Some(publisher), None)?;
-        
+
         // Prepare data structures for catalog parts
         let mut base_entries = Vec::new();
         let mut dependency_entries = Vec::new();
         let mut summary_entries = Vec::new();
         let mut update_entries = Vec::new();
-        
+
         // Track package counts
         let mut package_count = 0;
         let mut package_version_count = 0;
-        
+
         // Process each package
         for package in packages {
             let fmri = &package.fmri;
             let stem = fmri.stem();
-            
+
             // Skip if no version
             if fmri.version().is_empty() {
                 continue;
             }
-            
+
             // Get the package version
             let version = fmri.version();
-            
+
             // Construct the manifest path using the helper method
-            let manifest_path = Self::construct_manifest_path(&self.path, publisher, stem, &version);
-            
+            let manifest_path =
+                Self::construct_manifest_path(&self.path, publisher, stem, &version);
+
             // Check if the package directory exists
             if let Some(pkg_dir) = manifest_path.parent() {
                 if !pkg_dir.exists() {
-                    error!("Package directory {} does not exist skipping", pkg_dir.display());
+                    error!(
+                        "Package directory {} does not exist skipping",
+                        pkg_dir.display()
+                    );
                     continue;
                 }
             }
-            
+
             if !manifest_path.exists() {
                 continue;
             }
-            
+
             // Read the manifest content for hash calculation
             let manifest_content = fs::read_to_string(&manifest_path)?;
-            
+
             // Parse the manifest using parse_file which handles JSON correctly
             let manifest = Manifest::parse_file(&manifest_path)?;
-            
+
             // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
             let mut hasher = sha2::Sha256::new();
             hasher.update(manifest_content.as_bytes());
             let signature = format!("{:x}", hasher.finalize());
-            
+
             // Add to base entries
             base_entries.push((fmri.clone(), None, signature.clone()));
-            
+
             // Extract dependency actions
             let mut dependency_actions = Vec::new();
             for dep in &manifest.dependencies {
@@ -1440,7 +1507,7 @@ impl FileBackend {
                     ));
                 }
             }
-            
+
             // Extract variant and facet actions
             for attr in &manifest.attributes {
                 if attr.key.starts_with("variant.") || attr.key.starts_with("facet.") {
@@ -1448,7 +1515,7 @@ impl FileBackend {
                     dependency_actions.push(format!("set name={} value={}", attr.key, values_str));
                 }
             }
-            
+
             // Add to dependency entries if there are dependency actions
             if !dependency_actions.is_empty() {
                 dependency_entries.push((
@@ -1457,7 +1524,7 @@ impl FileBackend {
                     signature.clone(),
                 ));
             }
-            
+
             // Extract summary actions (set actions excluding variants and facets)
             let mut summary_actions = Vec::new();
             for attr in &manifest.attributes {
@@ -1466,7 +1533,7 @@ impl FileBackend {
                     summary_actions.push(format!("set name={} value={}", attr.key, values_str));
                 }
             }
-            
+
             // Add to summary entries if there are summary actions
             if !summary_actions.is_empty() {
                 summary_entries.push((
@@ -1475,40 +1542,40 @@ impl FileBackend {
                     signature.clone(),
                 ));
             }
-            
+
             // Prepare update entry if needed
             if create_update_log {
                 let mut catalog_parts = HashMap::new();
-                
+
                 // Add dependency actions to update entry
                 if !dependency_actions.is_empty() {
                     let mut actions = HashMap::new();
                     actions.insert("actions".to_string(), dependency_actions);
                     catalog_parts.insert("catalog.dependency.C".to_string(), actions);
                 }
-                
+
                 // Add summary actions to update entry
                 if !summary_actions.is_empty() {
                     let mut actions = HashMap::new();
                     actions.insert("actions".to_string(), summary_actions);
                     catalog_parts.insert("catalog.summary.C".to_string(), actions);
                 }
-                
+
                 // Add to update entries
                 update_entries.push((fmri.clone(), catalog_parts, signature));
             }
-            
+
             // Update counts
             package_count += 1;
             package_version_count += 1;
         }
-        
+
         // Create and save catalog parts
-        
+
         // Create a catalog.attrs file
         let now = SystemTime::now();
         let timestamp = format_iso8601_timestamp(&now);
-        
+
         // Get the CatalogAttrs struct definition to see what fields it has
         let mut attrs = crate::repository::catalog::CatalogAttrs {
             created: timestamp.clone(),
@@ -1520,7 +1587,7 @@ impl FileBackend {
             signature: None,
             updates: HashMap::new(),
         };
-        
+
         // Add part information
         let base_part_name = "catalog.base.C";
         attrs.parts.insert(
@@ -1530,7 +1597,7 @@ impl FileBackend {
                 signature_sha1: None,
             },
         );
-        
+
         let dependency_part_name = "catalog.dependency.C";
         attrs.parts.insert(
             dependency_part_name.to_string(),
@@ -1539,7 +1606,7 @@ impl FileBackend {
                 signature_sha1: None,
             },
         );
-        
+
         let summary_part_name = "catalog.summary.C";
         attrs.parts.insert(
             summary_part_name.to_string(),
@@ -1548,16 +1615,16 @@ impl FileBackend {
                 signature_sha1: None,
             },
         );
-        
+
         // Save the catalog.attrs file
         let attrs_path = catalog_dir.join("catalog.attrs");
         debug!("Writing catalog.attrs to: {}", attrs_path.display());
         let attrs_json = serde_json::to_string_pretty(&attrs)?;
         fs::write(&attrs_path, attrs_json)?;
         debug!("Wrote catalog.attrs file");
-        
+
         // Create and save catalog parts
-        
+
         // Base part
         let base_part_path = catalog_dir.join(base_part_name);
         debug!("Writing base part to: {}", base_part_path.display());
@@ -1568,10 +1635,13 @@ impl FileBackend {
         let base_part_json = serde_json::to_string_pretty(&base_part)?;
         fs::write(&base_part_path, base_part_json)?;
         debug!("Wrote base part file");
-        
+
         // Dependency part
         let dependency_part_path = catalog_dir.join(dependency_part_name);
-        debug!("Writing dependency part to: {}", dependency_part_path.display());
+        debug!(
+            "Writing dependency part to: {}",
+            dependency_part_path.display()
+        );
         let mut dependency_part = crate::repository::catalog::CatalogPart::new();
         for (fmri, actions, signature) in dependency_entries {
             dependency_part.add_package(publisher, &fmri, actions, Some(signature));
@@ -1579,7 +1649,7 @@ impl FileBackend {
         let dependency_part_json = serde_json::to_string_pretty(&dependency_part)?;
         fs::write(&dependency_part_path, dependency_part_json)?;
         debug!("Wrote dependency part file");
-        
+
         // Summary part
         let summary_part_path = catalog_dir.join(summary_part_name);
         debug!("Writing summary part to: {}", summary_part_path.display());
@@ -1590,14 +1660,14 @@ impl FileBackend {
         let summary_part_json = serde_json::to_string_pretty(&summary_part)?;
         fs::write(&summary_part_path, summary_part_json)?;
         debug!("Wrote summary part file");
-        
+
         // Create and save the update log if needed
         if create_update_log {
             debug!("Creating update log");
             let update_log_name = format!("update.{}Z.C", timestamp.split('.').next().unwrap());
             let update_log_path = catalog_dir.join(&update_log_name);
             debug!("Update log path: {}", update_log_path.display());
-            
+
             let mut update_log = crate::repository::catalog::UpdateLog::new();
             debug!("Adding {} updates to the log", update_entries.len());
             for (fmri, catalog_parts, signature) in update_entries {
@@ -1609,11 +1679,11 @@ impl FileBackend {
                     Some(signature),
                 );
             }
-            
+
             let update_log_json = serde_json::to_string_pretty(&update_log)?;
             fs::write(&update_log_path, update_log_json)?;
             debug!("Wrote update log file");
-            
+
             // Add an update log to catalog.attrs
             debug!("Adding update log to catalog.attrs");
             attrs.updates.insert(
@@ -1623,18 +1693,18 @@ impl FileBackend {
                     signature_sha1: None,
                 },
             );
-            
+
             // Update the catalog.attrs file with the new update log
             debug!("Updating catalog.attrs file with new update log");
             let attrs_json = serde_json::to_string_pretty(&attrs)?;
             fs::write(catalog_dir.join("catalog.attrs"), attrs_json)?;
             debug!("Updated catalog.attrs file");
         }
-        
+
         info!("Catalog rebuilt for publisher: {}", publisher);
         Ok(())
     }
-    
+
     /// Generate the file path for a given hash using the new directory structure
     /// The path will be $REPO/file/XX/YY/XXYY... where XX and YY are the first four letters of the hash
     fn generate_file_path(&self, hash: &str) -> PathBuf {
@@ -1642,17 +1712,21 @@ impl FileBackend {
             // Fallback for very short hashes (shouldn't happen with SHA256)
             return self.path.join("file").join(hash);
         }
-        
+
         // Extract the first two and next two characters from the hash
         let first_two = &hash[0..2];
         let next_two = &hash[2..4];
-        
+
         // Create the path: $REPO/file/XX/YY/XXYY...
-        self.path.join("file").join(first_two).join(next_two).join(hash)
+        self.path
+            .join("file")
+            .join(first_two)
+            .join(next_two)
+            .join(hash)
     }
 
     /// Get or initialize the catalog manager
-    /// 
+    ///
     /// This method returns a mutable reference to the catalog manager.
     /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
     pub fn get_catalog_manager(
@@ -1888,7 +1962,7 @@ impl FileBackend {
 
         // Begin a transaction
         let mut transaction = self.begin_transaction()?;
-        
+
         // Set the publisher for the transaction
         transaction.set_publisher(publisher);
 
@@ -1913,11 +1987,10 @@ impl FileBackend {
         let actual_path = &transaction.manifest.files[0].path;
 
         if actual_path != expected_path {
-            return Err(RepositoryError::Other(
-                format!("Path in FileAction is incorrect. Expected: {}, Actual: {}",
-                expected_path,
-                actual_path)
-            ));
+            return Err(RepositoryError::Other(format!(
+                "Path in FileAction is incorrect. Expected: {}, Actual: {}",
+                expected_path, actual_path
+            )));
         }
 
         // Commit the transaction
@@ -1928,12 +2001,18 @@ impl FileBackend {
         let stored_file_path = self.generate_file_path(&hash);
 
         if !stored_file_path.exists() {
-            return Err(RepositoryError::Other("File was not stored correctly".to_string()));
+            return Err(RepositoryError::Other(
+                "File was not stored correctly".to_string(),
+            ));
         }
 
         // Verify the manifest was updated in the publisher-specific directory
         // The manifest should be named "unknown.manifest" since we didn't set a package name
-        let manifest_path = self.path.join("pkg").join(publisher).join("unknown.manifest");
+        let manifest_path = self
+            .path
+            .join("pkg")
+            .join(publisher)
+            .join("unknown.manifest");
 
         if !manifest_path.exists() {
             return Err(RepositoryError::Other(format!(
@@ -1974,7 +2053,7 @@ impl FileBackend {
 
         // Begin a transaction
         let mut transaction = self.begin_transaction()?;
-        
+
         // Set the publisher for the transaction
         transaction.set_publisher(publisher);
 
@@ -1983,7 +2062,7 @@ impl FileBackend {
 
         // Commit the transaction
         transaction.commit()?;
-        
+
         // Regenerate catalog and search index
         self.rebuild(Some(publisher), false, false)?;
 

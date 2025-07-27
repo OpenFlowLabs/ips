@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use libips::repository::{
-        FileBackend, ReadableRepository, RepositoryVersion,
-        WritableRepository, REPOSITORY_CONFIG_FILENAME,
+        FileBackend, REPOSITORY_CONFIG_FILENAME, ReadableRepository, RepositoryVersion,
+        WritableRepository,
     };
     use std::fs;
     use std::path::PathBuf;

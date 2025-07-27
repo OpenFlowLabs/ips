@@ -511,8 +511,10 @@ impl From<Action> for User {
                     // Parse ftpuser property into services
                     match string_to_bool(&prop.value) {
                         // If it's a boolean value (backward compatibility)
-                        Ok(true) => { user.services.insert("ftp".to_string()); },
-                        Ok(false) => {}, // No services if false
+                        Ok(true) => {
+                            user.services.insert("ftp".to_string());
+                        }
+                        Ok(false) => {} // No services if false
                         // If the value not a boolean, treat as a comma-separated list of services
                         _ => {
                             for service in prop.value.split(',') {
@@ -858,7 +860,7 @@ impl Manifest {
 
     pub fn parse_file<P: AsRef<Path>>(f: P) -> Result<Manifest> {
         let content = read_to_string(f)?;
-        
+
         // Try to parse as JSON first
         match serde_json::from_str::<Manifest>(&content) {
             Ok(manifest) => Ok(manifest),
@@ -966,7 +968,7 @@ pub enum ManifestError {
         help("Check the action name and make sure it's one of the supported action types.")
     )]
     UnknownAction { line: usize, action: String },
-    
+
     #[error("action string \"{action:?}\" at line {line:?} is invalid: {message:?}")]
     #[diagnostic(
         code(ips::action_error::manifest::invalid_action),

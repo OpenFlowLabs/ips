@@ -8,8 +8,8 @@ mod tests {
     use crate::actions::Manifest;
     use crate::fmri::Fmri;
     use crate::repository::{
-        CatalogManager, FileBackend, ReadableRepository, RepositoryError, RepositoryVersion, Result,
-        WritableRepository, REPOSITORY_CONFIG_FILENAME,
+        CatalogManager, FileBackend, ReadableRepository, RepositoryError, RepositoryVersion,
+        Result, WritableRepository, REPOSITORY_CONFIG_FILENAME,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -83,17 +83,19 @@ mod tests {
         // Check if the manifest file exists
         if !manifest_path.exists() {
             println!("Error: Manifest file does not exist");
-            return Err(RepositoryError::FileReadError(
-                format!("Manifest file does not exist: {}", manifest_path.display())
-            ));
+            return Err(RepositoryError::FileReadError(format!(
+                "Manifest file does not exist: {}",
+                manifest_path.display()
+            )));
         }
 
         // Check if the prototype directory exists
         if !prototype_dir.exists() {
             println!("Error: Prototype directory does not exist");
-            return Err(RepositoryError::NotFound(
-                format!("Prototype directory does not exist: {}", prototype_dir.display())
-            ));
+            return Err(RepositoryError::NotFound(format!(
+                "Prototype directory does not exist: {}",
+                prototype_dir.display()
+            )));
         }
 
         // Parse the manifest file
@@ -393,38 +395,50 @@ mod tests {
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     #[test]
     fn test_file_structure() {
         // Create a test directory
         let test_dir = create_test_dir("file_structure");
         let repo_path = test_dir.join("repo");
-        
+
         // Create a repository
         let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
-        
+
         // Add a publisher
         repo.add_publisher("test").unwrap();
-        
+
         // Create a test file
         let test_file_path = test_dir.join("test_file.txt");
         fs::write(&test_file_path, "This is a test file").unwrap();
-        
+
         // Store the file in the repository
         let hash = repo.store_file(&test_file_path).unwrap();
-        
+
         // Check if the file was stored in the correct directory structure
         let first_two = &hash[0..2];
         let next_two = &hash[2..4];
-        let expected_path = repo_path.join("file").join(first_two).join(next_two).join(&hash);
-        
+        let expected_path = repo_path
+            .join("file")
+            .join(first_two)
+            .join(next_two)
+            .join(&hash);
+
         // Verify that the file exists at the expected path
-        assert!(expected_path.exists(), "File was not stored at the expected path: {}", expected_path.display());
-        
+        assert!(
+            expected_path.exists(),
+            "File was not stored at the expected path: {}",
+            expected_path.display()
+        );
+
         // Verify that the file does NOT exist at the old path
         let old_path = repo_path.join("file").join(&hash);
-        assert!(!old_path.exists(), "File was stored at the old path: {}", old_path.display());
-        
+        assert!(
+            !old_path.exists(),
+            "File was stored at the old path: {}",
+            old_path.display()
+        );
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }

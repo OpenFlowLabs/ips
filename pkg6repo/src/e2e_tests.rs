@@ -13,7 +13,7 @@ mod e2e_tests {
 
     // The base directory for all test repositories
     const TEST_REPO_BASE_DIR: &str = "/tmp/pkg6repo_e2e_test";
-    
+
     // Get the path to the pre-built binaries
     fn get_bin_dir() -> PathBuf {
         match env::var("PKG6_TEST_BIN_DIR") {
@@ -54,7 +54,7 @@ mod e2e_tests {
             .args(["run", "-p", "xtask", "--", "setup-test-env"])
             .output()
             .expect("Failed to run xtask setup-test-env");
-            
+
         if !output.status.success() {
             panic!(
                 "Failed to set up test environment: {}",
@@ -73,7 +73,7 @@ mod e2e_tests {
     fn run_pkg6repo(args: &[&str]) -> Result<String, String> {
         let bin_dir = get_bin_dir();
         let pkg6repo_bin = bin_dir.join("pkg6repo");
-        
+
         // Check if the binary exists
         if !pkg6repo_bin.exists() {
             return Err(format!(
@@ -81,7 +81,7 @@ mod e2e_tests {
                 pkg6repo_bin.display()
             ));
         }
-        
+
         let output = Command::new(pkg6repo_bin)
             .args(args)
             .output()
@@ -98,7 +98,7 @@ mod e2e_tests {
     fn run_pkg6dev(args: &[&str]) -> Result<String, String> {
         let bin_dir = get_bin_dir();
         let pkg6dev_bin = bin_dir.join("pkg6dev");
-        
+
         // Check if the binary exists
         if !pkg6dev_bin.exists() {
             return Err(format!(
@@ -106,7 +106,7 @@ mod e2e_tests {
                 pkg6dev_bin.display()
             ));
         }
-        
+
         let output = Command::new(pkg6dev_bin)
             .args(args)
             .output()
@@ -161,7 +161,12 @@ mod e2e_tests {
         );
 
         // Add a publisher using pkg6repo
-        let result = run_pkg6repo(&["add-publisher", "-s", repo_path.to_str().unwrap(), "example.com"]);
+        let result = run_pkg6repo(&[
+            "add-publisher",
+            "-s",
+            repo_path.to_str().unwrap(),
+            "example.com",
+        ]);
         assert!(
             result.is_ok(),
             "Failed to add publisher: {:?}",
@@ -205,9 +210,12 @@ mod e2e_tests {
         let manifest_path = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            "--manifest-path", manifest_path.to_str().unwrap(),
-            "--prototype-dir", prototype_dir.to_str().unwrap(),
-            "--repo-path", repo_path.to_str().unwrap(),
+            "--manifest-path",
+            manifest_path.to_str().unwrap(),
+            "--prototype-dir",
+            prototype_dir.to_str().unwrap(),
+            "--repo-path",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -262,9 +270,12 @@ mod e2e_tests {
         let manifest_path = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            "--manifest-path", manifest_path.to_str().unwrap(),
-            "--prototype-dir", prototype_dir.to_str().unwrap(),
-            "--repo-path", repo_path.to_str().unwrap(),
+            "--manifest-path",
+            manifest_path.to_str().unwrap(),
+            "--prototype-dir",
+            prototype_dir.to_str().unwrap(),
+            "--repo-path",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -327,9 +338,12 @@ mod e2e_tests {
         let manifest_path1 = manifest_dir.join("example.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            "--manifest-path", manifest_path1.to_str().unwrap(),
-            "--prototype-dir", prototype_dir.to_str().unwrap(),
-            "--repo-path", repo_path.to_str().unwrap(),
+            "--manifest-path",
+            manifest_path1.to_str().unwrap(),
+            "--prototype-dir",
+            prototype_dir.to_str().unwrap(),
+            "--repo-path",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -341,9 +355,12 @@ mod e2e_tests {
         let manifest_path2 = manifest_dir.join("example2.p5m");
         let result = run_pkg6dev(&[
             "publish",
-            "--manifest-path", manifest_path2.to_str().unwrap(),
-            "--prototype-dir", prototype_dir.to_str().unwrap(),
-            "--repo-path", repo_path.to_str().unwrap(),
+            "--manifest-path",
+            manifest_path2.to_str().unwrap(),
+            "--prototype-dir",
+            prototype_dir.to_str().unwrap(),
+            "--repo-path",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -379,10 +396,13 @@ mod e2e_tests {
         let sample_repo_path = PathBuf::from(env::current_dir().unwrap())
             .join("sample_data")
             .join("sample-repo");
-        
+
         // Check if the sample repository exists
         if !sample_repo_path.exists() {
-            println!("Sample pkg5 repository not found at {}, skipping test", sample_repo_path.display());
+            println!(
+                "Sample pkg5 repository not found at {}, skipping test",
+                sample_repo_path.display()
+            );
             return;
         }
 
@@ -393,8 +413,10 @@ mod e2e_tests {
         // Import the pkg5 repository using pkg6repo
         let result = run_pkg6repo(&[
             "import-pkg5",
-            "--source", sample_repo_path.to_str().unwrap(),
-            "--destination", repo_path.to_str().unwrap(),
+            "--source",
+            sample_repo_path.to_str().unwrap(),
+            "--destination",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -422,10 +444,7 @@ mod e2e_tests {
         );
 
         let output = result.unwrap();
-        assert!(
-            !output.is_empty(),
-            "No packages found in repository"
-        );
+        assert!(!output.is_empty(), "No packages found in repository");
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -437,10 +456,13 @@ mod e2e_tests {
         let sample_p5p_path = PathBuf::from(env::current_dir().unwrap())
             .join("sample_data")
             .join("sample-repo.p5p");
-        
+
         // Check if the sample p5p archive exists
         if !sample_p5p_path.exists() {
-            println!("Sample pkg5 p5p archive not found at {}, skipping test", sample_p5p_path.display());
+            println!(
+                "Sample pkg5 p5p archive not found at {}, skipping test",
+                sample_p5p_path.display()
+            );
             return;
         }
 
@@ -451,8 +473,10 @@ mod e2e_tests {
         // Import the pkg5 p5p archive using pkg6repo
         let result = run_pkg6repo(&[
             "import-pkg5",
-            "--source", sample_p5p_path.to_str().unwrap(),
-            "--destination", repo_path.to_str().unwrap(),
+            "--source",
+            sample_p5p_path.to_str().unwrap(),
+            "--destination",
+            repo_path.to_str().unwrap(),
         ]);
         assert!(
             result.is_ok(),
@@ -480,10 +504,7 @@ mod e2e_tests {
         );
 
         let output = result.unwrap();
-        assert!(
-            !output.is_empty(),
-            "No packages found in repository"
-        );
+        assert!(!output.is_empty(), "No packages found in repository");
 
         // Clean up
         cleanup_test_dir(&test_dir);

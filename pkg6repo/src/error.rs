@@ -56,10 +56,7 @@ pub enum Pkg6RepoError {
     LoggingEnvError(String),
 
     #[error("other error: {0}")]
-    #[diagnostic(
-        code(pkg6repo::other_error),
-        help("See error message for details")
-    )]
+    #[diagnostic(code(pkg6repo::other_error), help("See error message for details"))]
     Other(String),
 }
 
