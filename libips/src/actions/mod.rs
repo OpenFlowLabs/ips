@@ -14,7 +14,7 @@ use pest::Parser;
 use pest_derive::Parser;
 use serde::{Deserialize, Serialize};
 use std::clone::Clone;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::read_to_string;
 use std::path::Path;
 use std::result::Result as StdResult;
@@ -50,7 +50,7 @@ pub enum ActionError {
 }
 
 pub trait FacetedAction {
-    // Add a facet to the action if the facet is already present the function returns false.
+    // Add a facet to the action if the facet is already present, the function returns false.
     fn add_facet(&mut self, facet: Facet) -> bool;
 
     // Remove a facet from the action.
@@ -470,6 +470,303 @@ impl From<Action> for Link {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct User {
+    pub username: String,
+    pub uid: String,
+    pub group: String,
+    pub home_dir: String,
+    pub login_shell: String,
+    pub password: String,
+    pub services: HashSet<String>,
+    pub gcos_field: String,
+    pub properties: HashMap<String, Property>,
+    pub facets: HashMap<String, Facet>,
+}
+
+impl From<Action> for User {
+    fn from(act: Action) -> Self {
+        let mut user = User::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property {
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "username" => user.username = prop.value,
+                "uid" => user.uid = prop.value,
+                "group" => user.group = prop.value,
+                "home-dir" => user.home_dir = prop.value,
+                "login-shell" => user.login_shell = prop.value,
+                "password" => user.password = prop.value,
+                "gcos-field" => user.gcos_field = prop.value,
+                "ftpuser" => {
+                    // Parse ftpuser property into services
+                    match string_to_bool(&prop.value) {
+                        // If it's a boolean value (backward compatibility)
+                        Ok(true) => { user.services.insert("ftp".to_string()); },
+                        Ok(false) => {}, // No services if false
+                        // If the value not a boolean, treat as a comma-separated list of services
+                        _ => {
+                            for service in prop.value.split(',') {
+                                let service = service.trim();
+                                if !service.is_empty() {
+                                    user.services.insert(service.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    if is_facet(prop.key.clone()) {
+                        user.add_facet(Facet::from_key_value(prop.key, prop.value));
+                    } else {
+                        user.properties.insert(
+                            prop.key.clone(),
+                            Property {
+                                key: prop.key,
+                                value: prop.value,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        user
+    }
+}
+
+impl FacetedAction for User {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        self.facets.insert(facet.name.clone(), facet).is_none()
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        self.facets.remove(&facet.name) == Some(facet)
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct Group {
+    pub groupname: String,
+    pub gid: String,
+    pub properties: HashMap<String, Property>,
+    pub facets: HashMap<String, Facet>,
+}
+
+impl From<Action> for Group {
+    fn from(act: Action) -> Self {
+        let mut group = Group::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property {
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "groupname" => group.groupname = prop.value,
+                "gid" => group.gid = prop.value,
+                _ => {
+                    if is_facet(prop.key.clone()) {
+                        group.add_facet(Facet::from_key_value(prop.key, prop.value));
+                    } else {
+                        group.properties.insert(
+                            prop.key.clone(),
+                            Property {
+                                key: prop.key,
+                                value: prop.value,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        group
+    }
+}
+
+impl FacetedAction for Group {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        self.facets.insert(facet.name.clone(), facet).is_none()
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        self.facets.remove(&facet.name) == Some(facet)
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct Driver {
+    pub name: String,
+    pub class: String,
+    pub perms: String,
+    pub clone_perms: String,
+    pub alias: String,
+    pub properties: HashMap<String, Property>,
+    pub facets: HashMap<String, Facet>,
+}
+
+impl From<Action> for Driver {
+    fn from(act: Action) -> Self {
+        let mut driver = Driver::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property {
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "name" => driver.name = prop.value,
+                "class" => driver.class = prop.value,
+                "perms" => driver.perms = prop.value,
+                "clone_perms" => driver.clone_perms = prop.value,
+                "alias" => driver.alias = prop.value,
+                _ => {
+                    if is_facet(prop.key.clone()) {
+                        driver.add_facet(Facet::from_key_value(prop.key, prop.value));
+                    } else {
+                        driver.properties.insert(
+                            prop.key.clone(),
+                            Property {
+                                key: prop.key,
+                                value: prop.value,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        driver
+    }
+}
+
+impl FacetedAction for Driver {
+    fn add_facet(&mut self, facet: Facet) -> bool {
+        self.facets.insert(facet.name.clone(), facet).is_none()
+    }
+
+    fn remove_facet(&mut self, facet: Facet) -> bool {
+        self.facets.remove(&facet.name) == Some(facet)
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct Legacy {
+    pub arch: String,
+    pub category: String,
+    pub desc: String,
+    pub hotline: String,
+    pub name: String,
+    pub pkg: String,
+    pub vendor: String,
+    pub version: String,
+    pub properties: HashMap<String, Property>,
+}
+
+impl From<Action> for Legacy {
+    fn from(act: Action) -> Self {
+        let mut legacy = Legacy::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property {
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "arch" => legacy.arch = prop.value,
+                "category" => legacy.category = prop.value,
+                "desc" => legacy.desc = prop.value,
+                "hotline" => legacy.hotline = prop.value,
+                "name" => legacy.name = prop.value,
+                "pkg" => legacy.pkg = prop.value,
+                "vendor" => legacy.vendor = prop.value,
+                "version" => legacy.version = prop.value,
+                _ => {
+                    legacy.properties.insert(
+                        prop.key.clone(),
+                        Property {
+                            key: prop.key,
+                            value: prop.value,
+                        },
+                    );
+                }
+            }
+        }
+        legacy
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct Transform {
+    pub transform_type: String,
+    pub pattern: String,
+    pub match_type: String,
+    pub operation: String,
+    pub value: String,
+    pub properties: HashMap<String, Property>,
+}
+
+impl From<Action> for Transform {
+    fn from(act: Action) -> Self {
+        let mut transform = Transform::default();
+        let mut props = act.properties;
+        if !act.payload_string.is_empty() {
+            let p_str = split_property(act.payload_string);
+            props.push(Property {
+                key: p_str.0,
+                value: p_str.1,
+            })
+        }
+        for prop in props {
+            match prop.key.as_str() {
+                "type" => transform.transform_type = prop.value,
+                "pattern" => transform.pattern = prop.value,
+                "match_type" => transform.match_type = prop.value,
+                "operation" => transform.operation = prop.value,
+                "value" => transform.value = prop.value,
+                _ => {
+                    transform.properties.insert(
+                        prop.key.clone(),
+                        Property {
+                            key: prop.key,
+                            value: prop.value,
+                        },
+                    );
+                }
+            }
+        }
+        transform
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize, Diff)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
@@ -490,6 +787,11 @@ pub struct Manifest {
     pub dependencies: Vec<Dependency>,
     pub licenses: Vec<License>,
     pub links: Vec<Link>,
+    pub users: Vec<User>,
+    pub groups: Vec<Group>,
+    pub drivers: Vec<Driver>,
+    pub legacies: Vec<Legacy>,
+    pub transforms: Vec<Transform>,
 }
 
 impl Manifest {
@@ -501,6 +803,11 @@ impl Manifest {
             dependencies: Vec::new(),
             licenses: Vec::new(),
             links: Vec::new(),
+            users: Vec::new(),
+            groups: Vec::new(),
+            drivers: Vec::new(),
+            legacies: Vec::new(),
+            transforms: Vec::new(),
         }
     }
 
@@ -523,13 +830,13 @@ impl Manifest {
                 self.dependencies.push(act.into());
             }
             ActionKind::User => {
-                todo!()
+                self.users.push(act.into());
             }
             ActionKind::Group => {
-                todo!()
+                self.groups.push(act.into());
             }
             ActionKind::Driver => {
-                todo!()
+                self.drivers.push(act.into());
             }
             ActionKind::License => {
                 self.licenses.push(act.into());
@@ -538,10 +845,10 @@ impl Manifest {
                 self.links.push(act.into());
             }
             ActionKind::Legacy => {
-                todo!()
+                self.legacies.push(act.into());
             }
             ActionKind::Transform => {
-                todo!()
+                self.transforms.push(act.into());
             }
             ActionKind::Unknown { action } => {
                 panic!("action {:?} not known", action)
