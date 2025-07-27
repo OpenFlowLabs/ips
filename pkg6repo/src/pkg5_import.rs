@@ -408,10 +408,9 @@ impl Pkg5Importer {
         // Update the manifest in the transaction
         transaction.update_manifest(manifest);
         
-        // Create the parent directories for the package name
-        let package_dir = dest_repo.path.join("pkg").join(publisher).join(pkg_name);
-        debug!("Creating package directory: {}", package_dir.display());
-        fs::create_dir_all(&package_dir)?;
+        // The Transaction.commit() method will handle creating necessary directories
+        // and storing the manifest in the correct location, so we don't need to create
+        // package-specific directories here.
         
         // Commit the transaction
         transaction.commit()?;
