@@ -277,11 +277,9 @@ impl ObsoletedPackageKey {
 
 
 // Table definitions for the redb database
-// Table for mapping FMRI to content hash
-static FMRI_TO_HASH_TABLE: TableDefinition<&[u8], &str> = TableDefinition::new("fmri_to_hash");
-// Table for mapping content hash to metadata
-static HASH_TO_METADATA_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("hash_to_metadata");
-// Table for mapping content hash to manifest
+// Table for mapping FMRI directly to metadata
+static FMRI_TO_METADATA_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("fmri_to_metadata");
+// Table for mapping content hash to manifest (for non-NULL_HASH entries)
 static HASH_TO_MANIFEST_TABLE: TableDefinition<&str, &str> = TableDefinition::new("hash_to_manifest");
 
 /// Index of obsoleted packages using redb for faster lookups and content-addressable storage
@@ -309,8 +307,8 @@ impl RedbObsoletedPackageIndex {
         // Create the tables if they don't exist
         let write_txn = db.begin_write()?;
         {
-            write_txn.open_table(FMRI_TO_HASH_TABLE)?;
-            write_txn.open_table(HASH_TO_METADATA_TABLE)?;
+            // Create the new table for direct FMRI to metadata mapping
+            write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
         }
         write_txn.commit()?;
@@ -353,8 +351,8 @@ impl RedbObsoletedPackageIndex {
         // Create the tables
         let write_txn = db.begin_write().unwrap();
         {
-            let _ = write_txn.open_table(FMRI_TO_HASH_TABLE).unwrap();
-            let _ = write_txn.open_table(HASH_TO_METADATA_TABLE).unwrap();
+            // Create the new table for direct FMRI to metadata mapping
+            let _ = write_txn.open_table(FMRI_TO_METADATA_TABLE).unwrap();
             let _ = write_txn.open_table(HASH_TO_MANIFEST_TABLE).unwrap();
         }
         write_txn.commit().unwrap();
@@ -374,7 +372,7 @@ impl RedbObsoletedPackageIndex {
         
         // Open the database
         let db = Database::open(&db_path)?;
-        
+
         Ok(Self {
             db,
             last_accessed: Instant::now(),
@@ -396,6 +394,9 @@ impl RedbObsoletedPackageIndex {
     
     /// Add an entry to the index
     fn add_entry(&self, key: &ObsoletedPackageKey, metadata: &ObsoletedPackageMetadata, manifest: &str) -> Result<()> {
+        debug!("Adding entry to index: publisher={}, stem={}, version={}, fmri={}", 
+               key.publisher, key.stem, key.version, metadata.fmri);
+        
         // Calculate content hash if not already present
         let content_hash = if metadata.content_hash.is_empty() {
             let mut hasher = sha2::Sha256::new();
@@ -406,24 +407,72 @@ impl RedbObsoletedPackageIndex {
         };
         
         // Serialize the key and metadata
-        let key_bytes = serialize(key)?;
-        let metadata_bytes = serialize(metadata)?;
+        let key_bytes = match serialize(key) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Failed to serialize key: {}", e);
+                return Err(e.into());
+            }
+        };
+        
+        let metadata_bytes = match serialize(metadata) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Failed to serialize metadata: {}", e);
+                return Err(e.into());
+            }
+        };
         
         // Begin write transaction
-        let write_txn = self.db.begin_write()?;
+        let write_txn = match self.db.begin_write() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to begin write transaction: {}", e);
+                return Err(e.into());
+            }
+        };
+        
         {
             // Open the tables
-            let mut fmri_to_hash = write_txn.open_table(FMRI_TO_HASH_TABLE)?;
-            let mut hash_to_metadata = write_txn.open_table(HASH_TO_METADATA_TABLE)?;
-            let mut hash_to_manifest = write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
+            let mut fmri_to_metadata = match write_txn.open_table(FMRI_TO_METADATA_TABLE) {
+                Ok(table) => table,
+                Err(e) => {
+                    error!("Failed to open FMRI_TO_METADATA_TABLE: {}", e);
+                    return Err(e.into());
+                }
+            };
             
-            // Insert the entries
-            fmri_to_hash.insert(key_bytes.as_slice(), content_hash.as_str())?;
-            hash_to_metadata.insert(content_hash.as_str(), metadata_bytes.as_slice())?;
-            hash_to_manifest.insert(content_hash.as_str(), manifest)?;
+            let mut hash_to_manifest = match write_txn.open_table(HASH_TO_MANIFEST_TABLE) {
+                Ok(table) => table,
+                Err(e) => {
+                    error!("Failed to open HASH_TO_MANIFEST_TABLE: {}", e);
+                    return Err(e.into());
+                }
+            };
+            
+            // Insert the metadata directly with FMRI as the key
+            // This is the new approach that eliminates the intermediate hash lookup
+            if let Err(e) = fmri_to_metadata.insert(key_bytes.as_slice(), metadata_bytes.as_slice()) {
+                error!("Failed to insert into FMRI_TO_METADATA_TABLE: {}", e);
+                return Err(e.into());
+            }
+            
+            // Only store the manifest if it's not a NULL_HASH entry
+            // For NULL_HASH entries, a minimal manifest will be generated when requested
+            if content_hash != NULL_HASH {
+                if let Err(e) = hash_to_manifest.insert(content_hash.as_str(), manifest) {
+                    error!("Failed to insert into HASH_TO_MANIFEST_TABLE: {}", e);
+                    return Err(e.into());
+                }
+            }
         }
-        write_txn.commit()?;
         
+        if let Err(e) = write_txn.commit() {
+            error!("Failed to commit transaction: {}", e);
+            return Err(e.into());
+        }
+        
+        debug!("Successfully added entry to index: {}", metadata.fmri);
         Ok(())
     }
     
@@ -432,78 +481,26 @@ impl RedbObsoletedPackageIndex {
         // Serialize the key
         let key_bytes = serialize(key)?;
         
-        // First, check if the key exists and get the content hash
-        let content_hash_option = {
+        // First, check if the key exists in the new table
+        let exists_in_new_table = {
             let read_txn = self.db.begin_read()?;
-            let fmri_to_hash = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
+            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             
-            // Get the hash value and convert it to a string before the transaction is dropped
-            let result = match fmri_to_hash.get(key_bytes.as_slice())? {
-                Some(hash) => {
-                    let hash_str = hash.value().to_string();
-                    Some(hash_str)
-                },
-                None => None,
-            };
-            
-            // Return the result, which doesn't depend on the transaction anymore
-            result
+            fmri_to_metadata.get(key_bytes.as_slice())?.is_some()
         };
         
-        // If the key doesn't exist, return early
-        if content_hash_option.is_none() {
+        // If the key doesn't exist in either table, return early
+        if !exists_in_new_table {
             return Ok(false);
         }
-        
-        let content_hash = content_hash_option.unwrap();
-        
-        // Check if there are any other entries pointing to the same content hash
-        let has_other_references = {
-            let read_txn = self.db.begin_read()?;
-            let fmri_to_hash = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
-            
-            // Create a vector to store all keys and hashes
-            let mut entries = Vec::new();
-            let mut iter = fmri_to_hash.iter()?;
-            
-            // Collect all entries
-            while let Some(entry) = iter.next() {
-                let (entry_key, hash) = entry?;
-                entries.push((entry_key.value().to_vec(), hash.value().to_string()));
-            }
-            
-            // Drop the transaction and iterator before processing the entries
-            drop(iter);
-            drop(fmri_to_hash);
-            drop(read_txn);
-            
-            // Now check if there are any other entries with the same hash
-            let mut has_refs = false;
-            for (entry_key, hash) in entries {
-                // Skip the key we're removing
-                if entry_key != key_bytes.as_slice() && hash == content_hash {
-                    has_refs = true;
-                    break;
-                }
-            }
-            
-            has_refs
-        };
         
         // Now perform the actual removal
         let write_txn = self.db.begin_write()?;
         {
-            // Remove the entry from fmri_to_hash
-            let mut fmri_to_hash = write_txn.open_table(FMRI_TO_HASH_TABLE)?;
-            fmri_to_hash.remove(key_bytes.as_slice())?;
-            
-            // If there are no other references to the content hash, remove the metadata and manifest
-            if !has_other_references {
-                let mut hash_to_metadata = write_txn.open_table(HASH_TO_METADATA_TABLE)?;
-                let mut hash_to_manifest = write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-                
-                hash_to_metadata.remove(content_hash.as_str())?;
-                hash_to_manifest.remove(content_hash.as_str())?;
+            // Remove the entry from the new table
+            if exists_in_new_table {
+                let mut fmri_to_metadata = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
+                fmri_to_metadata.remove(key_bytes.as_slice())?;
             }
         }
         
@@ -517,114 +514,183 @@ impl RedbObsoletedPackageIndex {
         // Serialize the key
         let key_bytes = serialize(key)?;
         
-        // First, get the content hash
-        let content_hash = {
+        // First, try to get the metadata directly from the new table
+        let metadata_result = {
             let read_txn = self.db.begin_read()?;
-            let fmri_to_hash = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
-            
-            // Get the hash and convert to a string before the transaction is dropped
-            let result = match fmri_to_hash.get(key_bytes.as_slice())? {
-                Some(hash) => Some(hash.value().to_string()),
-                None => None,
-            };
-            
-            // Return the result, which doesn't depend on the transaction anymore
-            result
-        };
-        
-        // If the content hash is not found, return None
-        let content_hash = match content_hash {
-            Some(hash) => hash,
-            None => return Ok(None),
-        };
-        
-        // Now get the metadata and manifest
-        let (metadata_bytes, manifest_str) = {
-            let read_txn = self.db.begin_read()?;
-            let hash_to_metadata = read_txn.open_table(HASH_TO_METADATA_TABLE)?;
-            let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
+            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             
             // Get the metadata bytes
-            let metadata_bytes = match hash_to_metadata.get(content_hash.as_str())? {
-                Some(bytes) => bytes.value().to_vec(),
-                None => return Ok(None),
-            };
-            
-            // Get the manifest string
-            let manifest_str = match hash_to_manifest.get(content_hash.as_str())? {
-                Some(manifest) => manifest.value().to_string(),
-                None => return Ok(None),
-            };
-            
-            // Return the results, which don't depend on the transaction anymore
-            (metadata_bytes, manifest_str)
+            match fmri_to_metadata.get(key_bytes.as_slice())? {
+                Some(bytes) => {
+                    // Convert to owned bytes before the transaction is dropped
+                    let metadata_bytes = bytes.value().to_vec();
+                    // Try to deserialize the metadata
+                    match deserialize::<ObsoletedPackageMetadata>(&metadata_bytes) {
+                        Ok(metadata) => Some(metadata),
+                        Err(e) => {
+                            warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE: {}", e);
+                            None
+                        }
+                    }
+                },
+                None => None,
+            }
         };
         
-        // Deserialize the metadata
-        let metadata: ObsoletedPackageMetadata = deserialize(&metadata_bytes)?;
-        
-        Ok(Some((metadata, manifest_str)))
+        // If we found the metadata in the new table, use it
+        if let Some(metadata) = metadata_result {
+            // Get the content hash from the metadata
+            let content_hash = metadata.content_hash.clone();
+
+            // For NULL_HASH entries, generate a minimal manifest
+            let manifest_str = if content_hash == NULL_HASH {
+                // Generate a minimal manifest for NULL_HASH entries
+                // Construct an FMRI string from the metadata
+                format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+            } else {
+                // For non-NULL_HASH entries, get the manifest from the database
+                let read_txn = self.db.begin_read()?;
+                let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
+
+                // Get the manifest string
+                match hash_to_manifest.get(content_hash.as_str())? {
+                    Some(manifest) => manifest.value().to_string(),
+                    None => {
+                        warn!("Manifest not found for content hash: {}, generating minimal manifest", content_hash);
+                        // Generate a minimal manifest as a fallback
+                        format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+                    }
+                }
+            };
+            Ok(Some((metadata, manifest_str)))
+        } else {
+            Ok(None)
+        }
     }
     
     /// Get all entries in the index
     fn get_all_entries(&self) -> Result<Vec<(ObsoletedPackageKey, ObsoletedPackageMetadata, String)>> {
-        // First, collect all key-hash pairs
-        let key_hash_pairs = {
+        let mut entries = Vec::new();
+        let mut processed_keys = std::collections::HashSet::new();
+        
+        // First, collect all entries from the new table
+        {
             let read_txn = self.db.begin_read()?;
-            let fmri_to_hash = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
+            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             
-            let mut pairs = Vec::new();
-            let mut iter = fmri_to_hash.iter()?;
+            let mut iter = fmri_to_metadata.iter()?;
             
             while let Some(entry) = iter.next() {
-                let (key_bytes, hash) = entry?;
+                let (key_bytes, metadata_bytes) = entry?;
+                
                 // Convert to owned types before the transaction is dropped
                 let key_data = key_bytes.value().to_vec();
-                let hash_str = hash.value().to_string();
-                pairs.push((key_data, hash_str));
+                let metadata_data = metadata_bytes.value().to_vec();
+                
+                // Deserialize the key and metadata
+                let key: ObsoletedPackageKey = match deserialize(&key_data) {
+                    Ok(key) => key,
+                    Err(e) => {
+                        warn!("Failed to deserialize key from FMRI_TO_METADATA_TABLE: {}", e);
+                        continue;
+                    }
+                };
+                
+                let metadata: ObsoletedPackageMetadata = match deserialize(&metadata_data) {
+                    Ok(metadata) => metadata,
+                    Err(e) => {
+                        warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE: {}", e);
+                        continue;
+                    }
+                };
+                
+                // Add the key to the set of processed keys
+                processed_keys.insert(key_data);
+                
+                // Get the content hash from the metadata
+                let content_hash = metadata.content_hash.clone();
+                
+                // For NULL_HASH entries, generate a minimal manifest
+                let manifest_str = if content_hash == NULL_HASH {
+                    // Generate a minimal manifest for NULL_HASH entries
+                    format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+                } else {
+                    // For non-NULL_HASH entries, get the manifest from the database
+                    let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
+                    
+                    // Get the manifest string
+                    match hash_to_manifest.get(content_hash.as_str())? {
+                        Some(manifest) => manifest.value().to_string(),
+                        None => {
+                            warn!("Manifest not found for content hash: {}, generating minimal manifest", content_hash);
+                            // Generate a minimal manifest as a fallback
+                            format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+                        }
+                    }
+                };
+                
+                entries.push((key, metadata, manifest_str));
             }
-            
-            pairs
-        };
-        
-        let mut entries = Vec::new();
-        
-        // Process each key-hash pair
-        for (key_data, content_hash) in key_hash_pairs {
-            // Deserialize the key
-            let key: ObsoletedPackageKey = deserialize(&key_data)?;
-            
-            // Get the metadata and manifest for this content hash
-            let (metadata_bytes, manifest_str) = {
-                let read_txn = self.db.begin_read()?;
-                let hash_to_metadata = read_txn.open_table(HASH_TO_METADATA_TABLE)?;
-                let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-                
-                // Get the metadata bytes
-                let metadata_bytes = match hash_to_metadata.get(content_hash.as_str())? {
-                    Some(bytes) => bytes.value().to_vec(),
-                    None => {
-                        // Metadata not found, skip this entry
-                        continue;
-                    }
-                };
-                
-                // Get the manifest string
-                let manifest_str = match hash_to_manifest.get(content_hash.as_str())? {
-                    Some(manifest) => manifest.value().to_string(),
-                    None => {
-                        // Manifest isn't found, skip this entry
-                        continue;
-                    }
-                };
-                
-                (metadata_bytes, manifest_str)
-            };
-            
-            // Deserialize the metadata
-            let metadata: ObsoletedPackageMetadata = deserialize(&metadata_bytes)?;
-            
-            entries.push((key, metadata, manifest_str));
         }
         
         Ok(entries)
@@ -692,48 +758,26 @@ impl RedbObsoletedPackageIndex {
         {
             // Clear all tables by removing all entries
             // Since redb doesn't have a clear() method, we need to iterate and remove each key
-            
-            // Clear fmri_to_hash table
+
+            // Clear hash_to_manifest table
             {
-                let mut fmri_to_hash = write_txn.open_table(FMRI_TO_HASH_TABLE)?;
+                let mut hash_to_manifest = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
                 let keys_to_remove = {
                     // First collect all keys in a separate scope
                     let read_txn = self.db.begin_read()?;
-                    let fmri_to_hash_read = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
+                    let hash_to_manifest_read = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
                     let mut keys = Vec::new();
-                    let mut iter = fmri_to_hash_read.iter()?;
+                    let mut iter = hash_to_manifest_read.iter()?;
                     while let Some(entry) = iter.next() {
                         let (key, _) = entry?;
                         keys.push(key.value().to_vec());
                     }
                     keys
                 };
-                
+
                 // Then remove all keys
                 for key in keys_to_remove {
-                    fmri_to_hash.remove(key.as_slice())?;
-                }
-            }
-            
-            // Clear hash_to_metadata table
-            {
-                let mut hash_to_metadata = write_txn.open_table(HASH_TO_METADATA_TABLE)?;
-                let keys_to_remove = {
-                    // First collect all keys in a separate scope
-                    let read_txn = self.db.begin_read()?;
-                    let hash_to_metadata_read = read_txn.open_table(HASH_TO_METADATA_TABLE)?;
-                    let mut keys = Vec::new();
-                    let mut iter = hash_to_metadata_read.iter()?;
-                    while let Some(entry) = iter.next() {
-                        let (key, _) = entry?;
-                        keys.push(key.value().to_string());
-                    }
-                    keys
-                };
-                
-                // Then remove all keys
-                for key in keys_to_remove {
-                    hash_to_metadata.remove(key.as_str())?;
+                    hash_to_manifest.remove(key.as_slice())?;
                 }
             }
             
@@ -770,7 +814,7 @@ impl RedbObsoletedPackageIndex {
         let read_txn = self.db.begin_read()?;
         
         // Open the fmri_to_hash table
-        let fmri_to_hash = read_txn.open_table(FMRI_TO_HASH_TABLE)?;
+        let fmri_to_hash = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
         
         // Count the entries
         let mut count = 0;
@@ -960,18 +1004,29 @@ impl ObsoletedPackageManager {
         debug!("Building index of obsoleted packages");
         
         // Get a write lock on the index
-        let index = self.index.write().map_err(|e| ObsoletedPackageError::IndexError(format!(
-            "Failed to acquire write lock on index: {}", e
-        )))?;
+        let index = match self.index.write() {
+            Ok(index) => index,
+            Err(e) => {
+                error!("Failed to acquire write lock on index: {}", e);
+                return Err(ObsoletedPackageError::IndexError(format!(
+                    "Failed to acquire write lock on index: {}", e
+                )).into());
+            }
+        };
         
         // Clear the index
-        let _ = index.clear();
+        if let Err(e) = index.clear() {
+            error!("Failed to clear index: {}", e);
+            // Continue anyway, as this is not a fatal error
+        }
         
         // Check if the base path exists
         if !self.base_path.exists() {
             debug!("Obsoleted packages directory does not exist: {}", self.base_path.display());
             return Ok(());
         }
+        
+        debug!("Base path exists: {}", self.base_path.display());
         
         // Walk through the directory structure to find all obsoleted packages
         for publisher_entry in fs::read_dir(&self.base_path)
@@ -1089,12 +1144,33 @@ impl ObsoletedPackageManager {
                                 version_path.display(), e
                             )))?;
                             
-                        // Read the manifest file
-                        let manifest_content = fs::read_to_string(&manifest_path)
-                            .map_err(|e| ObsoletedPackageError::ManifestReadError(format!(
-                                "Failed to read manifest file {}: {}", 
-                                manifest_path.display(), e
-                            )))?;
+                        // For NULL_HASH entries, generate a minimal manifest instead of reading the file
+                        let manifest_content = if metadata.content_hash == NULL_HASH {
+                            // Generate a minimal manifest for NULL_HASH entries
+                            format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+                        } else {
+                            // For non-NULL_HASH entries, read the manifest file
+                            fs::read_to_string(&manifest_path)
+                                .map_err(|e| ObsoletedPackageError::ManifestReadError(format!(
+                                    "Failed to read manifest file {}: {}", 
+                                    manifest_path.display(), e
+                                )))?
+                        };
                         
                         // Add the entry to the index
                         index.add_entry(&key, &metadata, &manifest_content)?;
@@ -1156,12 +1232,33 @@ impl ObsoletedPackageManager {
                 metadata_path.display(), e
             )))?;
             
-        // Read the manifest file
-        let manifest_content = fs::read_to_string(manifest_path)
-            .map_err(|e| ObsoletedPackageError::ManifestReadError(format!(
-                "Failed to read manifest file {}: {}", 
-                manifest_path.display(), e
-            )))?;
+        // For NULL_HASH entries, generate a minimal manifest instead of reading the file
+        let manifest_content = if metadata.content_hash == NULL_HASH {
+            // Generate a minimal manifest for NULL_HASH entries
+            format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, metadata.fmri)
+        } else {
+            // For non-NULL_HASH entries, read the manifest file
+            fs::read_to_string(manifest_path)
+                .map_err(|e| ObsoletedPackageError::ManifestReadError(format!(
+                    "Failed to read manifest file {}: {}", 
+                    manifest_path.display(), e
+                )))?
+        };
         
         // Add the entry to the index
         index.add_entry(&key, &metadata, &manifest_content)?;
@@ -1695,19 +1792,36 @@ impl ObsoletedPackageManager {
     /// This method returns all obsoleted packages for a publisher without pagination.
     /// For large repositories, consider using `list_obsoleted_packages_paginated` instead.
     pub fn list_obsoleted_packages(&self, publisher: &str) -> Result<Vec<Fmri>> {
+        // First, try to use the index to get the list of packages
+        match self.list_obsoleted_packages_from_index(publisher) {
+            Ok(packages) => Ok(packages),
+            Err(e) => {
+                // If there's an error with the index, log it and fall back to the filesystem
+                warn!("Failed to list obsoleted packages from index: {}", e);
+                warn!("Falling back to filesystem-based listing");
+                self.list_obsoleted_packages_from_filesystem(publisher)
+            }
+        }
+    }
+    
+    /// List all obsoleted packages for a publisher using the index
+    ///
+    /// This is a helper method that attempts to list packages using the redb index.
+    /// If it fails, the main list_obsoleted_packages method will fall back to the filesystem.
+    fn list_obsoleted_packages_from_index(&self, publisher: &str) -> Result<Vec<Fmri>> {
         // Ensure the index is fresh
         if let Err(e) = self.ensure_index_is_fresh() {
             warn!("Failed to ensure index is fresh: {}", e);
-            // Fall back to the filesystem check if the index is not available
-            return self.list_obsoleted_packages_from_filesystem(publisher);
+            return Err(e);
         }
         
         // Try to get a read lock on the index
         let index_read_result = self.index.read();
         if let Err(e) = index_read_result {
             warn!("Failed to acquire read lock on index: {}", e);
-            // Fall back to the filesystem check if the index is not available
-            return self.list_obsoleted_packages_from_filesystem(publisher);
+            return Err(ObsoletedPackageError::IndexError(format!(
+                "Failed to acquire read lock on index: {}", e
+            )).into());
         }
         
         let index = index_read_result.unwrap();
@@ -1717,8 +1831,7 @@ impl ObsoletedPackageManager {
             Ok(entries) => entries,
             Err(e) => {
                 warn!("Failed to get entries for publisher from index: {}", e);
-                // Fall back to the filesystem check if there's an error
-                return self.list_obsoleted_packages_from_filesystem(publisher);
+                return Err(e);
             }
         };
         
@@ -1727,8 +1840,13 @@ impl ObsoletedPackageManager {
         for (key, _, _) in entries {
             // Try to parse the FMRI from the components
             let fmri_str = format!("pkg://{}/{}@{}", key.publisher, key.stem, key.version);
-            if let Ok(fmri) = Fmri::parse(&fmri_str) {
-                packages.push(fmri);
+            match Fmri::parse(&fmri_str) {
+                Ok(fmri) => packages.push(fmri),
+                Err(e) => {
+                    warn!("Failed to parse FMRI {}: {}", fmri_str, e);
+                    // Continue with the next entry
+                    continue;
+                }
             }
         }
         
