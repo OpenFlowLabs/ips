@@ -221,6 +221,8 @@ pub struct FileBackend {
     /// Catalog manager for handling catalog operations
     /// Uses RefCell for interior mutability to allow mutation through immutable references
     catalog_manager: Option<std::cell::RefCell<crate::repository::catalog::CatalogManager>>,
+    /// Manager for obsoleted packages
+    obsoleted_manager: Option<std::cell::RefCell<crate::repository::obsoleted::ObsoletedPackageManager>>,
 }
 
 /// Format a SystemTime as an ISO 8601 timestamp string
@@ -616,6 +618,7 @@ impl ReadableRepository for FileBackend {
             path: path.to_path_buf(),
             config,
             catalog_manager: None,
+            obsoleted_manager: None,
         })
     }
 
@@ -1295,6 +1298,7 @@ impl WritableRepository for FileBackend {
             path: path.to_path_buf(),
             config,
             catalog_manager: None,
+            obsoleted_manager: None,
         };
 
         // Create the repository directories
@@ -1582,19 +1586,27 @@ impl FileBackend {
                                             }
 
                                             // If the publisher is not set in the FMRI, use the current publisher
-                                            if parsed_fmri.publisher.is_none() {
+                                            let final_fmri = if parsed_fmri.publisher.is_none() {
                                                 let mut fmri_with_publisher = parsed_fmri.clone();
                                                 fmri_with_publisher.publisher =
                                                     Some(publisher.to_string());
-
-                                                // Create a PackageInfo struct and add it to the list
-                                                packages.push(PackageInfo {
-                                                    fmri: fmri_with_publisher,
-                                                });
+                                                fmri_with_publisher
                                             } else {
+                                                parsed_fmri.clone()
+                                            };
+                                            
+                                            // Check if the package is obsoleted
+                                            let is_obsoleted = if let Some(obsoleted_manager) = &self.obsoleted_manager {
+                                                obsoleted_manager.borrow().is_obsoleted(publisher, &final_fmri)
+                                            } else {
+                                                false
+                                            };
+                                            
+                                            // Only add the package if it's not obsoleted
+                                            if !is_obsoleted {
                                                 // Create a PackageInfo struct and add it to the list
                                                 packages.push(PackageInfo {
-                                                    fmri: parsed_fmri.clone(),
+                                                    fmri: final_fmri,
                                                 });
                                             }
 
@@ -1635,6 +1647,7 @@ impl FileBackend {
         fs::create_dir_all(self.path.join("index"))?;
         fs::create_dir_all(self.path.join("pkg"))?;
         fs::create_dir_all(self.path.join("trans"))?;
+        fs::create_dir_all(self.path.join("obsoleted"))?;
 
         Ok(())
     }
@@ -1959,6 +1972,23 @@ impl FileBackend {
 
         // This is safe because we just checked that catalog_manager is Some
         Ok(self.catalog_manager.as_ref().unwrap().borrow_mut())
+    }
+    
+    /// Get or initialize the obsoleted package manager
+    ///
+    /// This method returns a mutable reference to the obsoleted package manager.
+    /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
+    pub fn get_obsoleted_manager(
+        &mut self,
+    ) -> Result<std::cell::RefMut<crate::repository::obsoleted::ObsoletedPackageManager>> {
+        if self.obsoleted_manager.is_none() {
+            let manager = crate::repository::obsoleted::ObsoletedPackageManager::new(&self.path);
+            let refcell = std::cell::RefCell::new(manager);
+            self.obsoleted_manager = Some(refcell);
+        }
+
+        // This is safe because we just checked that obsoleted_manager is Some
+        Ok(self.obsoleted_manager.as_ref().unwrap().borrow_mut())
     }
 
     /// URL encode a string for use in a filename

@@ -1,4 +1,5 @@
 use libips::actions::ActionError;
+use libips::fmri::FmriError;
 use libips::repository;
 use miette::Diagnostic;
 use thiserror::Error;
@@ -71,5 +72,12 @@ impl From<String> for Pkg6RepoError {
 impl From<&str> for Pkg6RepoError {
     fn from(s: &str) -> Self {
         Pkg6RepoError::Other(s.to_string())
+    }
+}
+
+/// Convert a FmriError to a Pkg6RepoError
+impl From<FmriError> for Pkg6RepoError {
+    fn from(err: FmriError) -> Self {
+        Pkg6RepoError::Other(format!("FMRI error: {}", err))
     }
 }

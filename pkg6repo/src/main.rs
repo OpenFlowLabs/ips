@@ -3,6 +3,22 @@ mod pkg5_import;
 use error::{Pkg6RepoError, Result};
 use pkg5_import::Pkg5Importer;
 
+/// URL encode a string for use in a filename
+fn url_encode(s: &str) -> String {
+    let mut result = String::new();
+    for c in s.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
+            ' ' => result.push('+'),
+            _ => {
+                result.push('%');
+                result.push_str(&format!("{:02X}", c as u8));
+            }
+        }
+    }
+    result
+}
+
 use clap::{Parser, Subcommand};
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 use serde::Serialize;
@@ -38,6 +54,22 @@ struct PackagesOutput {
 struct SearchOutput {
     query: String,
     results: Vec<libips::repository::PackageInfo>,
+}
+
+#[derive(Serialize)]
+struct ObsoletedPackagesOutput {
+    packages: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ObsoletedPackageDetailsOutput {
+    fmri: String,
+    status: String,
+    obsolescence_date: String,
+    deprecation_message: Option<String>,
+    obsoleted_by: Option<Vec<String>>,
+    metadata_version: u32,
+    content_hash: String,
 }
 
 /// pkg6repo - Image Packaging System repository management utility
@@ -316,6 +348,155 @@ enum Commands {
 
         /// Publisher to import (defaults to the first publisher found)
         #[clap(short = 'p', long)]
+        publisher: Option<String>,
+    },
+    
+    /// Mark a package as obsoleted
+    ObsoletePackage {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Publisher of the package
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// FMRI of the package to mark as obsoleted
+        #[clap(short = 'f')]
+        fmri: String,
+        
+        /// Optional deprecation message explaining why the package is obsoleted
+        #[clap(short = 'm', long = "message")]
+        message: Option<String>,
+        
+        /// Optional list of packages that replace this obsoleted package
+        #[clap(short = 'r', long = "replaced-by")]
+        replaced_by: Option<Vec<String>>,
+    },
+    
+    /// List obsoleted packages in a repository
+    ListObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Output format
+        #[clap(short = 'F')]
+        format: Option<String>,
+        
+        /// Omit headers
+        #[clap(short = 'H')]
+        omit_headers: bool,
+        
+        /// Publisher to list obsoleted packages for
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// Page number (1-based, defaults to 1)
+        #[clap(long = "page")]
+        page: Option<usize>,
+        
+        /// Number of packages per page (defaults to 100, 0 for all)
+        #[clap(long = "page-size")]
+        page_size: Option<usize>,
+    },
+    
+    /// Show details of an obsoleted package
+    ShowObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Output format
+        #[clap(short = 'F')]
+        format: Option<String>,
+        
+        /// Publisher of the package
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// FMRI of the obsoleted package to show
+        #[clap(short = 'f')]
+        fmri: String,
+    },
+    
+    /// Search for obsoleted packages
+    SearchObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Output format
+        #[clap(short = 'F')]
+        format: Option<String>,
+        
+        /// Omit headers
+        #[clap(short = 'H')]
+        omit_headers: bool,
+        
+        /// Publisher to search obsoleted packages for
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// Search pattern (supports glob patterns)
+        #[clap(short = 'q')]
+        pattern: String,
+        
+        /// Maximum number of results to return
+        #[clap(short = 'n', long = "limit")]
+        limit: Option<usize>,
+    },
+    
+    /// Restore an obsoleted package to the main repository
+    RestoreObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Publisher of the package
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// FMRI of the obsoleted package to restore
+        #[clap(short = 'f')]
+        fmri: String,
+        
+        /// Skip rebuilding the catalog after restoration
+        #[clap(long = "no-rebuild")]
+        no_rebuild: bool,
+    },
+    
+    /// Export obsoleted packages to a file
+    ExportObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Publisher to export obsoleted packages for
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// Output file path
+        #[clap(short = 'o')]
+        output_file: String,
+        
+        /// Optional search pattern to filter packages
+        #[clap(short = 'q')]
+        pattern: Option<String>,
+    },
+    
+    /// Import obsoleted packages from a file
+    ImportObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Input file path
+        #[clap(short = 'i')]
+        input_file: String,
+        
+        /// Override publisher (use this instead of the one in the export file)
+        #[clap(short = 'p')]
         publisher: Option<String>,
     },
 }
@@ -1088,6 +1269,491 @@ fn main() -> Result<()> {
             importer.import(publisher.as_deref())?;
 
             info!("Repository imported successfully");
+            Ok(())
+        },
+        
+        Commands::ObsoletePackage {
+            repo_uri_or_path,
+            publisher,
+            fmri,
+            message,
+            replaced_by,
+        } => {
+            info!("Marking package as obsoleted: {}", fmri);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Parse the FMRI
+            let parsed_fmri = libips::fmri::Fmri::parse(fmri)?;
+            
+            // Get the manifest for the package
+            let pkg_dir = repo.path.join("pkg").join(publisher).join(parsed_fmri.stem());
+            let encoded_version = url_encode(&parsed_fmri.version());
+            let manifest_path = pkg_dir.join(&encoded_version);
+            
+            if !manifest_path.exists() {
+                return Err(Pkg6RepoError::from(format!(
+                    "Package not found: {}",
+                    parsed_fmri
+                )));
+            }
+            
+            // Read the manifest content
+            let manifest_content = std::fs::read_to_string(&manifest_path)?;
+            
+            // Create a new scope for the obsoleted_manager to ensure it's dropped before we call repo.rebuild()
+            {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Store the obsoleted package
+                obsoleted_manager.store_obsoleted_package(
+                    publisher,
+                    &parsed_fmri,
+                    &manifest_content,
+                    replaced_by.clone(),
+                    message.clone(),
+                )?;
+            } // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            // Remove the original package from the repository
+            std::fs::remove_file(&manifest_path)?;
+            
+            // Rebuild the catalog to reflect the changes
+            repo.rebuild(Some(publisher), false, false)?;
+            
+            info!("Package marked as obsoleted successfully: {}", parsed_fmri);
+            Ok(())
+        },
+        
+        Commands::ListObsoleted {
+            repo_uri_or_path,
+            format,
+            omit_headers,
+            publisher,
+            page,
+            page_size,
+        } => {
+            info!("Listing obsoleted packages for publisher: {}", publisher);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Get the obsoleted packages in a new scope to avoid borrowing issues
+            let paginated_result = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // List obsoleted packages with pagination
+                obsoleted_manager.list_obsoleted_packages_paginated(publisher, page.clone(), page_size.clone())?
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
+            
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<30} {:<15} {:<10}", "NAME", "VERSION", "PUBLISHER");
+                    }
+                    
+                    // Print packages
+                    for fmri in &paginated_result.packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = fmri.version();
+                        
+                        let publisher_str = match &fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!(
+                            "{:<30} {:<15} {:<10}",
+                            fmri.stem(),
+                            version_str,
+                            publisher_str
+                        );
+                    }
+                    
+                    // Print pagination information
+                    println!("\nPage {} of {} (Total: {} packages)", 
+                        paginated_result.page, 
+                        paginated_result.total_pages, 
+                        paginated_result.total_count);
+                },
+                "json" => {
+                    // Create a JSON representation of the obsoleted packages with pagination info
+                    #[derive(Serialize)]
+                    struct PaginatedOutput {
+                        packages: Vec<String>,
+                        page: usize,
+                        page_size: usize,
+                        total_pages: usize,
+                        total_count: usize,
+                    }
+                    
+                    let packages_str: Vec<String> = paginated_result.packages.iter().map(|f| f.to_string()).collect();
+                    let paginated_output = PaginatedOutput {
+                        packages: packages_str,
+                        page: paginated_result.page,
+                        page_size: paginated_result.page_size,
+                        total_pages: paginated_result.total_pages,
+                        total_count: paginated_result.total_count,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&paginated_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("NAME\tVERSION\tPUBLISHER");
+                    }
+                    
+                    // Print packages as tab-separated values
+                    for fmri in &paginated_result.packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = fmri.version();
+                        
+                        let publisher_str = match &fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!(
+                            "{}\t{}\t{}",
+                            fmri.stem(),
+                            version_str,
+                            publisher_str
+                        );
+                    }
+                    
+                    // Print pagination information
+                    println!("\nPAGE\t{}\nTOTAL_PAGES\t{}\nTOTAL_COUNT\t{}", 
+                        paginated_result.page, 
+                        paginated_result.total_pages, 
+                        paginated_result.total_count);
+                },
+                _ => {
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
+                }
+            }
+            
+            Ok(())
+        },
+        
+        Commands::ShowObsoleted {
+            repo_uri_or_path,
+            format,
+            publisher,
+            fmri,
+        } => {
+            info!("Showing details of obsoleted package: {}", fmri);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Parse the FMRI
+            let parsed_fmri = libips::fmri::Fmri::parse(fmri)?;
+            
+            // Get the obsoleted package metadata in a new scope to avoid borrowing issues
+            let metadata = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Get the obsoleted package metadata
+                match obsoleted_manager.get_obsoleted_package_metadata(publisher, &parsed_fmri)? {
+                    Some(metadata) => metadata,
+                    None => {
+                        return Err(Pkg6RepoError::from(format!(
+                            "Obsoleted package not found: {}",
+                            parsed_fmri
+                        )));
+                    }
+                }
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
+            
+            match output_format {
+                "table" => {
+                    println!("FMRI: {}", metadata.fmri);
+                    println!("Status: {}", metadata.status);
+                    println!("Obsolescence Date: {}", metadata.obsolescence_date);
+                    
+                    if let Some(msg) = &metadata.deprecation_message {
+                        println!("Deprecation Message: {}", msg);
+                    }
+                    
+                    if let Some(replacements) = &metadata.obsoleted_by {
+                        println!("Replaced By:");
+                        for replacement in replacements {
+                            println!("  {}", replacement);
+                        }
+                    }
+                    
+                    println!("Metadata Version: {}", metadata.metadata_version);
+                    println!("Content Hash: {}", metadata.content_hash);
+                },
+                "json" => {
+                    // Create a JSON representation of the obsoleted package details
+                    let details_output = ObsoletedPackageDetailsOutput {
+                        fmri: metadata.fmri,
+                        status: metadata.status,
+                        obsolescence_date: metadata.obsolescence_date,
+                        deprecation_message: metadata.deprecation_message,
+                        obsoleted_by: metadata.obsoleted_by,
+                        metadata_version: metadata.metadata_version,
+                        content_hash: metadata.content_hash,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&details_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    println!("FMRI\t{}", metadata.fmri);
+                    println!("Status\t{}", metadata.status);
+                    println!("ObsolescenceDate\t{}", metadata.obsolescence_date);
+                    
+                    if let Some(msg) = &metadata.deprecation_message {
+                        println!("DeprecationMessage\t{}", msg);
+                    }
+                    
+                    if let Some(replacements) = &metadata.obsoleted_by {
+                        for (i, replacement) in replacements.iter().enumerate() {
+                            println!("ReplacedBy{}\t{}", i + 1, replacement);
+                        }
+                    }
+                    
+                    println!("MetadataVersion\t{}", metadata.metadata_version);
+                    println!("ContentHash\t{}", metadata.content_hash);
+                },
+                _ => {
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
+                }
+            }
+            
+            Ok(())
+        },
+        
+        Commands::SearchObsoleted {
+            repo_uri_or_path,
+            format,
+            omit_headers,
+            publisher,
+            pattern,
+            limit,
+        } => {
+            info!("Searching for obsoleted packages: {} (publisher: {})", pattern, publisher);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Get the obsoleted packages in a new scope to avoid borrowing issues
+            let obsoleted_packages = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Search for obsoleted packages
+                let mut packages = obsoleted_manager.search_obsoleted_packages(publisher, pattern)?;
+                
+                // Apply limit if specified
+                if let Some(max_results) = limit {
+                    packages.truncate(*max_results);
+                }
+                
+                packages
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            // Determine the output format
+            let output_format = format.as_deref().unwrap_or("table");
+            
+            match output_format {
+                "table" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("{:<30} {:<15} {:<10}", "NAME", "VERSION", "PUBLISHER");
+                    }
+                    
+                    // Print packages
+                    for fmri in obsoleted_packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = fmri.version();
+                        
+                        let publisher_str = match &fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!(
+                            "{:<30} {:<15} {:<10}",
+                            fmri.stem(),
+                            version_str,
+                            publisher_str
+                        );
+                    }
+                },
+                "json" => {
+                    // Create a JSON representation of the obsoleted packages
+                    let packages_str: Vec<String> = obsoleted_packages.iter().map(|f| f.to_string()).collect();
+                    let packages_output = ObsoletedPackagesOutput {
+                        packages: packages_str,
+                    };
+                    
+                    // Serialize to pretty-printed JSON
+                    let json_output = serde_json::to_string_pretty(&packages_output)
+                        .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
+                    
+                    println!("{}", json_output);
+                },
+                "tsv" => {
+                    // Print headers if not omitted
+                    if !omit_headers {
+                        println!("NAME\tVERSION\tPUBLISHER");
+                    }
+                    
+                    // Print packages as tab-separated values
+                    for fmri in obsoleted_packages {
+                        // Format version and publisher, handling optional fields
+                        let version_str = fmri.version();
+                        
+                        let publisher_str = match &fmri.publisher {
+                            Some(publisher) => publisher.clone(),
+                            None => String::new(),
+                        };
+                        
+                        println!(
+                            "{}\t{}\t{}",
+                            fmri.stem(),
+                            version_str,
+                            publisher_str
+                        );
+                    }
+                },
+                _ => {
+                    return Err(Pkg6RepoError::UnsupportedOutputFormat(
+                        output_format.to_string(),
+                    ));
+                }
+            }
+            
+            Ok(())
+        },
+        
+        Commands::RestoreObsoleted {
+            repo_uri_or_path,
+            publisher,
+            fmri,
+            no_rebuild,
+        } => {
+            info!("Restoring obsoleted package: {} (publisher: {})", fmri, publisher);
+            
+            // Parse the FMRI
+            let parsed_fmri = libips::fmri::Fmri::parse(fmri)?;
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Get the manifest content and remove the obsoleted package
+            let manifest_content = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Get the manifest content and remove the obsoleted package
+                obsoleted_manager.get_and_remove_obsoleted_package(publisher, &parsed_fmri)?
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            // Parse the manifest
+            let manifest = libips::actions::Manifest::parse_string(manifest_content)?;
+            
+            // Begin a transaction
+            let mut transaction = repo.begin_transaction()?;
+            
+            // Set the publisher for the transaction
+            transaction.set_publisher(publisher);
+            
+            // Update the manifest in the transaction
+            transaction.update_manifest(manifest);
+            
+            // Commit the transaction
+            transaction.commit()?;
+            
+            // Rebuild the catalog if not disabled
+            if !no_rebuild {
+                info!("Rebuilding catalog...");
+                repo.rebuild(Some(publisher), false, false)?;
+            }
+            
+            info!("Package restored successfully: {}", parsed_fmri);
+            Ok(())
+        },
+        
+        Commands::ExportObsoleted {
+            repo_uri_or_path,
+            publisher,
+            output_file,
+            pattern,
+        } => {
+            info!("Exporting obsoleted packages for publisher: {}", publisher);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Export the obsoleted packages
+            let count = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Export the obsoleted packages
+                let output_path = PathBuf::from(output_file);
+                obsoleted_manager.export_obsoleted_packages(
+                    publisher,
+                    pattern.as_deref(),
+                    &output_path,
+                )?
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            info!("Exported {} obsoleted packages to {}", count, output_file);
+            Ok(())
+        },
+        
+        Commands::ImportObsoleted {
+            repo_uri_or_path,
+            input_file,
+            publisher,
+        } => {
+            info!("Importing obsoleted packages from {}", input_file);
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Import the obsoleted packages
+            let count = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Import the obsoleted packages
+                let input_path = PathBuf::from(input_file);
+                obsoleted_manager.import_obsoleted_packages(
+                    &input_path,
+                    publisher.as_deref(),
+                )?
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            info!("Imported {} obsoleted packages", count);
             Ok(())
         }
     }

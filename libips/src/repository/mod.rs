@@ -155,8 +155,52 @@ impl From<StripPrefixError> for RepositoryError {
     }
 }
 
+// Implement From for redb error types
+impl From<redb::Error> for RepositoryError {
+    fn from(err: redb::Error) -> Self {
+        RepositoryError::Other(format!("Database error: {}", err))
+    }
+}
+
+impl From<redb::DatabaseError> for RepositoryError {
+    fn from(err: redb::DatabaseError) -> Self {
+        RepositoryError::Other(format!("Database error: {}", err))
+    }
+}
+
+impl From<redb::TransactionError> for RepositoryError {
+    fn from(err: redb::TransactionError) -> Self {
+        RepositoryError::Other(format!("Transaction error: {}", err))
+    }
+}
+
+impl From<redb::TableError> for RepositoryError {
+    fn from(err: redb::TableError) -> Self {
+        RepositoryError::Other(format!("Table error: {}", err))
+    }
+}
+
+impl From<redb::StorageError> for RepositoryError {
+    fn from(err: redb::StorageError) -> Self {
+        RepositoryError::Other(format!("Storage error: {}", err))
+    }
+}
+
+impl From<redb::CommitError> for RepositoryError {
+    fn from(err: redb::CommitError) -> Self {
+        RepositoryError::Other(format!("Commit error: {}", err))
+    }
+}
+
+impl From<bincode::Error> for RepositoryError {
+    fn from(err: bincode::Error) -> Self {
+        RepositoryError::Other(format!("Serialization error: {}", err))
+    }
+}
+
 mod catalog;
 mod file_backend;
+mod obsoleted;
 mod rest_backend;
 #[cfg(test)]
 mod tests;
@@ -167,6 +211,7 @@ pub use catalog::{
     CatalogAttrs, CatalogError, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog,
 };
 pub use file_backend::FileBackend;
+pub use obsoleted::{ObsoletedPackageManager, ObsoletedPackageMetadata};
 pub use rest_backend::RestBackend;
 
 /// Repository configuration filename
