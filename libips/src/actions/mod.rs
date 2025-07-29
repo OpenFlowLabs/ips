@@ -20,6 +20,7 @@ use std::path::Path;
 use std::result::Result as StdResult;
 use std::str::FromStr;
 use thiserror::Error;
+use tracing::debug;
 
 type Result<T> = StdResult<T, ActionError>;
 
@@ -99,6 +100,7 @@ pub struct Dir {
     pub mode: String, //TODO implement as bitmask
     pub revert_tag: String,
     pub salvage_from: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -157,7 +159,9 @@ pub struct File {
     pub original_name: String,
     pub revert_tag: String,
     pub sys_attr: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub properties: Vec<Property>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -285,7 +289,9 @@ pub struct Dependency {
     pub dependency_type: String, //TODO make enum
     pub predicate: Option<Fmri>, // FMRI for conditional dependencies
     pub root_image: String,      //TODO make boolean
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub optional: Vec<Property>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -365,7 +371,9 @@ impl Facet {
 ))]
 pub struct Attr {
     pub key: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub values: Vec<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
 }
 
@@ -405,6 +413,7 @@ impl From<Action> for Attr {
 ))]
 pub struct License {
     pub payload: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
 }
 
@@ -437,6 +446,7 @@ impl From<Action> for License {
 pub struct Link {
     pub path: String,
     pub target: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
 }
 
@@ -481,9 +491,12 @@ pub struct User {
     pub home_dir: String,
     pub login_shell: String,
     pub password: String,
+    #[serde(skip_serializing_if = "HashSet::is_empty", default)]
     pub services: HashSet<String>,
     pub gcos_field: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -562,7 +575,9 @@ impl FacetedAction for User {
 pub struct Group {
     pub groupname: String,
     pub gid: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -620,7 +635,9 @@ pub struct Driver {
     pub perms: String,
     pub clone_perms: String,
     pub alias: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub facets: HashMap<String, Facet>,
 }
 
@@ -684,6 +701,7 @@ pub struct Legacy {
     pub pkg: String,
     pub vendor: String,
     pub version: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
 }
 
@@ -733,6 +751,7 @@ pub struct Transform {
     pub match_type: String,
     pub operation: String,
     pub value: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, Property>,
 }
 
@@ -783,16 +802,28 @@ pub struct Property {
     #[derive(Debug, PartialEq)]
 ))]
 pub struct Manifest {
+    // Don't skip serializing attributes, as they contain critical information like pkg.fmri
+    #[serde(default)]
     pub attributes: Vec<Attr>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub directories: Vec<Dir>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub files: Vec<File>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub dependencies: Vec<Dependency>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub licenses: Vec<License>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub links: Vec<Link>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub users: Vec<User>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub groups: Vec<Group>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub drivers: Vec<Driver>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub legacies: Vec<Legacy>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub transforms: Vec<Transform>,
 }
 
@@ -864,7 +895,8 @@ impl Manifest {
         // Try to parse as JSON first
         match serde_json::from_str::<Manifest>(&content) {
             Ok(manifest) => Ok(manifest),
-            Err(_) => {
+            Err(err) => {
+                debug!("Manifest::parse_file: Error in JSON deserialization: {}. Continuing with mtree like format parsing", err);
                 // If JSON parsing fails, fall back to string format
                 Manifest::parse_string(content)
             }

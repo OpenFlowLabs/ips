@@ -8,6 +8,7 @@ use std::collections::HashMap;
     #[derive(Debug, PartialEq)]
 ))]
 struct Manifest {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     files: HashMap<String, File>,
 }
 
