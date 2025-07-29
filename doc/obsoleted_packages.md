@@ -65,7 +65,40 @@ The fields in the metadata are:
 - `deprecation_message`: Optional message explaining why the package was obsoleted
 - `obsoleted_by`: Optional list of FMRIs that replace this package
 - `metadata_version`: Version of the metadata schema (currently 1)
-- `content_hash`: Hash of the original manifest content for integrity verification
+- `content_hash`: Hash of the original manifest content for integrity verification, or "null" if the original manifest is not stored
+
+### Null Hash for Obsoleted Packages
+
+For obsoleted packages that don't provide any useful information beyond the fact that they are obsoleted, the system supports a special "null hash" mode. In this mode:
+
+1. The `content_hash` field in the metadata is set to the string "null"
+2. The original manifest file is not stored, saving disk space
+3. When a client requests the manifest, a minimal manifest with obsoletion attributes is generated on-the-fly
+
+This approach is particularly useful when importing large numbers of obsoleted packages from a pkg5 repository, as it significantly reduces the storage requirements while still providing the necessary information to clients.
+
+The minimal manifest generated for a null hash obsoleted package looks like this:
+
+```json
+{
+    "attributes": [
+        {
+            "key": "pkg.fmri",
+            "values": [
+                "pkg://publisher/package@version"
+            ]
+        },
+        {
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }
+    ]
+}
+```
+
+This contains just enough information for clients to know that the package is obsoleted.
 
 ## CLI Commands
 

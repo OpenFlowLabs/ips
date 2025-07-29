@@ -428,14 +428,20 @@ impl Pkg5Importer {
             // Get the obsoleted package manager
             let obsoleted_manager = dest_repo.get_obsoleted_manager()?;
             
-            // Store the obsoleted package
-            debug!("Storing obsoleted package in dedicated directory");
-            obsoleted_manager.store_obsoleted_package(
+            // Store the obsoleted package with null hash (don't store the original manifest)
+            // This saves storage space for obsoleted packages that don't provide any useful
+            // information beyond the fact that they are obsoleted. When a client requests
+            // the manifest for such a package, a minimal manifest with obsoletion attributes
+            // is generated on-the-fly. This is especially beneficial when importing large
+            // numbers of obsoleted packages from a pkg5 repository.
+            debug!("Storing obsoleted package in dedicated directory with null hash");
+            obsoleted_manager.store_obsoleted_package_with_options(
                 publisher,
                 &fmri,
                 &manifest_content,
                 None, // No obsoleted_by information available
                 None, // No deprecation message available
+                false, // Don't store the original manifest, use null hash instead
             )?;
             
             info!("Stored obsoleted package: {}", fmri);

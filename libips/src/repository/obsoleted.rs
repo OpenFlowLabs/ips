@@ -799,6 +799,11 @@ impl RedbObsoletedPackageIndex {
 
 
 
+/// Constant for null hash value, indicating no manifest content is stored
+/// When this value is used for content_hash, the original manifest is not stored
+/// and a minimal manifest with obsoletion attributes is generated on-the-fly when requested
+pub const NULL_HASH: &str = "null";
+
 /// Represents metadata for an obsoleted package
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObsoletedPackageMetadata {
@@ -823,12 +828,17 @@ pub struct ObsoletedPackageMetadata {
     pub metadata_version: u32,
     
     /// Hash of the original manifest content
+    /// If set to NULL_HASH, no manifest content is stored and a minimal manifest
+    /// with obsoletion attributes will be generated when requested.
+    /// This is particularly useful for obsoleted packages that don't provide any
+    /// useful information beyond the fact that they are obsoleted, as it saves
+    /// storage space while still providing the necessary information to clients.
     pub content_hash: String,
 }
 
 
 impl ObsoletedPackageMetadata {
-    /// Create a new ObsoletedPackageMetadata instance
+    /// Create a new ObsoletedPackageMetadata instance with the given content hash
     pub fn new(
         fmri: &str,
         content_hash: &str,
@@ -858,6 +868,18 @@ impl ObsoletedPackageMetadata {
             content_hash: content_hash.to_string(),
         }
     }
+    
+    /// Create a new ObsoletedPackageMetadata instance with a null hash
+    /// 
+    /// This indicates that no manifest content is stored and a minimal manifest
+    /// with obsoletion attributes will be generated when requested.
+    pub fn new_with_null_hash(
+        fmri: &str,
+        obsoleted_by: Option<Vec<String>>,
+        deprecation_message: Option<String>,
+    ) -> Self {
+        Self::new(fmri, NULL_HASH, obsoleted_by, deprecation_message)
+    }
 }
 
 /// Manages obsoleted packages in the repository
@@ -869,6 +891,38 @@ pub struct ObsoletedPackageManager {
 }
 
 impl ObsoletedPackageManager {
+    /// Store an obsoleted package
+    ///
+    /// # Arguments
+    ///
+    /// * `publisher` - The publisher of the package
+    /// * `fmri` - The FMRI of the package
+    /// * `manifest_content` - The manifest content
+    /// * `obsoleted_by` - Optional list of FMRIs that replace this package
+    /// * `deprecation_message` - Optional message explaining why the package was obsoleted
+    ///
+    /// # Returns
+    ///
+    /// The path to the metadata file
+    pub fn store_obsoleted_package(
+        &self,
+        publisher: &str,
+        fmri: &Fmri,
+        manifest_content: &str,
+        obsoleted_by: Option<Vec<String>>,
+        deprecation_message: Option<String>,
+    ) -> Result<PathBuf> {
+        // Call the method with options, setting store_manifest to true
+        self.store_obsoleted_package_with_options(
+            publisher,
+            fmri,
+            manifest_content,
+            obsoleted_by,
+            deprecation_message,
+            true, // Always store the manifest for backward compatibility
+        )
+    }
+
     /// Create a new ObsoletedPackageManager
     pub fn new<P: AsRef<Path>>(repo_path: P) -> Self {
         let base_path = repo_path.as_ref().join("obsoleted");
@@ -1114,31 +1168,65 @@ impl ObsoletedPackageManager {
         Ok(())
     }
 
-    /// Store an obsoleted package
-    pub fn store_obsoleted_package(
+    /// Store an obsoleted package with additional options
+    ///
+    /// This method allows storing an obsoleted package with or without the original manifest content.
+    /// When `store_manifest` is false, the original manifest is not stored, and a null hash is used
+    /// in the metadata. When a client requests the manifest for such a package, a minimal manifest
+    /// with obsoletion attributes is generated on-the-fly.
+    ///
+    /// This approach is particularly useful for obsoleted packages that don't provide any useful
+    /// information beyond the fact that they are obsoleted, as it saves storage space while still
+    /// providing the necessary information to clients. It's especially beneficial when importing
+    /// large numbers of obsoleted packages from a pkg5 repository.
+    ///
+    /// # Arguments
+    ///
+    /// * `publisher` - The publisher of the package
+    /// * `fmri` - The FMRI of the package
+    /// * `manifest_content` - The manifest content (used for hash calculation if `store_manifest` is true)
+    /// * `obsoleted_by` - Optional list of FMRIs that replace this package
+    /// * `deprecation_message` - Optional message explaining why the package was obsoleted
+    /// * `store_manifest` - Whether to store the original manifest content
+    ///   If false, a null hash is used and no manifest file is stored
+    ///
+    /// # Returns
+    ///
+    /// The path to the metadata file
+    pub fn store_obsoleted_package_with_options(
         &self,
         publisher: &str,
         fmri: &Fmri,
         manifest_content: &str,
         obsoleted_by: Option<Vec<String>>,
         deprecation_message: Option<String>,
+        store_manifest: bool,
     ) -> Result<PathBuf> {
         // Create a publisher directory if it doesn't exist
         let publisher_dir = self.base_path.join(publisher);
         fs::create_dir_all(&publisher_dir)?;
 
-        // Calculate content hash
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(manifest_content.as_bytes());
-        let content_hash = format!("sha256-{:x}", hasher.finalize());
-
         // Create metadata
-        let metadata = ObsoletedPackageMetadata::new(
-            &fmri.to_string(),
-            &content_hash,
-            obsoleted_by,
-            deprecation_message,
-        );
+        let metadata = if store_manifest {
+            // Calculate content hash
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(manifest_content.as_bytes());
+            let content_hash = format!("sha256-{:x}", hasher.finalize());
+
+            ObsoletedPackageMetadata::new(
+                &fmri.to_string(),
+                &content_hash,
+                obsoleted_by,
+                deprecation_message,
+            )
+        } else {
+            // Use null hash
+            ObsoletedPackageMetadata::new_with_null_hash(
+                &fmri.to_string(),
+                obsoleted_by,
+                deprecation_message,
+            )
+        };
 
         // Construct path for the obsoleted package
         let stem = fmri.stem();
@@ -1154,9 +1242,11 @@ impl ObsoletedPackageManager {
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
         fs::write(&metadata_path, metadata_json)?;
 
-        // Store the original manifest alongside the metadata
-        let manifest_path = pkg_dir.join(format!("{}.manifest", encoded_version));
-        fs::write(&manifest_path, manifest_content)?;
+        // Store the original manifest alongside the metadata if requested
+        if store_manifest {
+            let manifest_path = pkg_dir.join(format!("{}.manifest", encoded_version));
+            fs::write(&manifest_path, manifest_content)?;
+        }
 
         // Update the index with this package
         if let Ok(index) = self.index.write() {
@@ -1302,6 +1392,8 @@ impl ObsoletedPackageManager {
     ///
     /// This method retrieves the original manifest content for an obsoleted package.
     /// It can be used to restore the package to the main repository.
+    /// If the manifest file doesn't exist but the metadata exists with a null hash,
+    /// it generates a minimal manifest with obsoletion attributes.
     ///
     /// # Arguments
     ///
@@ -1338,7 +1430,13 @@ impl ObsoletedPackageManager {
         
         // Check if the package is in the index
         match index.get_entry(&key) {
-            Ok(Some((_, manifest))) => {
+            Ok(Some((metadata, manifest))) => {
+                // If the content hash is NULL_HASH, generate a minimal manifest
+                if metadata.content_hash == NULL_HASH {
+                    debug!("Generating minimal manifest for obsoleted package with null hash: {}", fmri);
+                    return Ok(Some(self.generate_minimal_obsoleted_manifest(fmri)));
+                }
+                
                 // Return the manifest content directly from the index
                 Ok(Some(manifest))
             },
@@ -1354,6 +1452,27 @@ impl ObsoletedPackageManager {
         }
     }
     
+    /// Generate a minimal manifest for an obsoleted package
+    fn generate_minimal_obsoleted_manifest(&self, fmri: &Fmri) -> String {
+        // Create a minimal JSON manifest with obsoletion attributes
+        format!(r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#, fmri)
+    }
+    
     /// Get the manifest content for an obsoleted package from the filesystem
     fn get_obsoleted_package_manifest_from_filesystem(
         &self,
@@ -1366,8 +1485,33 @@ impl ObsoletedPackageManager {
         let metadata_path = self.base_path.join(publisher).join(stem).join(format!("{}.json", encoded_version));
         let manifest_path = self.base_path.join(publisher).join(stem).join(format!("{}.manifest", encoded_version));
 
+        // If the manifest file doesn't exist, check if the metadata exists and has a null hash
         if !manifest_path.exists() {
             debug!("Manifest file not found: {}", manifest_path.display());
+            
+            // Check if the metadata file exists
+            if metadata_path.exists() {
+                // Read the metadata file
+                let metadata_json = fs::read_to_string(&metadata_path)
+                    .map_err(|e| ObsoletedPackageError::MetadataReadError(format!(
+                        "Failed to read metadata file {}: {}", 
+                        metadata_path.display(), e
+                    )))?;
+                
+                // Parse the metadata
+                let metadata: ObsoletedPackageMetadata = serde_json::from_str(&metadata_json)
+                    .map_err(|e| ObsoletedPackageError::MetadataParseError(format!(
+                        "Failed to parse metadata from {}: {}", 
+                        metadata_path.display(), e
+                    )))?;
+                
+                // If the content hash is NULL_HASH, generate a minimal manifest
+                if metadata.content_hash == NULL_HASH {
+                    debug!("Generating minimal manifest for obsoleted package with null hash: {}", fmri);
+                    return Ok(Some(self.generate_minimal_obsoleted_manifest(fmri)));
+                }
+            }
+            
             return Ok(None);
         }
 
