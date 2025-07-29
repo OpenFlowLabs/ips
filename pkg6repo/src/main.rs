@@ -499,6 +499,25 @@ enum Commands {
         #[clap(short = 'p')]
         publisher: Option<String>,
     },
+    
+    /// Clean up obsoleted packages older than a specified TTL (time-to-live)
+    CleanupObsoleted {
+        /// Path or URI of the repository
+        #[clap(short = 's')]
+        repo_uri_or_path: String,
+        
+        /// Publisher to clean up obsoleted packages for
+        #[clap(short = 'p')]
+        publisher: String,
+        
+        /// TTL in days
+        #[clap(short = 't', long = "ttl-days", default_value = "90")]
+        ttl_days: u32,
+        
+        /// Perform a dry run (don't actually remove packages)
+        #[clap(short = 'n', long = "dry-run")]
+        dry_run: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -1754,6 +1773,45 @@ fn main() -> Result<()> {
             }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
             
             info!("Imported {} obsoleted packages", count);
+            Ok(())
+        },
+        
+        Commands::CleanupObsoleted {
+            repo_uri_or_path,
+            publisher,
+            ttl_days,
+            dry_run,
+        } => {
+            if *dry_run {
+                info!("Dry run: Cleaning up obsoleted packages older than {} days for publisher: {}", 
+                      ttl_days, publisher);
+            } else {
+                info!("Cleaning up obsoleted packages older than {} days for publisher: {}", 
+                      ttl_days, publisher);
+            }
+            
+            // Open the repository
+            let mut repo = FileBackend::open(repo_uri_or_path)?;
+            
+            // Clean up the obsoleted packages
+            let count = {
+                // Get the obsoleted package manager
+                let obsoleted_manager = repo.get_obsoleted_manager()?;
+                
+                // Clean up the obsoleted packages
+                obsoleted_manager.cleanup_obsoleted_packages_older_than_ttl(
+                    publisher,
+                    *ttl_days,
+                    *dry_run,
+                )?
+            }; // obsoleted_manager is dropped here, releasing the mutable borrow on repo
+            
+            if *dry_run {
+                info!("Dry run: Would remove {} obsoleted packages", count);
+            } else {
+                info!("Successfully removed {} obsoleted packages", count);
+            }
+            
             Ok(())
         }
     }

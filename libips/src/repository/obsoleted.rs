@@ -1,6 +1,7 @@
 use crate::fmri::Fmri;
 use crate::repository::{Result, RepositoryError};
 use bincode::{deserialize, serialize};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use miette::Diagnostic;
 use regex::Regex;
 use redb::{Database, ReadableTable, TableDefinition};
@@ -2209,6 +2210,112 @@ impl ObsoletedPackageManager {
         Ok(imported_count)
     }
     
+    /// Find obsoleted packages that are older than a specified TTL (time-to-live)
+    ///
+    /// This method finds obsoleted packages for a publisher that were obsoleted
+    /// more than the specified TTL duration ago.
+    ///
+    /// # Arguments
+    ///
+    /// * `publisher` - The publisher to check
+    /// * `ttl_days` - The TTL in days
+    ///
+    /// # Returns
+    ///
+    /// A list of FMRIs for packages that are older than the TTL
+    pub fn find_obsoleted_packages_older_than_ttl(
+        &self,
+        publisher: &str,
+        ttl_days: u32,
+    ) -> Result<Vec<Fmri>> {
+        // Get all obsoleted packages for the publisher
+        let all_packages = self.list_obsoleted_packages(publisher)?;
+        
+        // Calculate the cutoff time (current time minus TTL)
+        let now = Utc::now();
+        let ttl_duration = ChronoDuration::days(ttl_days as i64);
+        let cutoff_time = now - ttl_duration;
+        
+        let mut older_packages = Vec::new();
+        
+        // Check each package's obsolescence_date
+        for fmri in all_packages {
+            // Get the metadata for the package
+            if let Ok(Some(metadata)) = self.get_obsoleted_package_metadata(publisher, &fmri) {
+                // Parse the obsolescence_date
+                if let Ok(obsolescence_date) = DateTime::parse_from_rfc3339(&metadata.obsolescence_date) {
+                    // Convert to UTC for comparison
+                    let obsolescence_date_utc = obsolescence_date.with_timezone(&Utc);
+                    
+                    // Check if the package is older than the TTL
+                    if obsolescence_date_utc < cutoff_time {
+                        older_packages.push(fmri);
+                    }
+                } else {
+                    // If we can't parse the date, log a warning and skip this package
+                    warn!("Failed to parse obsolescence_date for package {}: {}", 
+                          fmri, metadata.obsolescence_date);
+                }
+            }
+        }
+        
+        Ok(older_packages)
+    }
+    
+    /// Clean up obsoleted packages that are older than a specified TTL (time-to-live)
+    ///
+    /// This method finds and removes obsoleted packages for a publisher that were
+    /// obsoleted more than the specified TTL duration ago.
+    ///
+    /// # Arguments
+    ///
+    /// * `publisher` - The publisher to clean up
+    /// * `ttl_days` - The TTL in days
+    /// * `dry_run` - If true, only report what would be removed without actually removing
+    ///
+    /// # Returns
+    ///
+    /// The number of packages that were removed (or would be removed in dry run mode)
+    pub fn cleanup_obsoleted_packages_older_than_ttl(
+        &self,
+        publisher: &str,
+        ttl_days: u32,
+        dry_run: bool,
+    ) -> Result<usize> {
+        // Find packages older than the TTL
+        let older_packages = self.find_obsoleted_packages_older_than_ttl(publisher, ttl_days)?;
+        
+        if older_packages.is_empty() {
+            info!("No obsoleted packages older than {} days found for publisher {}", 
+                  ttl_days, publisher);
+            return Ok(0);
+        }
+        
+        info!("Found {} obsoleted packages older than {} days for publisher {}", 
+              older_packages.len(), ttl_days, publisher);
+        
+        if dry_run {
+            // In dry run mode, just report what would be removed
+            for fmri in &older_packages {
+                info!("Would remove obsoleted package: {}", fmri);
+            }
+            return Ok(older_packages.len());
+        }
+        
+        // Process packages in batches
+        let results = self.batch_process(publisher, &older_packages, None, |pub_name, fmri| {
+            info!("Removing obsoleted package: {}", fmri);
+            self.remove_obsoleted_package(pub_name, fmri)
+        })?;
+        
+        // Count successful removals
+        let removed_count = results.iter().filter(|r| r.as_ref().map_or(false, |&b| b)).count();
+        
+        info!("Successfully removed {} obsoleted packages", removed_count);
+        
+        Ok(removed_count)
+    }
+
     /// Batch process multiple obsoleted packages
     ///
     /// This method applies a function to multiple obsoleted packages in batch.

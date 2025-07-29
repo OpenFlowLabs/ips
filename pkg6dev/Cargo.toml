@@ -12,7 +12,7 @@ keywords.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libips = {path = "../libips", version = "0.1"}
+libips = {path = "../libips", version = "*"}
 userland = {path = "../userland", version = "*"}
 clap = {version = "4", features = [ "derive" ] }
 tracing = "0.1"

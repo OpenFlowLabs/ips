@@ -1,10 +1,10 @@
 [package]
 name = "pkg6repo"
+description = "The repository management utility for IPS written in rust"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license-file.workspace = true
-description = "The repository management utility for IPS written in rust"
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
@@ -17,7 +17,7 @@ miette = { version = "7", features = ["fancy"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-libips = { path = "../libips" }
+libips = { path = "../libips",  version = "*"}
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3.8"

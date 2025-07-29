@@ -1,8 +1,12 @@
 [package]
 name = "specfile"
-version = "0.1.0"
-authors = ["Till Wegmueller <toasterson@gmail.com>"]
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,10 +1,13 @@
 [package]
 name = "userland"
-version = "0.1.1"
-authors = ["Till Wegmueller <toasterson@gmail.com>"]
-edition = "2021"
-license-file = "LICENSE"
 description = "Helper tool for IPS package development"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

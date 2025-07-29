@@ -961,7 +961,7 @@ checksum = "1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
 
 [[package]]
 name = "libips"
-version = "0.1.2"
+version = "0.5.1"
 dependencies = [
  "bincode",
  "chrono",
@@ -1402,7 +1402,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "pkg6"
-version = "0.1.0"
+version = "0.5.1"
 dependencies = [
  "diff-struct",
  "libips",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "pkg6depotd"
-version = "0.0.1-placeholder"
+version = "0.5.1"
 
 [[package]]
 name = "pkg6dev"
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "ports"
-version = "0.1.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap 3.2.25",
@@ -1453,7 +1453,7 @@ dependencies = [
  "reqwest",
  "shellexpand",
  "specfile",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
  "url",
  "which",
 ]
@@ -1910,12 +1910,12 @@ dependencies = [
 
 [[package]]
 name = "specfile"
-version = "0.1.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "pest",
  "pest_derive",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2319,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "userland"
-version = "0.1.1"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "lazy_static",
