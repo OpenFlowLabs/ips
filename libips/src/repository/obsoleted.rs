@@ -1,11 +1,12 @@
 use crate::fmri::Fmri;
 use crate::repository::{Result, RepositoryError};
-use bincode::{deserialize, serialize};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use miette::Diagnostic;
 use regex::Regex;
 use redb::{Database, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
+use serde_json;
+use serde_cbor;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -273,6 +274,39 @@ impl ObsoletedPackageKey {
             version: version.to_string(),
         }
     }
+    
+    /// Get the FMRI string for this key
+    fn to_fmri_string(&self) -> String {
+        format!("pkg://{}/{}@{}", self.publisher, self.stem, self.version)
+    }
+    
+    /// Parse an FMRI string and create a key from it
+    fn from_fmri_string(fmri: &str) -> Result<Self> {
+        // Parse the FMRI string to extract publisher, stem, and version
+        // Format: pkg://publisher/stem@version
+        
+        // Remove the pkg:// prefix if present
+        let fmri = fmri.trim_start_matches("pkg://");
+        
+        // Split by / to get publisher and the rest
+        let parts: Vec<&str> = fmri.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return Err(ObsoletedPackageError::FmriParseError(format!("Invalid FMRI format: {}", fmri)).into());
+        }
+        
+        let publisher = parts[0];
+        
+        // Split the rest by @ to get stem and version
+        let parts: Vec<&str> = parts[1].splitn(2, '@').collect();
+        if parts.len() != 2 {
+            return Err(ObsoletedPackageError::FmriParseError(format!("Invalid FMRI format: {}", fmri)).into());
+        }
+        
+        let stem = parts[0];
+        let version = parts[1];
+        
+        Ok(Self::from_components(publisher, stem, version))
+    }
 }
 
 
@@ -406,20 +440,14 @@ impl RedbObsoletedPackageIndex {
             metadata.content_hash.clone()
         };
         
-        // Serialize the key and metadata
-        let key_bytes = match serialize(key) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Failed to serialize key: {}", e);
-                return Err(e.into());
-            }
-        };
+        // Use the FMRI string directly as the key
+        let key_bytes = metadata.fmri.as_bytes();
         
-        let metadata_bytes = match serialize(metadata) {
+        let metadata_bytes = match serde_cbor::to_vec(metadata) {
             Ok(bytes) => bytes,
             Err(e) => {
-                error!("Failed to serialize metadata: {}", e);
-                return Err(e.into());
+                error!("Failed to serialize metadata with CBOR: {}", e);
+                return Err(ObsoletedPackageError::SerializationError(format!("Failed to serialize metadata with CBOR: {}", e)).into());
             }
         };
         
@@ -452,7 +480,7 @@ impl RedbObsoletedPackageIndex {
             
             // Insert the metadata directly with FMRI as the key
             // This is the new approach that eliminates the intermediate hash lookup
-            if let Err(e) = fmri_to_metadata.insert(key_bytes.as_slice(), metadata_bytes.as_slice()) {
+            if let Err(e) = fmri_to_metadata.insert(key_bytes, metadata_bytes.as_slice()) {
                 error!("Failed to insert into FMRI_TO_METADATA_TABLE: {}", e);
                 return Err(e.into());
             }
@@ -478,15 +506,16 @@ impl RedbObsoletedPackageIndex {
     
     /// Remove an entry from the index
     fn remove_entry(&self, key: &ObsoletedPackageKey) -> Result<bool> {
-        // Serialize the key
-        let key_bytes = serialize(key)?;
+        // Use the FMRI string directly as the key
+        let fmri = key.to_fmri_string();
+        let key_bytes = fmri.as_bytes();
         
         // First, check if the key exists in the new table
         let exists_in_new_table = {
             let read_txn = self.db.begin_read()?;
             let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             
-            fmri_to_metadata.get(key_bytes.as_slice())?.is_some()
+            fmri_to_metadata.get(key_bytes)?.is_some()
         };
         
         // If the key doesn't exist in either table, return early
@@ -500,7 +529,7 @@ impl RedbObsoletedPackageIndex {
             // Remove the entry from the new table
             if exists_in_new_table {
                 let mut fmri_to_metadata = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
-                fmri_to_metadata.remove(key_bytes.as_slice())?;
+                fmri_to_metadata.remove(key_bytes)?;
             }
         }
         
@@ -511,8 +540,9 @@ impl RedbObsoletedPackageIndex {
     
     /// Get an entry from the index
     fn get_entry(&self, key: &ObsoletedPackageKey) -> Result<Option<(ObsoletedPackageMetadata, String)>> {
-        // Serialize the key
-        let key_bytes = serialize(key)?;
+        // Use the FMRI string directly as the key
+        let fmri = key.to_fmri_string();
+        let key_bytes = fmri.as_bytes();
         
         // First, try to get the metadata directly from the new table
         let metadata_result = {
@@ -520,15 +550,15 @@ impl RedbObsoletedPackageIndex {
             let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
             
             // Get the metadata bytes
-            match fmri_to_metadata.get(key_bytes.as_slice())? {
+            match fmri_to_metadata.get(key_bytes)? {
                 Some(bytes) => {
                     // Convert to owned bytes before the transaction is dropped
                     let metadata_bytes = bytes.value().to_vec();
                     // Try to deserialize the metadata
-                    match deserialize::<ObsoletedPackageMetadata>(&metadata_bytes) {
+                    match serde_cbor::from_slice::<ObsoletedPackageMetadata>(&metadata_bytes) {
                         Ok(metadata) => Some(metadata),
                         Err(e) => {
-                            warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE: {}", e);
+                            warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE with CBOR: {}", e);
                             None
                         }
                     }
@@ -617,19 +647,28 @@ impl RedbObsoletedPackageIndex {
                 let key_data = key_bytes.value().to_vec();
                 let metadata_data = metadata_bytes.value().to_vec();
                 
-                // Deserialize the key and metadata
-                let key: ObsoletedPackageKey = match deserialize(&key_data) {
-                    Ok(key) => key,
+                // Convert key bytes to string and parse as FMRI
+                let fmri_str = match std::str::from_utf8(&key_data) {
+                    Ok(s) => s,
                     Err(e) => {
-                        warn!("Failed to deserialize key from FMRI_TO_METADATA_TABLE: {}", e);
+                        warn!("Failed to convert key bytes to string: {}", e);
                         continue;
                     }
                 };
                 
-                let metadata: ObsoletedPackageMetadata = match deserialize(&metadata_data) {
+                // Parse the FMRI string to create an ObsoletedPackageKey
+                let key = match ObsoletedPackageKey::from_fmri_string(fmri_str) {
+                    Ok(key) => key,
+                    Err(e) => {
+                        warn!("Failed to parse FMRI string: {}", e);
+                        continue;
+                    }
+                };
+                
+                let metadata: ObsoletedPackageMetadata = match serde_cbor::from_slice(&metadata_data) {
                     Ok(metadata) => metadata,
                     Err(e) => {
-                        warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE: {}", e);
+                        warn!("Failed to deserialize metadata from FMRI_TO_METADATA_TABLE with CBOR: {}", e);
                         continue;
                     }
                 };
