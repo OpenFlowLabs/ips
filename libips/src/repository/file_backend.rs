@@ -454,24 +454,45 @@ impl Transaction {
         let manifest_json = serde_json::to_string_pretty(&self.manifest)?;
         fs::write(&manifest_path, manifest_json)?;
 
+        // Determine the publisher to use
+        let publisher = match &self.publisher {
+            Some(pub_name) => {
+                debug!("Using specified publisher: {}", pub_name);
+                pub_name.clone()
+            }
+            None => {
+                debug!("No publisher specified, trying to use default publisher");
+                // If no publisher is specified, use the default publisher from the repository config
+                let config_path = self.repo.join(REPOSITORY_CONFIG_FILENAME);
+                if config_path.exists() {
+                    let config_content = fs::read_to_string(&config_path)?;
+                    let config: RepositoryConfig = serde_json::from_str(&config_content)?;
+                    match config.default_publisher {
+                        Some(default_pub) => {
+                            debug!("Using default publisher: {}", default_pub);
+                            default_pub
+                        }
+                        None => {
+                            debug!("No default publisher set in repository");
+                            return Err(RepositoryError::Other(
+                                "No publisher specified and no default publisher set in repository"
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                } else {
+                    debug!("Repository configuration not found");
+                    return Err(RepositoryError::Other(
+                        "No publisher specified and repository configuration not found".to_string(),
+                    ));
+                }
+            }
+        };
+
         // Copy files to their final location
         for (source_path, hash) in self.files {
-            // Create the destination path using the new directory structure
-            let dest_path = if hash.len() < 4 {
-                // Fallback for very short hashes (shouldn't happen with SHA256)
-                self.repo.join("file").join(&hash)
-            } else {
-                // Extract the first two and next two characters from the hash
-                let first_two = &hash[0..2];
-                let next_two = &hash[2..4];
-
-                // Create the path: $REPO/file/XX/YY/XXYY...
-                self.repo
-                    .join("file")
-                    .join(first_two)
-                    .join(next_two)
-                    .join(&hash)
-            };
+            // Create the destination path using the helper function with publisher
+            let dest_path = FileBackend::construct_file_path_with_publisher(&self.repo, &publisher, &hash);
 
             // Create parent directories if they don't exist
             if let Some(parent) = dest_path.parent() {
@@ -535,7 +556,7 @@ impl Transaction {
         };
 
         // Create the package directory if it doesn't exist
-        let pkg_dir = self.repo.join("pkg").join(&publisher).join(&package_stem);
+        let pkg_dir = FileBackend::construct_package_dir(&self.repo, &publisher, &package_stem);
         debug!("Package directory: {}", pkg_dir.display());
         if !pkg_dir.exists() {
             debug!("Creating package directory");
@@ -627,8 +648,8 @@ impl ReadableRepository for FileBackend {
         let mut publishers = Vec::new();
 
         for publisher_name in &self.config.publishers {
-            // Count packages by scanning the pkg/<publisher> directory
-            let publisher_pkg_dir = self.path.join("pkg").join(publisher_name);
+            // Count packages by scanning the publisher's package directory
+            let publisher_pkg_dir = Self::construct_package_dir(&self.path, publisher_name, "");
             let mut package_count = 0;
             let mut latest_timestamp = SystemTime::UNIX_EPOCH;
 
@@ -702,7 +723,7 @@ impl ReadableRepository for FileBackend {
         // For each publisher, list packages
         for pub_name in publishers {
             // Get the publisher's package directory
-            let publisher_pkg_dir = self.path.join("pkg").join(&pub_name);
+            let publisher_pkg_dir = Self::construct_package_dir(&self.path, &pub_name, "");
 
             // Check if the publisher directory exists
             if publisher_pkg_dir.exists() {
@@ -751,7 +772,7 @@ impl ReadableRepository for FileBackend {
         // For each publisher, process packages
         for pub_name in publishers {
             // Get the publisher's package directory
-            let publisher_pkg_dir = self.path.join("pkg").join(&pub_name);
+            let publisher_pkg_dir = Self::construct_package_dir(&self.path, &pub_name, "");
 
             // Check if the publisher directory exists
             if publisher_pkg_dir.exists() {
@@ -1324,8 +1345,8 @@ impl WritableRepository for FileBackend {
             self.config.publishers.push(publisher.to_string());
 
             // Create publisher-specific directories
-            fs::create_dir_all(self.path.join("catalog").join(publisher))?;
-            fs::create_dir_all(self.path.join("pkg").join(publisher))?;
+            fs::create_dir_all(Self::construct_catalog_path(&self.path, publisher))?;
+            fs::create_dir_all(Self::construct_package_dir(&self.path, publisher, ""))?;
 
             // Set as the default publisher if no default publisher is set
             if self.config.default_publisher.is_none() {
@@ -1346,8 +1367,8 @@ impl WritableRepository for FileBackend {
                 self.config.publishers.remove(pos);
 
                 // Remove publisher-specific directories and their contents recursively
-                let catalog_dir = self.path.join("catalog").join(publisher);
-                let pkg_dir = self.path.join("pkg").join(publisher);
+                let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+                let pkg_dir = Self::construct_package_dir(&self.path, publisher, "");
 
                 // Remove the catalog directory if it exists
                 if catalog_dir.exists() {
@@ -1492,16 +1513,89 @@ impl WritableRepository for FileBackend {
 }
 
 impl FileBackend {
+    /// Helper method to construct a catalog path consistently
+    /// 
+    /// Format: base_path/publisher/publisher_name/catalog
+    pub fn construct_catalog_path(
+        base_path: &Path,
+        publisher: &str,
+    ) -> PathBuf {
+        base_path.join("publisher").join(publisher).join("catalog")
+    }
+
     /// Helper method to construct a manifest path consistently
-    fn construct_manifest_path(
+    /// 
+    /// Format: base_path/publisher/publisher_name/pkg/stem/encoded_version
+    pub fn construct_manifest_path(
         base_path: &Path,
         publisher: &str,
         stem: &str,
         version: &str,
     ) -> PathBuf {
-        let pkg_dir = base_path.join("pkg").join(publisher).join(stem);
+        let pkg_dir = Self::construct_package_dir(base_path, publisher, stem);
         let encoded_version = Self::url_encode(version);
         pkg_dir.join(encoded_version)
+    }
+    
+    /// Helper method to construct a package directory path consistently
+    /// 
+    /// Format: base_path/publisher/publisher_name/pkg/url_encoded_stem
+    pub fn construct_package_dir(
+        base_path: &Path,
+        publisher: &str,
+        stem: &str,
+    ) -> PathBuf {
+        let encoded_stem = Self::url_encode(stem);
+        base_path.join("publisher").join(publisher).join("pkg").join(encoded_stem)
+    }
+    
+    /// Helper method to construct a file path consistently
+    /// 
+    /// Format: base_path/file/XX/hash
+    /// Where XX is the first two characters of the hash
+    pub fn construct_file_path(
+        base_path: &Path,
+        hash: &str,
+    ) -> PathBuf {
+        if hash.len() < 2 {
+            // Fallback for very short hashes (shouldn't happen with SHA256)
+            base_path.join("file").join(hash)
+        } else {
+            // Extract the first two characters from the hash
+            let first_two = &hash[0..2];
+
+            // Create the path: $REPO/file/XX/XXYY...
+            base_path
+                .join("file")
+                .join(first_two)
+                .join(hash)
+        }
+    }
+    
+    /// Helper method to construct a file path consistently with publisher
+    /// 
+    /// Format: base_path/publisher/publisher_name/file/XX/hash
+    /// Where XX is the first two characters of the hash
+    pub fn construct_file_path_with_publisher(
+        base_path: &Path,
+        publisher: &str,
+        hash: &str,
+    ) -> PathBuf {
+        if hash.len() < 2 {
+            // Fallback for very short hashes (shouldn't happen with SHA256)
+            base_path.join("publisher").join(publisher).join("file").join(hash)
+        } else {
+            // Extract the first two characters from the hash
+            let first_two = &hash[0..2];
+
+            // Create the path: $REPO/publisher/publisher_name/file/XX/XXYY...
+            base_path
+                .join("publisher")
+                .join(publisher)
+                .join("file")
+                .join(first_two)
+                .join(hash)
+        }
     }
 
     /// Recursively find manifest files in a directory and its subdirectories
@@ -1642,10 +1736,9 @@ impl FileBackend {
     /// Create the repository directories
     fn create_directories(&self) -> Result<()> {
         // Create the main repository directories
-        fs::create_dir_all(self.path.join("catalog"))?;
+        fs::create_dir_all(self.path.join("publisher"))?;
         fs::create_dir_all(self.path.join("file"))?;
         fs::create_dir_all(self.path.join("index"))?;
-        fs::create_dir_all(self.path.join("pkg"))?;
         fs::create_dir_all(self.path.join("trans"))?;
         fs::create_dir_all(self.path.join("obsoleted"))?;
 
@@ -1655,16 +1748,12 @@ impl FileBackend {
     /// Rebuild catalog for a publisher
     ///
     /// This method generates catalog files for a publisher and stores them in the publisher's
-    /// subdirectory within the catalog directory.
+    /// catalog directory.
     pub fn rebuild_catalog(&self, publisher: &str, create_update_log: bool) -> Result<()> {
         info!("Rebuilding catalog for publisher: {}", publisher);
-        debug!(
-            "Catalog directory path: {}",
-            self.path.join("catalog").display()
-        );
-
+        
         // Create the catalog directory for the publisher if it doesn't exist
-        let catalog_dir = self.path.join("catalog").join(publisher);
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
         debug!("Publisher catalog directory: {}", catalog_dir.display());
         fs::create_dir_all(&catalog_dir)?;
         debug!("Created publisher catalog directory");
@@ -1935,37 +2024,26 @@ impl FileBackend {
         info!("Catalog rebuilt for publisher: {}", publisher);
         Ok(())
     }
-
-    /// Generate the file path for a given hash using the new directory structure
-    /// The path will be $REPO/file/XX/YY/XXYY... where XX and YY are the first four letters of the hash
-    fn generate_file_path(&self, hash: &str) -> PathBuf {
-        if hash.len() < 4 {
-            // Fallback for very short hashes (shouldn't happen with SHA256)
-            return self.path.join("file").join(hash);
-        }
-
-        // Extract the first two and next two characters from the hash
-        let first_two = &hash[0..2];
-        let next_two = &hash[2..4];
-
-        // Create the path: $REPO/file/XX/YY/XXYY...
-        self.path
-            .join("file")
-            .join(first_two)
-            .join(next_two)
-            .join(hash)
+    
+    /// Generate the file path for a given hash using the new directory structure with publisher
+    /// This is a wrapper around the construct_file_path_with_publisher helper method
+    fn generate_file_path_with_publisher(&self, publisher: &str, hash: &str) -> PathBuf {
+        Self::construct_file_path_with_publisher(&self.path, publisher, hash)
     }
 
     /// Get or initialize the catalog manager
     ///
     /// This method returns a mutable reference to the catalog manager.
     /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
+    /// 
+    /// The catalog manager is specific to the given publisher.
     pub fn get_catalog_manager(
         &mut self,
+        publisher: &str,
     ) -> Result<std::cell::RefMut<crate::repository::catalog::CatalogManager>> {
         if self.catalog_manager.is_none() {
-            let catalog_dir = self.path.join("catalog");
-            let manager = crate::repository::catalog::CatalogManager::new(&catalog_dir)?;
+            let publisher_dir = self.path.join("publisher");
+            let manager = crate::repository::catalog::CatalogManager::new(&publisher_dir, publisher)?;
             let refcell = std::cell::RefCell::new(manager);
             self.catalog_manager = Some(refcell);
         }
@@ -2015,7 +2093,7 @@ impl FileBackend {
         let mut index = SearchIndex::new();
 
         // Get the publisher's package directory
-        let publisher_pkg_dir = self.path.join("pkg").join(publisher);
+        let publisher_pkg_dir = Self::construct_package_dir(&self.path, publisher, "");
 
         // Check if the publisher directory exists
         if publisher_pkg_dir.exists() {
@@ -2278,7 +2356,8 @@ impl FileBackend {
 
         // Verify the file was stored
         let hash = Transaction::calculate_file_hash(&test_file_path)?;
-        let stored_file_path = self.generate_file_path(&hash);
+        // Use the new method with publisher
+        let stored_file_path = self.generate_file_path_with_publisher(publisher, &hash);
 
         if !stored_file_path.exists() {
             return Err(RepositoryError::Other(
@@ -2288,11 +2367,9 @@ impl FileBackend {
 
         // Verify the manifest was updated in the publisher-specific directory
         // The manifest should be named "unknown.manifest" since we didn't set a package name
-        let manifest_path = self
-            .path
-            .join("pkg")
-            .join(publisher)
-            .join("unknown.manifest");
+        // Use the construct_package_dir helper to get the base directory, then join with the manifest name
+        let pkg_dir = Self::construct_package_dir(&self.path, publisher, "unknown");
+        let manifest_path = pkg_dir.join("manifest");
 
         if !manifest_path.exists() {
             return Err(RepositoryError::Other(format!(
@@ -2383,14 +2460,14 @@ impl FileBackend {
     }
 
     /// Store a file in the repository
-    pub fn store_file<P: AsRef<Path>>(&self, file_path: P) -> Result<String> {
+    pub fn store_file<P: AsRef<Path>>(&self, file_path: P, publisher: &str) -> Result<String> {
         let file_path = file_path.as_ref();
 
         // Calculate the SHA256 hash of the file
         let hash = Transaction::calculate_file_hash(file_path)?;
 
-        // Create the destination path using the new directory structure
-        let dest_path = self.generate_file_path(&hash);
+        // Create the destination path using the new directory structure with publisher
+        let dest_path = self.generate_file_path_with_publisher(publisher, &hash);
 
         // Create parent directories if they don't exist
         if let Some(parent) = dest_path.parent() {

@@ -379,6 +379,9 @@ impl UpdateLog {
 pub struct CatalogManager {
     /// Path to the catalog directory
     catalog_dir: PathBuf,
+    
+    /// Publisher name
+    publisher: String,
 
     /// Catalog attributes
     attrs: CatalogAttrs,
@@ -392,16 +395,17 @@ pub struct CatalogManager {
 
 impl CatalogManager {
     /// Create a new catalog manager
-    pub fn new<P: AsRef<Path>>(catalog_dir: P) -> Result<Self> {
-        let catalog_dir = catalog_dir.as_ref().to_path_buf();
+    pub fn new<P: AsRef<Path>>(base_dir: P, publisher: &str) -> Result<Self> {
+        let base_dir = base_dir.as_ref().to_path_buf();
+        let publisher_catalog_dir = base_dir.join(publisher).join("catalog");
 
         // Create catalog directory if it doesn't exist
-        if !catalog_dir.exists() {
-            fs::create_dir_all(&catalog_dir)?;
+        if !publisher_catalog_dir.exists() {
+            fs::create_dir_all(&publisher_catalog_dir)?;
         }
 
         // Try to load existing catalog attributes
-        let attrs_path = catalog_dir.join("catalog.attrs");
+        let attrs_path = publisher_catalog_dir.join("catalog.attrs");
         let attrs = if attrs_path.exists() {
             CatalogAttrs::load(&attrs_path)?
         } else {
@@ -409,7 +413,8 @@ impl CatalogManager {
         };
 
         Ok(CatalogManager {
-            catalog_dir,
+            catalog_dir: publisher_catalog_dir,
+            publisher: publisher.to_string(),
             attrs,
             parts: HashMap::new(),
             update_logs: HashMap::new(),
@@ -536,5 +541,42 @@ impl CatalogManager {
     /// Get a mutable update log
     pub fn get_update_log_mut(&mut self, name: &str) -> Option<&mut UpdateLog> {
         self.update_logs.get_mut(name)
+    }
+
+    /// Add a package to a catalog part using the stored publisher
+    pub fn add_package_to_part(
+        &mut self,
+        part_name: &str,
+        fmri: &Fmri,
+        actions: Option<Vec<String>>,
+        signature: Option<String>,
+    ) -> Result<()> {
+        if let Some(part) = self.parts.get_mut(part_name) {
+            part.add_package(&self.publisher, fmri, actions, signature);
+            Ok(())
+        } else {
+            Err(CatalogError::CatalogPartNotLoaded {
+                name: part_name.to_string(),
+            })
+        }
+    }
+
+    /// Add an update to an update log using the stored publisher
+    pub fn add_update_to_log(
+        &mut self,
+        log_name: &str,
+        fmri: &Fmri,
+        op_type: CatalogOperationType,
+        catalog_parts: HashMap<String, HashMap<String, Vec<String>>>,
+        signature: Option<String>,
+    ) -> Result<()> {
+        if let Some(log) = self.update_logs.get_mut(log_name) {
+            log.add_update(&self.publisher, fmri, op_type, catalog_parts, signature);
+            Ok(())
+        } else {
+            Err(CatalogError::UpdateLogNotLoaded {
+                name: log_name.to_string(),
+            })
+        }
     }
 }

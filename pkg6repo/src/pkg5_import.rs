@@ -462,7 +462,7 @@ impl Pkg5Importer {
         // Debug the repository structure
         debug!(
             "Publisher directory: {}",
-            dest_repo.path.join("pkg").join(publisher).display()
+            libips::repository::FileBackend::construct_package_dir(&dest_repo.path, publisher, "").display()
         );
 
         // Extract files referenced in the manifest

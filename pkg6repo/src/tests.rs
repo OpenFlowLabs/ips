@@ -47,10 +47,9 @@ mod tests {
 
         // Check that the repository was created
         assert!(repo_path.exists());
-        assert!(repo_path.join("catalog").exists());
+        assert!(repo_path.join("publisher").exists());
         assert!(repo_path.join("file").exists());
         assert!(repo_path.join("index").exists());
-        assert!(repo_path.join("pkg").exists());
         assert!(repo_path.join("trans").exists());
         assert!(repo_path.join(REPOSITORY_CONFIG_FILENAME).exists());
 
@@ -72,8 +71,8 @@ mod tests {
 
         // Check that the publisher was added
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
-        assert!(repo_path.join("catalog").join("example.com").exists());
-        assert!(repo_path.join("pkg").join("example.com").exists());
+        assert!(FileBackend::construct_catalog_path(&repo_path, "example.com").exists());
+        assert!(FileBackend::construct_package_dir(&repo_path, "example.com", "").exists());
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -95,8 +94,8 @@ mod tests {
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
 
         // Check that the publisher directories were created
-        let catalog_dir = repo_path.join("catalog").join("example.com");
-        let pkg_dir = repo_path.join("pkg").join("example.com");
+        let catalog_dir = FileBackend::construct_catalog_path(&repo_path, "example.com");
+        let pkg_dir = FileBackend::construct_package_dir(&repo_path, "example.com", "");
         assert!(
             catalog_dir.exists(),
             "Catalog directory should exist after adding publisher"

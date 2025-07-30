@@ -3,22 +3,6 @@ mod pkg5_import;
 use error::{Pkg6RepoError, Result};
 use pkg5_import::Pkg5Importer;
 
-/// URL encode a string for use in a filename
-fn url_encode(s: &str) -> String {
-    let mut result = String::new();
-    for c in s.chars() {
-        match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
-            ' ' => result.push('+'),
-            _ => {
-                result.push('%');
-                result.push_str(&format!("{:02X}", c as u8));
-            }
-        }
-    }
-    result
-}
-
 use clap::{Parser, Subcommand};
 use libips::repository::{FileBackend, ReadableRepository, RepositoryVersion, WritableRepository};
 use serde::Serialize;
@@ -1306,10 +1290,18 @@ fn main() -> Result<()> {
             // Parse the FMRI
             let parsed_fmri = libips::fmri::Fmri::parse(fmri)?;
             
-            // Get the manifest for the package
-            let pkg_dir = repo.path.join("pkg").join(publisher).join(parsed_fmri.stem());
-            let encoded_version = url_encode(&parsed_fmri.version());
-            let manifest_path = pkg_dir.join(&encoded_version);
+            // Get the manifest for the package using the helper method
+            let manifest_path = FileBackend::construct_manifest_path(
+                &repo.path,
+                publisher,
+                parsed_fmri.stem(),
+                &parsed_fmri.version()
+            );
+            
+            println!("Looking for manifest at: {}", manifest_path.display());
+            println!("Publisher: {}", publisher);
+            println!("Stem: {}", parsed_fmri.stem());
+            println!("Version: {}", parsed_fmri.version());
             
             if !manifest_path.exists() {
                 return Err(Pkg6RepoError::from(format!(

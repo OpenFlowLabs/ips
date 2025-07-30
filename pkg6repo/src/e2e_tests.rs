@@ -135,7 +135,7 @@ mod e2e_tests {
 
         // Check that the repository was created
         assert!(repo_path.exists());
-        assert!(repo_path.join("catalog").exists());
+        assert!(repo_path.join("publisher").exists());
         assert!(repo_path.join("file").exists());
         assert!(repo_path.join("index").exists());
         assert!(repo_path.join("pkg").exists());
@@ -174,8 +174,9 @@ mod e2e_tests {
         );
 
         // Check that the publisher was added
-        assert!(repo_path.join("catalog").join("example.com").exists());
-        assert!(repo_path.join("pkg").join("example.com").exists());
+        assert!(repo_path.join("publisher").join("example.com").exists());
+        assert!(repo_path.join("publisher").join("example.com").join("catalog").exists());
+        assert!(repo_path.join("publisher").join("example.com").join("pkg").exists());
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -462,6 +463,24 @@ mod e2e_tests {
             fmri
         };
         
+        // Print the FMRI and repo path for debugging
+        println!("FMRI: {}", fmri);
+        println!("Repo path: {}", repo_path.display());
+        
+        // Check if the package exists in the repository
+        let pkg_dir = repo_path.join("publisher").join("test").join("pkg").join("example");
+        println!("Package directory: {}", pkg_dir.display());
+        println!("Package directory exists: {}", pkg_dir.exists());
+        
+        // List files in the package directory if it exists
+        if pkg_dir.exists() {
+            println!("Files in package directory:");
+            for entry in std::fs::read_dir(&pkg_dir).unwrap() {
+                let entry = entry.unwrap();
+                println!("  {}", entry.path().display());
+            }
+        }
+        
         // Mark the package as obsoleted
         let result = run_pkg6repo(&[
             "obsolete-package", 
@@ -471,6 +490,10 @@ mod e2e_tests {
             "-m", "This package is obsoleted for testing purposes",
             "-r", "pkg://test/example2@1.0"
         ]);
+        
+        // Print the result for debugging
+        println!("Result: {:?}", result);
+        
         assert!(
             result.is_ok(),
             "Failed to mark package as obsoleted: {:?}",

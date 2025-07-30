@@ -2513,20 +2513,20 @@ impl ObsoletedPackageManager {
     }
 }
 
-/// URL encode a string
+/// URL encode a string for use in a filename
 fn url_encode(s: &str) -> String {
-    let mut encoded = String::new();
+    let mut result = String::new();
     for c in s.chars() {
         match c {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => encoded.push(c),
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => result.push(c),
+            ' ' => result.push('+'),
             _ => {
-                for b in c.to_string().as_bytes() {
-                    encoded.push_str(&format!("%{:02X}", b));
-                }
+                result.push('%');
+                result.push_str(&format!("{:02X}", c as u8));
             }
         }
     }
-    encoded
+    result
 }
 
 #[cfg(test)]

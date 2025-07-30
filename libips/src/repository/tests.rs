@@ -140,7 +140,7 @@ mod tests {
         println!("Transaction committed successfully");
 
         // Debug: Check if the package manifest was stored in the correct location
-        let publisher_pkg_dir = repo.path.join("pkg").join(publisher);
+        let publisher_pkg_dir = FileBackend::construct_package_dir(&repo.path, publisher, "");
         println!(
             "Publisher package directory: {}",
             publisher_pkg_dir.display()
@@ -181,10 +181,9 @@ mod tests {
 
         // Check that the repository was created
         assert!(repo_path.exists());
-        assert!(repo_path.join("catalog").exists());
+        assert!(repo_path.join("publisher").exists());
         assert!(repo_path.join("file").exists());
         assert!(repo_path.join("index").exists());
-        assert!(repo_path.join("pkg").exists());
         assert!(repo_path.join("trans").exists());
         assert!(repo_path.join(REPOSITORY_CONFIG_FILENAME).exists());
 
@@ -206,8 +205,8 @@ mod tests {
 
         // Check that the publisher was added
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
-        assert!(repo_path.join("catalog").join("example.com").exists());
-        assert!(repo_path.join("pkg").join("example.com").exists());
+        assert!(FileBackend::construct_catalog_path(&repo_path, "example.com").exists());
+        assert!(FileBackend::construct_package_dir(&repo_path, "example.com", "").exists());
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -217,20 +216,22 @@ mod tests {
     fn test_catalog_manager() {
         // Create a test directory
         let test_dir = create_test_dir("catalog_manager");
-        let catalog_dir = test_dir.join("catalog");
+        let publisher_dir = test_dir.join("publisher");
+        let publisher_name = "test";
+        let catalog_dir = publisher_dir.join(publisher_name).join("catalog");
 
         // Create the catalog directory
         fs::create_dir_all(&catalog_dir).unwrap();
 
-        // Create a catalog manager
-        let mut catalog_manager = CatalogManager::new(&catalog_dir).unwrap();
+        // Create a catalog manager with the publisher parameter
+        let mut catalog_manager = CatalogManager::new(&publisher_dir, publisher_name).unwrap();
 
         // Create a catalog part
-        let part = catalog_manager.create_part("test_part");
+        catalog_manager.create_part("test_part");
 
-        // Add a package to the part
+        // Add a package to the part using the stored publisher
         let fmri = Fmri::parse("pkg://test/example@1.0.0").unwrap();
-        part.add_package("test", &fmri, None, None);
+        catalog_manager.add_package_to_part("test_part", &fmri, None, None).unwrap();
 
         // Save the part
         catalog_manager.save_part("test_part").unwrap();
@@ -239,7 +240,7 @@ mod tests {
         assert!(catalog_dir.join("test_part").exists());
 
         // Create a new catalog manager and load the part
-        let mut new_catalog_manager = CatalogManager::new(&catalog_dir).unwrap();
+        let mut new_catalog_manager = CatalogManager::new(&publisher_dir, publisher_name).unwrap();
         new_catalog_manager.load_part("test_part").unwrap();
 
         // Check that the part was loaded
@@ -409,16 +410,10 @@ mod tests {
         fs::write(&test_file_path, "This is a test file").unwrap();
 
         // Store the file in the repository
-        let hash = repo.store_file(&test_file_path).unwrap();
+        let hash = repo.store_file(&test_file_path, "test").unwrap();
 
         // Check if the file was stored in the correct directory structure
-        let first_two = &hash[0..2];
-        let next_two = &hash[2..4];
-        let expected_path = repo_path
-            .join("file")
-            .join(first_two)
-            .join(next_two)
-            .join(&hash);
+        let expected_path = FileBackend::construct_file_path_with_publisher(&repo_path, "test", &hash);
 
         // Verify that the file exists at the expected path
         assert!(
@@ -427,7 +422,7 @@ mod tests {
             expected_path.display()
         );
 
-        // Verify that the file does NOT exist at the old path
+        // Verify that the file does NOT exist at the old path (with no directory prefixing)
         let old_path = repo_path.join("file").join(&hash);
         assert!(
             !old_path.exists(),
