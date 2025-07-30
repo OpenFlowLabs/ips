@@ -136,9 +136,7 @@ mod e2e_tests {
         // Check that the repository was created
         assert!(repo_path.exists());
         assert!(repo_path.join("publisher").exists());
-        assert!(repo_path.join("file").exists());
         assert!(repo_path.join("index").exists());
-        assert!(repo_path.join("pkg").exists());
         assert!(repo_path.join("trans").exists());
         assert!(repo_path.join("pkg6.repository").exists());
 

@@ -182,7 +182,6 @@ mod tests {
         // Check that the repository was created
         assert!(repo_path.exists());
         assert!(repo_path.join("publisher").exists());
-        assert!(repo_path.join("file").exists());
         assert!(repo_path.join("index").exists());
         assert!(repo_path.join("trans").exists());
         assert!(repo_path.join(REPOSITORY_CONFIG_FILENAME).exists());
@@ -270,8 +269,8 @@ mod tests {
         let manifest_path = manifest_dir.join("example.p5m");
         publish_package(&mut repo, &manifest_path, &prototype_dir, "test").unwrap();
 
-        // Check that the files were published
-        assert!(repo_path.join("file").exists());
+        // Check that the files were published in the publisher-specific directory
+        assert!(repo_path.join("publisher").join("test").join("file").exists());
 
         // Get repository information
         let repo_info = repo.get_info().unwrap();

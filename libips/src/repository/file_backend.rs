@@ -1737,7 +1737,6 @@ impl FileBackend {
     fn create_directories(&self) -> Result<()> {
         // Create the main repository directories
         fs::create_dir_all(self.path.join("publisher"))?;
-        fs::create_dir_all(self.path.join("file"))?;
         fs::create_dir_all(self.path.join("index"))?;
         fs::create_dir_all(self.path.join("trans"))?;
         fs::create_dir_all(self.path.join("obsoleted"))?;
