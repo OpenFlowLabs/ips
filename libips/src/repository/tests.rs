@@ -206,6 +206,20 @@ mod tests {
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
         assert!(FileBackend::construct_catalog_path(&repo_path, "example.com").exists());
         assert!(FileBackend::construct_package_dir(&repo_path, "example.com", "").exists());
+        
+        // Check that the pub.p5i file was created for backward compatibility
+        let pub_p5i_path = repo_path.join("publisher").join("example.com").join("pub.p5i");
+        assert!(pub_p5i_path.exists(), "pub.p5i file should be created for backward compatibility");
+        
+        // Verify the content of the pub.p5i file
+        let pub_p5i_content = fs::read_to_string(&pub_p5i_path).unwrap();
+        let pub_p5i_json: serde_json::Value = serde_json::from_str(&pub_p5i_content).unwrap();
+        
+        // Check the structure of the pub.p5i file
+        assert_eq!(pub_p5i_json["version"], 1);
+        assert!(pub_p5i_json["packages"].is_array());
+        assert!(pub_p5i_json["publishers"].is_array());
+        assert_eq!(pub_p5i_json["publishers"][0]["name"], "example.com");
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -429,6 +443,93 @@ mod tests {
             old_path.display()
         );
 
+        // Clean up
+        cleanup_test_dir(&test_dir);
+    }
+    
+    #[test]
+    fn test_transaction_pub_p5i_creation() {
+        // Run the setup script to prepare the test environment
+        let (prototype_dir, manifest_dir) = run_setup_script();
+
+        // Create a test directory
+        let test_dir = create_test_dir("transaction_pub_p5i");
+        let repo_path = test_dir.join("repo");
+
+        // Create a repository
+        let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
+
+        // Create a new publisher through a transaction
+        let publisher = "transaction_test";
+        
+        // Start a transaction
+        let mut transaction = repo.begin_transaction().unwrap();
+        
+        // Set the publisher for the transaction
+        transaction.set_publisher(publisher);
+        
+        // Add a simple manifest to the transaction
+        let manifest_path = manifest_dir.join("example.p5m");
+        let manifest = Manifest::parse_file(&manifest_path).unwrap();
+        transaction.update_manifest(manifest);
+        
+        // Commit the transaction
+        transaction.commit().unwrap();
+        
+        // Check that the pub.p5i file was created for the new publisher
+        let pub_p5i_path = repo_path.join("publisher").join(publisher).join("pub.p5i");
+        assert!(pub_p5i_path.exists(), "pub.p5i file should be created for new publisher in transaction");
+        
+        // Verify the content of the pub.p5i file
+        let pub_p5i_content = fs::read_to_string(&pub_p5i_path).unwrap();
+        let pub_p5i_json: serde_json::Value = serde_json::from_str(&pub_p5i_content).unwrap();
+        
+        // Check the structure of the pub.p5i file
+        assert_eq!(pub_p5i_json["version"], 1);
+        assert!(pub_p5i_json["packages"].is_array());
+        assert!(pub_p5i_json["publishers"].is_array());
+        assert_eq!(pub_p5i_json["publishers"][0]["name"], publisher);
+        
+        // Clean up
+        cleanup_test_dir(&test_dir);
+    }
+    
+    #[test]
+    fn test_legacy_pkg5_repository_creation() {
+        // Create a test directory
+        let test_dir = create_test_dir("legacy_pkg5_repository");
+        let repo_path = test_dir.join("repo");
+
+        // Create a repository
+        let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
+
+        // Add a publisher
+        let publisher = "openindiana.org";
+        repo.add_publisher(publisher).unwrap();
+        
+        // Set as default publisher
+        repo.set_default_publisher(publisher).unwrap();
+        
+        // Check that the pkg5.repository file was created
+        let pkg5_repo_path = repo_path.join("pkg5.repository");
+        assert!(pkg5_repo_path.exists(), "pkg5.repository file should be created for backward compatibility");
+        
+        // Verify the content of the pkg5.repository file
+        let pkg5_content = fs::read_to_string(&pkg5_repo_path).unwrap();
+        
+        // Print the content for debugging
+        println!("pkg5.repository content:\n{}", pkg5_content);
+        
+        // Check that the file contains the expected sections and values
+        assert!(pkg5_content.contains("[publisher]"));
+        assert!(pkg5_content.contains("prefix=openindiana.org"));
+        assert!(pkg5_content.contains("[repository]"));
+        assert!(pkg5_content.contains("version=4"));
+        assert!(pkg5_content.contains("trust-anchor-directory=/etc/certs/CA/"));
+        assert!(pkg5_content.contains("signature-required-names=[]"));
+        assert!(pkg5_content.contains("check-certificate-revocation=False"));
+        assert!(pkg5_content.contains("[CONFIGURATION]"));
+        
         // Clean up
         cleanup_test_dir(&test_dir);
     }

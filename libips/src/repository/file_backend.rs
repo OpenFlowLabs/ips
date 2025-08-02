@@ -29,6 +29,7 @@ use super::{
     PackageContents, PackageInfo, PublisherInfo, ReadableRepository, RepositoryConfig,
     RepositoryInfo, RepositoryVersion, WritableRepository, REPOSITORY_CONFIG_FILENAME,
 };
+use ini::Ini;
 
 // Define a struct to hold the content vectors for each package
 struct PackageContentVectors {
@@ -585,6 +586,31 @@ impl Transaction {
             pkg_manifest_path.display()
         );
         fs::copy(&manifest_path, &pkg_manifest_path)?;
+
+        // Check if we need to create a pub.p5i file for the publisher
+        let config_path = self.repo.join(REPOSITORY_CONFIG_FILENAME);
+        if config_path.exists() {
+            let config_content = fs::read_to_string(&config_path)?;
+            let config: RepositoryConfig = serde_json::from_str(&config_content)?;
+            
+            // Check if this publisher was just added in this transaction
+            let publisher_dir = self.repo.join("publisher").join(&publisher);
+            let pub_p5i_path = publisher_dir.join("pub.p5i");
+            
+            if !pub_p5i_path.exists() {
+                debug!("Creating pub.p5i file for publisher: {}", publisher);
+                
+                // Create the pub.p5i file
+                let repo = FileBackend {
+                    path: self.repo.clone(),
+                    config,
+                    catalog_manager: None,
+                    obsoleted_manager: None,
+                };
+                
+                repo.create_pub_p5i_file(&publisher)?;
+            }
+        }
 
         // Clean up the transaction directory
         fs::remove_dir_all(self.path)?;
@@ -1333,9 +1359,14 @@ impl WritableRepository for FileBackend {
 
     /// Save the repository configuration
     fn save_config(&self) -> Result<()> {
+        // Save the modern JSON format
         let config_path = self.path.join(REPOSITORY_CONFIG_FILENAME);
         let config_data = serde_json::to_string_pretty(&self.config)?;
         fs::write(config_path, config_data)?;
+        
+        // Save the legacy INI format for backward compatibility
+        self.save_legacy_config()?;
+        
         Ok(())
     }
 
@@ -1347,6 +1378,13 @@ impl WritableRepository for FileBackend {
             // Create publisher-specific directories
             fs::create_dir_all(Self::construct_catalog_path(&self.path, publisher))?;
             fs::create_dir_all(Self::construct_package_dir(&self.path, publisher, ""))?;
+
+            // Create the publisher directory if it doesn't exist
+            let publisher_dir = self.path.join("publisher").join(publisher);
+            fs::create_dir_all(&publisher_dir)?;
+
+            // Create the pub.p5i file for backward compatibility
+            self.create_pub_p5i_file(publisher)?;
 
             // Set as the default publisher if no default publisher is set
             if self.config.default_publisher.is_none() {
@@ -1513,6 +1551,81 @@ impl WritableRepository for FileBackend {
 }
 
 impl FileBackend {
+    /// Save the legacy pkg5.repository INI file for backward compatibility
+    pub fn save_legacy_config(&self) -> Result<()> {
+        let legacy_config_path = self.path.join("pkg5.repository");
+        let mut conf = Ini::new();
+        
+        // Add publisher section with default publisher
+        if let Some(default_publisher) = &self.config.default_publisher {
+            conf.with_section(Some("publisher"))
+                .set("prefix", default_publisher);
+        }
+        
+        // Add repository section with version and default values
+        conf.with_section(Some("repository"))
+            .set("version", "4")
+            .set("trust-anchor-directory", "/etc/certs/CA/")
+            .set("signature-required-names", "[]")
+            .set("check-certificate-revocation", "False");
+        
+        // Add CONFIGURATION section with version
+        conf.with_section(Some("CONFIGURATION"))
+            .set("version", "4");
+        
+        // Write the INI file
+        conf.write_to_file(legacy_config_path)?;
+        
+        Ok(())
+    }
+
+    /// Create a pub.p5i file for a publisher for backward compatibility
+    /// 
+    /// Format: base_path/publisher/publisher_name/pub.p5i
+    fn create_pub_p5i_file(&self, publisher: &str) -> Result<()> {
+        // Define the structure for the pub.p5i file
+        #[derive(serde::Serialize)]
+        struct P5iPublisherInfo {
+            alias: Option<String>,
+            name: String,
+            packages: Vec<String>,
+            repositories: Vec<String>,
+        }
+
+        #[derive(serde::Serialize)]
+        struct P5iFile {
+            packages: Vec<String>,
+            publishers: Vec<P5iPublisherInfo>,
+            version: u32,
+        }
+
+        // Create the publisher info
+        let publisher_info = P5iPublisherInfo {
+            alias: None,
+            name: publisher.to_string(),
+            packages: Vec::new(),
+            repositories: Vec::new(),
+        };
+
+        // Create the p5i file content
+        let p5i_content = P5iFile {
+            packages: Vec::new(),
+            publishers: vec![publisher_info],
+            version: 1,
+        };
+
+        // Serialize to JSON
+        let json_content = serde_json::to_string_pretty(&p5i_content)?;
+
+        // Create the path for the pub.p5i file
+        let pub_p5i_path = self.path.join("publisher").join(publisher).join("pub.p5i");
+
+        // Write the file
+        fs::write(pub_p5i_path, json_content)?;
+
+        Ok(())
+    }
+
     /// Helper method to construct a catalog path consistently
     /// 
     /// Format: base_path/publisher/publisher_name/catalog
