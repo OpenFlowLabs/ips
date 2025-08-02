@@ -8,7 +8,7 @@ members = [
   "userland",
   "specfile",
   "ports",
-  "crates/*",
+  "pkg6",
   "xtask",
 ]
 resolver = "2"

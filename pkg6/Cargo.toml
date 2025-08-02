@@ -9,6 +9,6 @@ readme.workspace = true
 keywords.workspace = true
 
 [dependencies]
-libips = { version = "*", path = "../../libips" }
+libips = { version = "*", path = "../libips" }
 diff-struct = "0.5.3"
 serde = { version = "1.0.207", features = ["derive"] }
