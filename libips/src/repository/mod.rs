@@ -201,6 +201,7 @@ impl From<bincode::Error> for RepositoryError {
 mod catalog;
 mod file_backend;
 mod obsoleted;
+pub mod progress;
 mod rest_backend;
 #[cfg(test)]
 mod tests;
@@ -212,6 +213,7 @@ pub use catalog::{
 };
 pub use file_backend::FileBackend;
 pub use obsoleted::{ObsoletedPackageManager, ObsoletedPackageMetadata};
+pub use progress::{ProgressInfo, ProgressReporter, NoopProgressReporter};
 pub use rest_backend::RestBackend;
 
 /// Repository configuration filename

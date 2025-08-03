@@ -9,6 +9,9 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use redb::{Database, ReadableTable, TableDefinition};
+
+use crate::repository::{RestBackend, ReadableRepository, RepositoryError};
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ImageError {
@@ -32,6 +35,34 @@ pub enum ImageError {
         help("Provide a valid path for the image")
     )]
     InvalidPath(String),
+    
+    #[error("Repository error: {0}")]
+    #[diagnostic(
+        code(ips::image_error::repository),
+        help("Check the repository configuration and try again")
+    )]
+    Repository(#[from] RepositoryError),
+    
+    #[error("Database error: {0}")]
+    #[diagnostic(
+        code(ips::image_error::database),
+        help("Check the database configuration and try again")
+    )]
+    Database(String),
+    
+    #[error("Publisher not found: {0}")]
+    #[diagnostic(
+        code(ips::image_error::publisher_not_found),
+        help("Check the publisher name and try again")
+    )]
+    PublisherNotFound(String),
+    
+    #[error("No publishers configured")]
+    #[diagnostic(
+        code(ips::image_error::no_publishers),
+        help("Configure at least one publisher before performing this operation")
+    )]
+    NoPublishers,
 }
 
 pub type Result<T> = std::result::Result<T, ImageError>;
@@ -43,6 +74,19 @@ pub enum ImageType {
     Full,
     /// Partial image attached to a full image
     Partial,
+}
+
+/// Represents a publisher configuration in an image
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct Publisher {
+    /// Publisher name
+    pub name: String,
+    /// Publisher origin URL
+    pub origin: String,
+    /// Publisher mirror URLs
+    pub mirrors: Vec<String>,
+    /// Whether this is the default publisher
+    pub is_default: bool,
 }
 
 /// Represents an IPS image, which can be either a Full image or a Partial image
@@ -60,6 +104,8 @@ pub struct Image {
     variants: HashMap<String, String>,
     /// Mediators
     mediators: HashMap<String, String>,
+    /// Publishers
+    publishers: Vec<Publisher>,
 }
 
 impl Image {
@@ -72,6 +118,7 @@ impl Image {
             variants: HashMap::new(),
             mediators: HashMap::new(),
             props: vec![],
+            publishers: vec![],
         }
     }
 
@@ -84,7 +131,109 @@ impl Image {
             variants: HashMap::new(),
             mediators: HashMap::new(),
             props: vec![],
+            publishers: vec![],
         }
+    }
+    
+    /// Add a publisher to the image
+    pub fn add_publisher(&mut self, name: &str, origin: &str, mirrors: Vec<String>, is_default: bool) -> Result<()> {
+        // Check if publisher already exists
+        if self.publishers.iter().any(|p| p.name == name) {
+            // Update existing publisher
+            for publisher in &mut self.publishers {
+                if publisher.name == name {
+                    publisher.origin = origin.to_string();
+                    publisher.mirrors = mirrors;
+                    publisher.is_default = is_default;
+                    
+                    // If this publisher is now the default, make sure no other publisher is default
+                    if is_default {
+                        for other_publisher in &mut self.publishers {
+                            if other_publisher.name != name {
+                                other_publisher.is_default = false;
+                            }
+                        }
+                    }
+                    
+                    break;
+                }
+            }
+        } else {
+            // Add new publisher
+            let publisher = Publisher {
+                name: name.to_string(),
+                origin: origin.to_string(),
+                mirrors,
+                is_default,
+            };
+            
+            // If this publisher is the default, make sure no other publisher is default
+            if is_default {
+                for publisher in &mut self.publishers {
+                    publisher.is_default = false;
+                }
+            }
+            
+            self.publishers.push(publisher);
+        }
+        
+        // Save the image to persist the changes
+        self.save()?;
+        
+        Ok(())
+    }
+    
+    /// Remove a publisher from the image
+    pub fn remove_publisher(&mut self, name: &str) -> Result<()> {
+        let initial_len = self.publishers.len();
+        self.publishers.retain(|p| p.name != name);
+        
+        if self.publishers.len() == initial_len {
+            return Err(ImageError::PublisherNotFound(name.to_string()));
+        }
+        
+        // If we removed the default publisher, set the first remaining publisher as default
+        if self.publishers.iter().all(|p| !p.is_default) && !self.publishers.is_empty() {
+            self.publishers[0].is_default = true;
+        }
+        
+        // Save the image to persist the changes
+        self.save()?;
+        
+        Ok(())
+    }
+    
+    /// Get the default publisher
+    pub fn default_publisher(&self) -> Result<&Publisher> {
+        // Find the default publisher
+        for publisher in &self.publishers {
+            if publisher.is_default {
+                return Ok(publisher);
+            }
+        }
+        
+        // If no publisher is marked as default, return the first one
+        if !self.publishers.is_empty() {
+            return Ok(&self.publishers[0]);
+        }
+        
+        Err(ImageError::NoPublishers)
+    }
+    
+    /// Get a publisher by name
+    pub fn get_publisher(&self, name: &str) -> Result<&Publisher> {
+        for publisher in &self.publishers {
+            if publisher.name == name {
+                return Ok(publisher);
+            }
+        }
+        
+        Err(ImageError::PublisherNotFound(name.to_string()))
+    }
+    
+    /// Get all publishers
+    pub fn publishers(&self) -> &[Publisher] {
+        &self.publishers
     }
 
     /// Returns the path to the image
@@ -109,6 +258,21 @@ impl Image {
     pub fn image_json_path(&self) -> PathBuf {
         self.metadata_dir().join("pkg6.image.json")
     }
+    
+    /// Returns the path to the installed packages database
+    pub fn installed_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("installed.redb")
+    }
+    
+    /// Returns the path to the manifest directory
+    pub fn manifest_dir(&self) -> PathBuf {
+        self.metadata_dir().join("manifests")
+    }
+    
+    /// Returns the path to the catalog directory
+    pub fn catalog_dir(&self) -> PathBuf {
+        self.metadata_dir().join("catalog")
+    }
 
     /// Creates the metadata directory if it doesn't exist
     pub fn create_metadata_dir(&self) -> Result<()> {
@@ -119,6 +283,110 @@ impl Image {
                 format!("Failed to create metadata directory at {:?}: {}", metadata_dir, e),
             ))
         })
+    }
+    
+    /// Creates the manifest directory if it doesn't exist
+    pub fn create_manifest_dir(&self) -> Result<()> {
+        let manifest_dir = self.manifest_dir();
+        fs::create_dir_all(&manifest_dir).map_err(|e| {
+            ImageError::IO(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create manifest directory at {:?}: {}", manifest_dir, e),
+            ))
+        })
+    }
+    
+    /// Creates the catalog directory if it doesn't exist
+    pub fn create_catalog_dir(&self) -> Result<()> {
+        let catalog_dir = self.catalog_dir();
+        fs::create_dir_all(&catalog_dir).map_err(|e| {
+            ImageError::IO(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create catalog directory at {:?}: {}", catalog_dir, e),
+            ))
+        })
+    }
+    
+    /// Initialize the installed packages database
+    pub fn init_installed_db(&self) -> Result<()> {
+        let db_path = self.installed_db_path();
+        
+        // Create the database if it doesn't exist
+        let db = Database::create(&db_path).map_err(|e| {
+            ImageError::Database(format!("Failed to create installed packages database: {}", e))
+        })?;
+        
+        // Define tables
+        let packages_table = TableDefinition::<&str, &[u8]>::new("packages");
+        
+        // Create tables
+        let tx = db.begin_write().map_err(|e| {
+            ImageError::Database(format!("Failed to begin transaction: {}", e))
+        })?;
+        
+        tx.open_table(packages_table).map_err(|e| {
+            ImageError::Database(format!("Failed to create packages table: {}", e))
+        })?;
+        
+        tx.commit().map_err(|e| {
+            ImageError::Database(format!("Failed to commit transaction: {}", e))
+        })?;
+        
+        Ok(())
+    }
+    
+    /// Download catalogs from all configured publishers
+    pub fn download_catalogs(&self) -> Result<()> {
+        // Create catalog directory if it doesn't exist
+        self.create_catalog_dir()?;
+        
+        // Download catalogs for each publisher
+        for publisher in &self.publishers {
+            self.download_publisher_catalog(&publisher.name)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Download catalog for a specific publisher
+    pub fn download_publisher_catalog(&self, publisher_name: &str) -> Result<()> {
+        // Get the publisher
+        let publisher = self.get_publisher(publisher_name)?;
+        
+        // Create a REST backend for the publisher
+        let mut repo = RestBackend::open(&publisher.origin)?;
+        
+        // Set local cache path to the catalog directory for this publisher
+        let publisher_catalog_dir = self.catalog_dir().join(&publisher.name);
+        fs::create_dir_all(&publisher_catalog_dir)?;
+        repo.set_local_cache_path(&publisher_catalog_dir)?;
+        
+        // Download the catalog
+        repo.download_catalog(&publisher.name, None)?;
+        
+        Ok(())
+    }
+    
+    /// Create a new image with the specified publisher
+    pub fn create_image<P: AsRef<Path>>(path: P, publisher_name: &str, origin: &str) -> Result<Self> {
+        // Create a new image
+        let mut image = Image::new_full(path.as_ref().to_path_buf());
+        
+        // Create the directory structure
+        image.create_metadata_dir()?;
+        image.create_manifest_dir()?;
+        image.create_catalog_dir()?;
+        
+        // Initialize the installed packages database
+        image.init_installed_db()?;
+        
+        // Add the publisher
+        image.add_publisher(publisher_name, origin, vec![], true)?;
+        
+        // Download the catalog
+        image.download_publisher_catalog(publisher_name)?;
+        
+        Ok(image)
     }
 
     /// Saves the image data to the metadata directory
