@@ -29,6 +29,7 @@ use super::catalog::CatalogManager;
 ///
 /// ```no_run
 /// use libips::repository::RestBackend;
+/// use libips::repository::{ReadableRepository, WritableRepository};
 /// use std::path::Path;
 ///
 /// // Open a connection to a remote repository
@@ -41,7 +42,7 @@ use super::catalog::CatalogManager;
 /// repo.add_publisher("openindiana.org").unwrap();
 ///
 /// // Download catalog files for the publisher
-/// repo.download_catalog("openindiana.org").unwrap();
+/// repo.download_catalog("openindiana.org", None).unwrap();
 /// ```
 pub struct RestBackend {
     /// The base URI of the repository
