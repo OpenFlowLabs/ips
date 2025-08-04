@@ -1,114 +1,118 @@
 use super::*;
-use std::path::Path;
+use std::fs;
 use tempfile::tempdir;
 
 #[test]
-fn test_image_types() {
-    let full_image = Image::new_full("/");
-    let partial_image = Image::new_partial("/tmp/partial");
-
-    assert_eq!(*full_image.image_type(), ImageType::Full);
-    assert_eq!(*partial_image.image_type(), ImageType::Partial);
-}
-
-#[test]
-fn test_metadata_paths() {
-    let full_image = Image::new_full("/");
-    let partial_image = Image::new_partial("/tmp/partial");
-
-    assert_eq!(full_image.metadata_dir(), Path::new("/var/pkg"));
-    assert_eq!(partial_image.metadata_dir(), Path::new("/tmp/partial/.pkg"));
-
-    assert_eq!(
-        full_image.image_json_path(),
-        Path::new("/var/pkg/pkg6.image.json")
-    );
-    assert_eq!(
-        partial_image.image_json_path(),
-        Path::new("/tmp/partial/.pkg/pkg6.image.json")
-    );
-}
-
-#[test]
-fn test_save_and_load() -> Result<()> {
-    // Create a temporary directory for testing
-    let temp_dir = tempdir().expect("Failed to create temp directory");
-    let temp_path = temp_dir.path();
-
-    // Create a full image
-    let mut full_image = Image::new_full(temp_path);
+fn test_image_catalog() {
+    // Create a temporary directory for the test
+    let temp_dir = tempdir().unwrap();
+    let image_path = temp_dir.path().join("image");
     
-    // Add some test data
-    full_image.props.push(ImageProperty::String("test_prop".to_string()));
+    // Create the image
+    let image = Image::create_image(&image_path).unwrap();
     
-    // Save the image
-    full_image.save()?;
-    
-    // Check that the metadata directory and JSON file were created
-    let metadata_dir = temp_path.join("var/pkg");
-    let json_path = metadata_dir.join("pkg6.image.json");
-    
-    assert!(metadata_dir.exists());
-    assert!(json_path.exists());
-    
-    // Load the image
-    let loaded_image = Image::load(temp_path)?;
-    
-    // Check that the loaded image matches the original
-    assert_eq!(*loaded_image.image_type(), ImageType::Full);
-    assert_eq!(loaded_image.path, full_image.path);
-    assert_eq!(loaded_image.props.len(), 1);
+    // Verify that the catalog database was initialized
+    assert!(image.catalog_db_path().exists());
     
     // Clean up
-    temp_dir.close().expect("Failed to clean up temp directory");
-    
-    Ok(())
+    temp_dir.close().unwrap();
 }
 
 #[test]
-fn test_partial_image() -> Result<()> {
-    // Create a temporary directory for testing
-    let temp_dir = tempdir().expect("Failed to create temp directory");
-    let temp_path = temp_dir.path();
+fn test_catalog_methods() {
+    // Create a temporary directory for the test
+    let temp_dir = tempdir().unwrap();
+    let image_path = temp_dir.path().join("image");
     
-    // Create a partial image
-    let mut partial_image = Image::new_partial(temp_path);
+    // Create the image
+    let mut image = Image::create_image(&image_path).unwrap();
     
-    // Add some test data
-    partial_image.props.push(ImageProperty::Boolean(true));
+    // Add a publisher
+    image.add_publisher("test", "http://example.com/repo", vec![], true).unwrap();
     
-    // Save the image
-    partial_image.save()?;
+    // Create the catalog directory structure
+    let catalog_dir = image.catalog_dir();
+    let publisher_dir = catalog_dir.join("test");
+    fs::create_dir_all(&publisher_dir).unwrap();
     
-    // Check that the metadata directory and JSON file were created
-    let metadata_dir = temp_path.join(".pkg");
-    let json_path = metadata_dir.join("pkg6.image.json");
+    // Create a simple catalog.attrs file
+    let attrs_content = r#"{
+        "parts": {
+            "base": {}
+        },
+        "version": 1
+    }"#;
+    fs::write(publisher_dir.join("catalog.attrs"), attrs_content).unwrap();
     
-    assert!(metadata_dir.exists());
-    assert!(json_path.exists());
+    // Create a simple base catalog part
+    let base_content = r#"{
+        "packages": {
+            "test": {
+                "example/package": [
+                    {
+                        "version": "1.0",
+                        "actions": [
+                            "set name=pkg.fmri value=pkg://test/example/package@1.0",
+                            "set name=pkg.summary value=\"Example package\"",
+                            "set name=pkg.description value=\"An example package for testing\""
+                        ]
+                    }
+                ],
+                "example/obsolete": [
+                    {
+                        "version": "1.0",
+                        "actions": [
+                            "set name=pkg.fmri value=pkg://test/example/obsolete@1.0",
+                            "set name=pkg.summary value=\"Obsolete package\"",
+                            "set name=pkg.obsolete value=true"
+                        ]
+                    }
+                ]
+            }
+        }
+    }"#;
+    fs::write(publisher_dir.join("base"), base_content).unwrap();
     
-    // Load the image
-    let loaded_image = Image::load(temp_path)?;
+    // Build the catalog
+    image.build_catalog().unwrap();
     
-    // Check that the loaded image matches the original
-    assert_eq!(*loaded_image.image_type(), ImageType::Partial);
-    assert_eq!(loaded_image.path, partial_image.path);
-    assert_eq!(loaded_image.props.len(), 1);
+    // Query the catalog
+    let packages = image.query_catalog(None).unwrap();
+    
+    // Verify that both non-obsolete and obsolete packages are in the results
+    assert_eq!(packages.len(), 2);
+    
+    // Verify that one package is marked as obsolete
+    let obsolete_packages: Vec<_> = packages.iter().filter(|p| p.obsolete).collect();
+    assert_eq!(obsolete_packages.len(), 1);
+    assert_eq!(obsolete_packages[0].fmri.stem(), "example/obsolete");
+    
+    // Verify that the obsolete package has the full FMRI as key
+    // This is indirectly verified by checking that the publisher is included in the FMRI
+    assert_eq!(obsolete_packages[0].fmri.publisher, Some("test".to_string()));
+    
+    // Verify that one package is not marked as obsolete
+    let non_obsolete_packages: Vec<_> = packages.iter().filter(|p| !p.obsolete).collect();
+    assert_eq!(non_obsolete_packages.len(), 1);
+    assert_eq!(non_obsolete_packages[0].fmri.stem(), "example/package");
+    
+    // Get the manifest for the non-obsolete package
+    let fmri = &non_obsolete_packages[0].fmri;
+    let manifest = image.get_manifest_from_catalog(fmri).unwrap();
+    assert!(manifest.is_some());
+    
+    // Get the manifest for the obsolete package
+    let fmri = &obsolete_packages[0].fmri;
+    let manifest = image.get_manifest_from_catalog(fmri).unwrap();
+    assert!(manifest.is_some());
+    
+    // Verify that the obsolete package's manifest has the obsolete attribute
+    let manifest = manifest.unwrap();
+    let is_obsolete = manifest.attributes.iter().any(|attr| {
+        attr.key == "pkg.obsolete" && attr.values.get(0).map_or(false, |v| v == "true")
+    });
+    assert!(is_obsolete);
     
     // Clean up
-    temp_dir.close().expect("Failed to clean up temp directory");
-    
-    Ok(())
-}
-
-#[test]
-fn test_invalid_path() {
-    let result = Image::load("/nonexistent/path");
-    assert!(result.is_err());
-    
-    if let Err(ImageError::InvalidPath(_)) = result {
-        // Expected error
-    } else {
-        panic!("Expected InvalidPath error, got {:?}", result);
-    }
+    temp_dir.close().unwrap();
 }

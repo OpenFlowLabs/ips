@@ -4,14 +4,26 @@ mod tests;
 
 use miette::Diagnostic;
 use properties::*;
+use redb::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use redb::{Database, TableDefinition};
 
-use crate::repository::{RestBackend, ReadableRepository, RepositoryError};
+use crate::repository::{ReadableRepository, RepositoryError, RestBackend};
+
+// Export the catalog module
+pub mod catalog;
+use catalog::{ImageCatalog, PackageInfo};
+
+// Export the installed packages module
+pub mod installed;
+use installed::{InstalledPackageInfo, InstalledPackages};
+
+// Include tests
+#[cfg(test)]
+mod installed_tests;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum ImageError {
@@ -273,6 +285,11 @@ impl Image {
     pub fn catalog_dir(&self) -> PathBuf {
         self.metadata_dir().join("catalog")
     }
+    
+    /// Returns the path to the catalog database
+    pub fn catalog_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("catalog.redb")
+    }
 
     /// Creates the metadata directory if it doesn't exist
     pub fn create_metadata_dir(&self) -> Result<()> {
@@ -311,31 +328,62 @@ impl Image {
     pub fn init_installed_db(&self) -> Result<()> {
         let db_path = self.installed_db_path();
         
-        // Create the database if it doesn't exist
-        let db = Database::create(&db_path).map_err(|e| {
-            ImageError::Database(format!("Failed to create installed packages database: {}", e))
-        })?;
-        
-        // Define tables
-        let packages_table = TableDefinition::<&str, &[u8]>::new("packages");
-        
-        // Create tables
-        let tx = db.begin_write().map_err(|e| {
-            ImageError::Database(format!("Failed to begin transaction: {}", e))
-        })?;
-        
-        tx.open_table(packages_table).map_err(|e| {
-            ImageError::Database(format!("Failed to create packages table: {}", e))
-        })?;
-        
-        tx.commit().map_err(|e| {
-            ImageError::Database(format!("Failed to commit transaction: {}", e))
-        })?;
-        
-        Ok(())
+        // Create the installed packages database
+        let installed = InstalledPackages::new(&db_path);
+        installed.init_db().map_err(|e| {
+            ImageError::Database(format!("Failed to initialize installed packages database: {}", e))
+        })
     }
     
-    /// Download catalogs from all configured publishers
+    /// Add a package to the installed packages database
+    pub fn install_package(&self, fmri: &crate::fmri::Fmri, manifest: &crate::actions::Manifest) -> Result<()> {
+        let installed = InstalledPackages::new(self.installed_db_path());
+        installed.add_package(fmri, manifest).map_err(|e| {
+            ImageError::Database(format!("Failed to add package to installed database: {}", e))
+        })
+    }
+    
+    /// Remove a package from the installed packages database
+    pub fn uninstall_package(&self, fmri: &crate::fmri::Fmri) -> Result<()> {
+        let installed = InstalledPackages::new(self.installed_db_path());
+        installed.remove_package(fmri).map_err(|e| {
+            ImageError::Database(format!("Failed to remove package from installed database: {}", e))
+        })
+    }
+    
+    /// Query the installed packages database for packages matching a pattern
+    pub fn query_installed_packages(&self, pattern: Option<&str>) -> Result<Vec<InstalledPackageInfo>> {
+        let installed = InstalledPackages::new(self.installed_db_path());
+        installed.query_packages(pattern).map_err(|e| {
+            ImageError::Database(format!("Failed to query installed packages: {}", e))
+        })
+    }
+    
+    /// Get a manifest from the installed packages database
+    pub fn get_manifest_from_installed(&self, fmri: &crate::fmri::Fmri) -> Result<Option<crate::actions::Manifest>> {
+        let installed = InstalledPackages::new(self.installed_db_path());
+        installed.get_manifest(fmri).map_err(|e| {
+            ImageError::Database(format!("Failed to get manifest from installed database: {}", e))
+        })
+    }
+    
+    /// Check if a package is installed
+    pub fn is_package_installed(&self, fmri: &crate::fmri::Fmri) -> Result<bool> {
+        let installed = InstalledPackages::new(self.installed_db_path());
+        installed.is_installed(fmri).map_err(|e| {
+            ImageError::Database(format!("Failed to check if package is installed: {}", e))
+        })
+    }
+    
+    /// Initialize the catalog database
+    pub fn init_catalog_db(&self) -> Result<()> {
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        catalog.init_db().map_err(|e| {
+            ImageError::Database(format!("Failed to initialize catalog database: {}", e))
+        })
+    }
+    
+    /// Download catalogs from all configured publishers and build the merged catalog
     pub fn download_catalogs(&self) -> Result<()> {
         // Create catalog directory if it doesn't exist
         self.create_catalog_dir()?;
@@ -345,7 +393,43 @@ impl Image {
             self.download_publisher_catalog(&publisher.name)?;
         }
         
+        // Build the merged catalog
+        self.build_catalog()?;
+        
         Ok(())
+    }
+    
+    /// Build the merged catalog from downloaded catalogs
+    pub fn build_catalog(&self) -> Result<()> {
+        // Initialize the catalog database if it doesn't exist
+        self.init_catalog_db()?;
+        
+        // Get publisher names
+        let publisher_names: Vec<String> = self.publishers.iter()
+            .map(|p| p.name.clone())
+            .collect();
+        
+        // Create the catalog and build it
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        catalog.build_catalog(&publisher_names).map_err(|e| {
+            ImageError::Database(format!("Failed to build catalog: {}", e))
+        })
+    }
+    
+    /// Query the catalog for packages matching a pattern
+    pub fn query_catalog(&self, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        catalog.query_packages(pattern).map_err(|e| {
+            ImageError::Database(format!("Failed to query catalog: {}", e))
+        })
+    }
+    
+    /// Get a manifest from the catalog
+    pub fn get_manifest_from_catalog(&self, fmri: &crate::fmri::Fmri) -> Result<Option<crate::actions::Manifest>> {
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        catalog.get_manifest(fmri).map_err(|e| {
+            ImageError::Database(format!("Failed to get manifest from catalog: {}", e))
+        })
     }
     
     /// Download catalog for a specific publisher
@@ -367,10 +451,13 @@ impl Image {
         Ok(())
     }
     
-    /// Create a new image with the specified publisher
-    pub fn create_image<P: AsRef<Path>>(path: P, publisher_name: &str, origin: &str) -> Result<Self> {
+    /// Create a new image with the basic directory structure
+    /// 
+    /// This method only creates the image structure without adding publishers or downloading catalogs.
+    /// Publisher addition and catalog downloading should be handled separately.
+    pub fn create_image<P: AsRef<Path>>(path: P) -> Result<Self> {
         // Create a new image
-        let mut image = Image::new_full(path.as_ref().to_path_buf());
+        let image = Image::new_full(path.as_ref().to_path_buf());
         
         // Create the directory structure
         image.create_metadata_dir()?;
@@ -380,11 +467,11 @@ impl Image {
         // Initialize the installed packages database
         image.init_installed_db()?;
         
-        // Add the publisher
-        image.add_publisher(publisher_name, origin, vec![], true)?;
+        // Initialize the catalog database
+        image.init_catalog_db()?;
         
-        // Download the catalog
-        image.download_publisher_catalog(publisher_name)?;
+        // Save the image
+        image.save()?;
         
         Ok(image)
     }

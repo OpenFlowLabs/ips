@@ -198,7 +198,7 @@ impl From<bincode::Error> for RepositoryError {
     }
 }
 
-mod catalog;
+pub mod catalog;
 mod file_backend;
 mod obsoleted;
 pub mod progress;

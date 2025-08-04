@@ -398,18 +398,19 @@ enum Commands {
     /// Create an image
     ///
     /// The image-create command creates a new image.
+    /// If publisher and origin are provided, the publisher will be added to the image.
     ImageCreate {
         /// Full path to the image to create
         #[clap(short = 'F')]
         full_path: PathBuf,
 
-        /// Publisher to use
+        /// Publisher to use (optional)
         #[clap(short = 'p')]
-        publisher: String,
+        publisher: Option<String>,
 
-        /// Publisher origin URL
-        #[clap(short = 'g')]
-        origin: String,
+        /// Publisher origin URL (required if publisher is specified)
+        #[clap(short = 'g', requires = "publisher")]
+        origin: Option<String>,
     },
 }
 
@@ -654,6 +655,14 @@ fn main() -> Result<()> {
             // Remove the publisher
             image.remove_publisher(&publisher)?;
             
+            // Refresh the catalog to reflect the current state of all available packages
+            if let Err(e) = image.download_catalogs() {
+                error!("Failed to refresh catalog after removing publisher: {}", e);
+                // Continue execution even if catalog refresh fails
+            } else {
+                info!("Catalog refreshed successfully");
+            }
+            
             info!("Publisher {} removed successfully", publisher);
             info!("Unset-publisher completed successfully");
             Ok(())
@@ -801,15 +810,29 @@ fn main() -> Result<()> {
         },
         Commands::ImageCreate { full_path, publisher, origin } => {
             info!("Creating image at: {}", full_path.display());
-            debug!("Publisher: {}", publisher);
-            debug!("Origin: {}", origin);
+            debug!("Publisher: {:?}", publisher);
+            debug!("Origin: {:?}", origin);
             
-            // Create the image
-            let image = libips::image::Image::create_image(&full_path, &publisher, &origin)?;
-            
+            // Create the image (only creates the basic structure)
+            let mut image = libips::image::Image::create_image(&full_path)?;
             info!("Image created successfully at: {}", full_path.display());
-            info!("Publisher {} configured with origin: {}", publisher, origin);
-            info!("Catalog downloaded from publisher: {}", publisher);
+            
+            // If publisher and origin are provided, add the publisher and download the catalog
+            if let (Some(publisher_name), Some(origin_url)) = (publisher.as_ref(), origin.as_ref()) {
+                info!("Adding publisher {} with origin {}", publisher_name, origin_url);
+                
+                // Add the publisher
+                image.add_publisher(publisher_name, origin_url, vec![], true)?;
+                
+                // Download the catalog
+                image.download_publisher_catalog(publisher_name)?;
+                
+                info!("Publisher {} configured with origin: {}", publisher_name, origin_url);
+                info!("Catalog downloaded from publisher: {}", publisher_name);
+            } else {
+                info!("No publisher configured. Use 'pkg6 set-publisher' to add a publisher.");
+            }
+            
             Ok(())
         },
     }
