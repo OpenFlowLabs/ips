@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Table definition for the installed packages database
 /// Key: full FMRI including publisher (pkg://publisher/stem@version)

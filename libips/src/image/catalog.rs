@@ -362,8 +362,19 @@ impl ImageCatalog {
             }
             
             // Create a catalog manager for this publisher
+            // The catalog parts are in a subdirectory: publisher/<publisher>/catalog/
+            let catalog_parts_dir = publisher_catalog_dir.join("publisher").join(publisher).join("catalog");
             println!("Creating catalog manager for publisher: {}", publisher);
-            let mut catalog_manager = CatalogManager::new(&publisher_catalog_dir, publisher)
+            println!("Catalog parts directory: {:?}", catalog_parts_dir);
+            
+            // Check if the catalog parts directory exists
+            if !catalog_parts_dir.exists() {
+                println!("Catalog parts directory not found: {}", catalog_parts_dir.display());
+                warn!("Catalog parts directory not found: {}", catalog_parts_dir.display());
+                continue;
+            }
+            
+            let mut catalog_manager = CatalogManager::new(&catalog_parts_dir, publisher)
                 .map_err(|e| CatalogError::Repository(crate::repository::RepositoryError::Other(format!("Failed to create catalog manager: {}", e))))?;
             
             // Get all catalog parts

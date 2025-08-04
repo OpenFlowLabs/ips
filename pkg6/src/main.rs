@@ -649,6 +649,13 @@ fn main() -> Result<()> {
                 // List all available packages
                 info!("Listing all available packages");
                 
+                // Build the catalog before querying it
+                info!("Building catalog...");
+                if let Err(e) = image.build_catalog() {
+                    error!("Failed to build catalog: {}", e);
+                    return Err(e.into());
+                }
+                
                 match image.query_catalog(pattern) {
                     Ok(packages) => {
                         println!("PUBLISHER                                  NAME                                     VERSION                      STATE");
