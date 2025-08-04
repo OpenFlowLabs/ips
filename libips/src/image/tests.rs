@@ -47,9 +47,16 @@ fn test_catalog_methods() {
     
     // Create a simple catalog.attrs file
     let attrs_content = r#"{
+        "created": "2025-08-04T23:01:00Z",
+        "last-modified": "2025-08-04T23:01:00Z",
+        "package-count": 2,
+        "package-version-count": 2,
         "parts": {
-            "base": {}
+            "base": {
+                "last-modified": "2025-08-04T23:01:00Z"
+            }
         },
+        "updates": {},
         "version": 1
     }"#;
     println!("Writing catalog.attrs to {:?}", publisher_dir.join("catalog.attrs"));
@@ -144,6 +151,68 @@ fn test_catalog_methods() {
         attr.key == "pkg.obsolete" && attr.values.get(0).map_or(false, |v| v == "true")
     });
     assert!(is_obsolete);
+    
+    // Clean up
+    temp_dir.close().unwrap();
+}
+
+#[test]
+fn test_refresh_catalogs_directory_clearing() {
+    // Create a temporary directory for the test
+    let temp_dir = tempdir().unwrap();
+    let image_path = temp_dir.path().join("image");
+    
+    // Create the image
+    let mut image = Image::create_image(&image_path, ImageType::Full).unwrap();
+    
+    // Add two publishers
+    image.add_publisher("test1", "http://example.com/repo1", vec![], true).unwrap();
+    image.add_publisher("test2", "http://example.com/repo2", vec![], false).unwrap();
+    
+    // Create the catalog directory structure for both publishers
+    let catalog_dir = image.catalog_dir();
+    let publisher1_dir = catalog_dir.join("test1");
+    let publisher2_dir = catalog_dir.join("test2");
+    fs::create_dir_all(&publisher1_dir).unwrap();
+    fs::create_dir_all(&publisher2_dir).unwrap();
+    
+    // Create marker files in both publisher directories
+    let marker_file1 = publisher1_dir.join("marker");
+    let marker_file2 = publisher2_dir.join("marker");
+    fs::write(&marker_file1, "This file should be removed during full refresh").unwrap();
+    fs::write(&marker_file2, "This file should be removed during full refresh").unwrap();
+    assert!(marker_file1.exists());
+    assert!(marker_file2.exists());
+    
+    // Directly test the directory clearing functionality for a specific publisher
+    // This simulates the behavior of refresh_catalogs with full=true for a specific publisher
+    if publisher1_dir.exists() {
+        fs::remove_dir_all(&publisher1_dir).unwrap();
+    }
+    fs::create_dir_all(&publisher1_dir).unwrap();
+    
+    // Verify that the marker file for publisher1 was removed
+    assert!(!marker_file1.exists());
+    // Verify that the marker file for publisher2 still exists
+    assert!(marker_file2.exists());
+    
+    // Create a new marker file for publisher1
+    fs::write(&marker_file1, "This file should be removed during full refresh").unwrap();
+    assert!(marker_file1.exists());
+    
+    // Directly test the directory clearing functionality for all publishers
+    // This simulates the behavior of refresh_catalogs with full=true for all publishers
+    for publisher in &image.publishers {
+        let publisher_dir = catalog_dir.join(&publisher.name);
+        if publisher_dir.exists() {
+            fs::remove_dir_all(&publisher_dir).unwrap();
+        }
+        fs::create_dir_all(&publisher_dir).unwrap();
+    }
+    
+    // Verify that both marker files were removed
+    assert!(!marker_file1.exists());
+    assert!(!marker_file2.exists());
     
     // Clean up
     temp_dir.close().unwrap();

@@ -488,8 +488,38 @@ fn main() -> Result<()> {
             debug!("Quiet mode: {}", quiet);
             debug!("Publishers: {:?}", publishers);
             
-            // Stub implementation
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            if !quiet {
+                println!("Using image at: {}", image_path.display());
+            }
+            
+            // Try to load the image from the determined path
+            let image = match libips::image::Image::load(&image_path) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    if !quiet {
+                        eprintln!("Failed to load image from {}: {}", image_path.display(), e);
+                        eprintln!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    }
+                    return Err(e.into());
+                }
+            };
+            
+            // Refresh the catalogs
+            if let Err(e) = image.refresh_catalogs(publishers, *full) {
+                error!("Failed to refresh catalog: {}", e);
+                if !quiet {
+                    eprintln!("Failed to refresh catalog: {}", e);
+                }
+                return Err(e.into());
+            }
+            
             info!("Refresh completed successfully");
+            if !quiet {
+                println!("Refresh completed successfully");
+            }
             Ok(())
         },
         Commands::Install { dry_run, verbose, quiet, concurrency, repo, accept, licenses, no_index, no_refresh, pkg_fmri_patterns } => {

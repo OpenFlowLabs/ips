@@ -333,9 +333,44 @@ impl ImageCatalog {
         // Start with the existing manifest or create a new one
         let mut manifest = existing_manifest.unwrap_or_else(Manifest::new);
         
-        // Note: We're skipping the action parsing step as the actions should already be in the manifest
-        // from the catalog part. The original code tried to parse actions using Action::from_str,
-        // but this method doesn't exist and add_action is private.
+        // Parse and add actions from the version entry
+        if let Some(actions) = &version_entry.actions {
+            for action_str in actions {
+                // Parse each action string to extract attributes
+                if action_str.starts_with("set ") {
+                    // Format is typically "set name=pkg.key value=value"
+                    if let Some(name_part) = action_str.split_whitespace().nth(1) {
+                        if name_part.starts_with("name=") {
+                            // Extract the key (after "name=")
+                            let key = &name_part[5..];
+                            
+                            // Extract the value (after "value=")
+                            if let Some(value_part) = action_str.split_whitespace().nth(2) {
+                                if value_part.starts_with("value=") {
+                                    let mut value = &value_part[6..];
+                                    
+                                    // Remove quotes if present
+                                    if value.starts_with('"') && value.ends_with('"') {
+                                        value = &value[1..value.len()-1];
+                                    }
+                                    
+                                    // Add or update the attribute in the manifest
+                                    let attr_index = manifest.attributes.iter().position(|attr| attr.key == key);
+                                    if let Some(index) = attr_index {
+                                        manifest.attributes[index].values = vec![value.to_string()];
+                                    } else {
+                                        let mut attr = crate::actions::Attr::default();
+                                        attr.key = key.to_string();
+                                        attr.values = vec![value.to_string()];
+                                        manifest.attributes.push(attr);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         // Ensure the manifest has the correct FMRI attribute
         // Create a Version object from the version string

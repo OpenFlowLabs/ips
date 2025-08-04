@@ -273,9 +273,122 @@ impl CatalogPart {
 
     /// Load catalog part from a file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let json = fs::read_to_string(path)?;
-        let part: CatalogPart = serde_json::from_str(&json)?;
-        Ok(part)
+        let path_ref = path.as_ref();
+        let json = fs::read_to_string(path_ref)?;
+        
+        // Print the first 100 characters of the JSON file for debugging
+        let preview = if json.len() > 100 {
+            &json[0..100]
+        } else {
+            &json
+        };
+        println!("Loading catalog part from {:?}, preview: {}", path_ref, preview);
+        
+        // Try to parse the JSON directly first
+        match serde_json::from_str::<CatalogPart>(&json) {
+            Ok(part) => return Ok(part),
+            Err(e) => {
+                println!("Failed to parse catalog part directly: {}", e);
+                
+                // If the error is about a missing 'packages' field, try to directly construct a CatalogPart
+                if e.to_string().contains("missing field `packages`") {
+                    println!("Trying to directly construct a CatalogPart");
+                        
+                    // Parse the JSON as a generic Value
+                    match serde_json::from_str::<serde_json::Value>(&json) {
+                        Ok(value) => {
+                            // Try to manually construct a CatalogPart
+                            if let serde_json::Value::Object(map) = value {
+                                let mut catalog_part = CatalogPart::new();
+                                    
+                                // Process each publisher
+                                for (publisher, publisher_value) in map {
+                                    if let serde_json::Value::Object(publisher_map) = publisher_value {
+                                        let mut publisher_packages = HashMap::new();
+                                            
+                                        // Process each package stem
+                                        for (stem, stem_value) in publisher_map {
+                                            if let serde_json::Value::Array(versions) = stem_value {
+                                                let mut package_versions = Vec::new();
+                                                    
+                                                // Process each version
+                                                for version_value in versions {
+                                                    if let serde_json::Value::Object(version_map) = version_value {
+                                                        // Extract version
+                                                        let version = match version_map.get("version") {
+                                                            Some(serde_json::Value::String(v)) => v.clone(),
+                                                            _ => {
+                                                                // If version field is missing, use an empty string
+                                                                // This allows us to handle catalog files that don't have a version field
+                                                                println!("Missing version field, using empty string");
+                                                                String::new()
+                                                            }
+                                                        };
+                                                            
+                                                        // Extract signature-sha-1 if present
+                                                        let signature_sha1 = match version_map.get("signature-sha-1") {
+                                                            Some(serde_json::Value::String(s)) => Some(s.clone()),
+                                                            _ => None,
+                                                        };
+                                                            
+                                                        // Extract actions if present
+                                                        let actions = match version_map.get("actions") {
+                                                            Some(serde_json::Value::Array(a)) => {
+                                                                let mut action_strings = Vec::new();
+                                                                for action in a {
+                                                                    if let serde_json::Value::String(s) = action {
+                                                                        action_strings.push(s.clone());
+                                                                    }
+                                                                }
+                                                                if action_strings.is_empty() {
+                                                                    None
+                                                                } else {
+                                                                    Some(action_strings)
+                                                                }
+                                                            },
+                                                            Some(serde_json::Value::String(s)) => {
+                                                                // Handle the case where actions is a string
+                                                                Some(vec![s.clone()])
+                                                            },
+                                                            _ => None,
+                                                        };
+                                                            
+                                                        // Create a PackageVersionEntry
+                                                        let entry = PackageVersionEntry {
+                                                            version,
+                                                            signature_sha1,
+                                                            actions,
+                                                        };
+                                                            
+                                                        package_versions.push(entry);
+                                                    }
+                                                }
+                                                    
+                                                publisher_packages.insert(stem, package_versions);
+                                            }
+                                        }
+                                            
+                                        catalog_part.packages.insert(publisher, publisher_packages);
+                                    }
+                                }
+                                    
+                                return Ok(catalog_part);
+                            }
+                                
+                            return Err(CatalogError::JsonSerializationError(e));
+                        },
+                        Err(e) => {
+                            println!("Failed to parse JSON as generic Value: {}", e);
+                            return Err(CatalogError::JsonSerializationError(e));
+                        }
+                    }
+                }
+                
+                // If we get here, the error wasn't about a missing packages field or we couldn't fix it
+                println!("Failed to parse catalog part: {}", e);
+                Err(CatalogError::JsonSerializationError(e))
+            }
+        }
     }
 }
 

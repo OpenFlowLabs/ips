@@ -252,7 +252,7 @@ mod tests {
         catalog_manager.save_part("test_part").unwrap();
 
         // Check that the part was saved
-        assert!(catalog_dir.join("test_part").exists());
+        assert!(publisher_dir.join("test_part").exists());
 
         // Create a new catalog manager and load the part
         let mut new_catalog_manager = CatalogManager::new(&publisher_dir, publisher_name).unwrap();

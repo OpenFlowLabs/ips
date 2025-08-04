@@ -398,6 +398,68 @@ impl Image {
         Ok(())
     }
     
+    /// Refresh catalogs for specified publishers or all publishers if none specified
+    ///
+    /// # Arguments
+    ///
+    /// * `publishers` - Optional list of publishers to refresh. If empty, all publishers are refreshed.
+    /// * `full` - If true, perform a full refresh by clearing existing catalog data before downloading.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<()>` - Ok if all catalogs were refreshed successfully, Err otherwise
+    pub fn refresh_catalogs(&self, publishers: &[String], full: bool) -> Result<()> {
+        // Create catalog directory if it doesn't exist
+        self.create_catalog_dir()?;
+        
+        // Determine which publishers to refresh
+        let publishers_to_refresh: Vec<&Publisher> = if publishers.is_empty() {
+            // If no publishers specified, refresh all
+            self.publishers.iter().collect()
+        } else {
+            // Otherwise, filter publishers by name
+            self.publishers.iter()
+                .filter(|p| publishers.contains(&p.name))
+                .collect()
+        };
+        
+        // Check if we have any publishers to refresh
+        if publishers_to_refresh.is_empty() {
+            return Err(ImageError::NoPublishers);
+        }
+        
+        // If full refresh is requested, clear the catalog directory for each publisher
+        if full {
+            for publisher in &publishers_to_refresh {
+                let publisher_catalog_dir = self.catalog_dir().join(&publisher.name);
+                if publisher_catalog_dir.exists() {
+                    fs::remove_dir_all(&publisher_catalog_dir)
+                        .map_err(|e| ImageError::IO(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to remove catalog directory for publisher {}: {}", 
+                                    publisher.name, e)
+                        )))?;
+                }
+                fs::create_dir_all(&publisher_catalog_dir)
+                    .map_err(|e| ImageError::IO(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to create catalog directory for publisher {}: {}", 
+                                publisher.name, e)
+                    )))?;
+            }
+        }
+        
+        // Download catalogs for each publisher
+        for publisher in publishers_to_refresh {
+            self.download_publisher_catalog(&publisher.name)?;
+        }
+        
+        // Build the merged catalog
+        self.build_catalog()?;
+        
+        Ok(())
+    }
+    
     /// Build the merged catalog from downloaded catalogs
     pub fn build_catalog(&self) -> Result<()> {
         // Initialize the catalog database if it doesn't exist
