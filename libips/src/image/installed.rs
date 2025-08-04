@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::{info};
+use tracing::{info, warn};
 
 /// Table definition for the installed packages database
 /// Key: full FMRI including publisher (pkg://publisher/stem@version)
@@ -74,6 +74,87 @@ impl InstalledPackages {
         InstalledPackages {
             db_path: db_path.as_ref().to_path_buf(),
         }
+    }
+    
+    /// Dump the contents of the installed table to stdout for debugging
+    pub fn dump_installed_table(&self) -> Result<()> {
+        // Open the database
+        let db = Database::open(&self.db_path)
+            .map_err(|e| InstalledError::Database(format!("Failed to open database: {}", e)))?;
+        
+        // Begin a read transaction
+        let tx = db.begin_read()
+            .map_err(|e| InstalledError::Database(format!("Failed to begin transaction: {}", e)))?;
+        
+        // Open the installed table
+        match tx.open_table(INSTALLED_TABLE) {
+            Ok(table) => {
+                let mut count = 0;
+                for entry_result in table.iter().map_err(|e| InstalledError::Database(format!("Failed to iterate installed table: {}", e)))? {
+                    let (key, value) = entry_result.map_err(|e| InstalledError::Database(format!("Failed to get entry from installed table: {}", e)))?;
+                    let key_str = key.value();
+                    
+                    // Try to deserialize the manifest
+                    match serde_json::from_slice::<Manifest>(value.value()) {
+                        Ok(manifest) => {
+                            // Extract the publisher from the FMRI attribute
+                            let publisher = manifest.attributes.iter()
+                                .find(|attr| attr.key == "pkg.fmri")
+                                .and_then(|attr| attr.values.get(0).cloned())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            
+                            println!("Key: {}", key_str);
+                            println!("  FMRI: {}", publisher);
+                            println!("  Attributes: {}", manifest.attributes.len());
+                            println!("  Files: {}", manifest.files.len());
+                            println!("  Directories: {}", manifest.directories.len());
+                            println!("  Dependencies: {}", manifest.dependencies.len());
+                        },
+                        Err(e) => {
+                            println!("Key: {}", key_str);
+                            println!("  Error deserializing manifest: {}", e);
+                        }
+                    }
+                    count += 1;
+                }
+                println!("Total entries in installed table: {}", count);
+                Ok(())
+            },
+            Err(e) => {
+                println!("Error opening installed table: {}", e);
+                Err(InstalledError::Database(format!("Failed to open installed table: {}", e)))
+            }
+        }
+    }
+    
+    /// Get database statistics
+    pub fn get_db_stats(&self) -> Result<()> {
+        // Open the database
+        let db = Database::open(&self.db_path)
+            .map_err(|e| InstalledError::Database(format!("Failed to open database: {}", e)))?;
+        
+        // Begin a read transaction
+        let tx = db.begin_read()
+            .map_err(|e| InstalledError::Database(format!("Failed to begin transaction: {}", e)))?;
+        
+        // Get table statistics
+        let mut installed_count = 0;
+        
+        // Count installed entries
+        if let Ok(table) = tx.open_table(INSTALLED_TABLE) {
+            for result in table.iter().map_err(|e| InstalledError::Database(format!("Failed to iterate installed table: {}", e)))? {
+                let _ = result.map_err(|e| InstalledError::Database(format!("Failed to get entry from installed table: {}", e)))?;
+                installed_count += 1;
+            }
+        }
+        
+        // Print statistics
+        println!("Database path: {}", self.db_path.display());
+        println!("Table statistics:");
+        println!("  Installed table: {} entries", installed_count);
+        println!("Total entries: {}", installed_count);
+        
+        Ok(())
     }
     
     /// Initialize the installed packages database

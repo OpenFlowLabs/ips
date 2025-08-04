@@ -228,6 +228,7 @@ enum Commands {
     /// List installed packages
     ///
     /// The list command displays information about installed packages.
+    /// By default, it lists only installed packages. Use the -a flag to list all available packages.
     List {
         /// Verbose output
         #[clap(short)]
@@ -236,6 +237,10 @@ enum Commands {
         /// Quiet mode, show less output
         #[clap(short)]
         quiet: bool,
+
+        /// List all available packages, not just installed ones
+        #[clap(short)]
+        all: bool,
 
         /// Output format (default: table)
         #[clap(short = 'o')]
@@ -422,6 +427,35 @@ enum Commands {
         #[clap(short = 't', long = "type", default_value = "full")]
         image_type: String,
     },
+    
+    /// Debug database commands (hidden)
+    ///
+    /// These commands are for debugging purposes only and are not part of the public API.
+    /// They are used to inspect the contents of the redb databases for debugging purposes.
+    ///
+    /// Usage examples:
+    /// - Show database statistics: pkg6 debug-db --stats
+    /// - Dump all tables: pkg6 debug-db --dump-all
+    /// - Dump a specific table: pkg6 debug-db --dump-table catalog
+    ///
+    /// Available tables:
+    /// - catalog: Contains non-obsolete packages (in catalog.redb)
+    /// - obsoleted: Contains obsolete packages (in catalog.redb)
+    /// - installed: Contains installed packages (in installed.redb)
+    #[clap(hide = true)]
+    DebugDb {
+        /// Show database statistics
+        #[clap(long)]
+        stats: bool,
+        
+        /// Dump all tables
+        #[clap(long)]
+        dump_all: bool,
+        
+        /// Dump a specific table (catalog, obsoleted, installed)
+        #[clap(long)]
+        dump_table: Option<String>,
+    },
 }
 
 /// Determines the image path to use based on the provided argument and default rules
@@ -478,6 +512,7 @@ fn main() -> Result<()> {
     // Print the command that was parsed
     match &cli.command {
         Commands::Publisher { .. } => eprintln!("MAIN: Publisher command detected"),
+        Commands::DebugDb { .. } => eprintln!("MAIN: Debug database command detected"),
         _ => eprintln!("MAIN: Other command detected: {:?}", cli.command),
     };
 
@@ -580,13 +615,84 @@ fn main() -> Result<()> {
             info!("Update completed successfully");
             Ok(())
         },
-        Commands::List { verbose, quiet, output_format, pkg_fmri_patterns } => {
+        Commands::List { verbose, quiet, all, output_format, pkg_fmri_patterns } => {
             info!("Listing packages: {:?}", pkg_fmri_patterns);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
+            debug!("All packages: {}", all);
             debug!("Output format: {:?}", output_format);
             
-            // Stub implementation
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            info!("Using image at: {}", image_path.display());
+            
+            // Try to load the image from the determined path
+            let image = match libips::image::Image::load(&image_path) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    return Err(e.into());
+                }
+            };
+            
+            // Convert pkg_fmri_patterns to a single pattern if provided
+            let pattern = if pkg_fmri_patterns.is_empty() {
+                None
+            } else {
+                // For simplicity, we'll just use the first pattern
+                // In a more complete implementation, we would handle multiple patterns
+                Some(pkg_fmri_patterns[0].as_str())
+            };
+            
+            if *all {
+                // List all available packages
+                info!("Listing all available packages");
+                
+                match image.query_catalog(pattern) {
+                    Ok(packages) => {
+                        println!("PUBLISHER                                  NAME                                     VERSION                      STATE");
+                        println!("------------------------------------------------------------------------------------------------------------------------------------------------------");
+                        for pkg in packages {
+                            let state = if image.is_package_installed(&pkg.fmri).unwrap_or(false) {
+                                "installed"
+                            } else {
+                                "known"
+                            };
+                            println!("{:<40} {:<40} {:<30} {}", 
+                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"), 
+                                pkg.fmri.name, 
+                                pkg.fmri.version(),
+                                state);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to query catalog: {}", e);
+                        return Err(e.into());
+                    }
+                }
+            } else {
+                // List only installed packages
+                info!("Listing installed packages");
+                match image.query_installed_packages(pattern) {
+                    Ok(packages) => {
+                        println!("PUBLISHER                                  NAME                                     VERSION                      STATE");
+                        println!("------------------------------------------------------------------------------------------------------------------------------------------------------");
+                        for pkg in packages {
+                            println!("{:<40} {:<40} {:<30} {}", 
+                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"), 
+                                pkg.fmri.name, 
+                                pkg.fmri.version(),
+                                "installed");
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to query installed packages: {}", e);
+                        return Err(e.into());
+                    }
+                }
+            }
+            
             info!("List completed successfully");
             Ok(())
         },
@@ -904,6 +1010,99 @@ fn main() -> Result<()> {
                 info!("No publisher configured. Use 'pkg6 set-publisher' to add a publisher.");
             }
             
+            Ok(())
+        },
+        Commands::DebugDb { stats, dump_all, dump_table } => {
+            info!("Debug database command");
+            debug!("Stats: {}", stats);
+            debug!("Dump all: {}", dump_all);
+            debug!("Dump table: {:?}", dump_table);
+            
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            info!("Using image at: {}", image_path.display());
+            
+            // Try to load the image from the determined path
+            let image = match libips::image::Image::load(&image_path) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    return Err(e.into());
+                }
+            };
+            
+            // Create a catalog object for the catalog.redb database
+            let catalog = libips::image::catalog::ImageCatalog::new(
+                image.catalog_dir(),
+                image.catalog_db_path()
+            );
+            
+            // Create an installed packages object for the installed.redb database
+            let installed = libips::image::installed::InstalledPackages::new(
+                image.installed_db_path()
+            );
+            
+            // Execute the requested debug command
+            if *stats {
+                info!("Showing database statistics");
+                println!("=== CATALOG DATABASE ===");
+                if let Err(e) = catalog.get_db_stats() {
+                    error!("Failed to get catalog database statistics: {}", e);
+                    return Err(Pkg6Error::Other(format!("Failed to get catalog database statistics: {}", e)));
+                }
+                
+                println!("\n=== INSTALLED DATABASE ===");
+                if let Err(e) = installed.get_db_stats() {
+                    error!("Failed to get installed database statistics: {}", e);
+                    return Err(Pkg6Error::Other(format!("Failed to get installed database statistics: {}", e)));
+                }
+            }
+            
+            if *dump_all {
+                info!("Dumping all tables");
+                println!("=== CATALOG DATABASE ===");
+                if let Err(e) = catalog.dump_all_tables() {
+                    error!("Failed to dump catalog database tables: {}", e);
+                    return Err(Pkg6Error::Other(format!("Failed to dump catalog database tables: {}", e)));
+                }
+                
+                println!("\n=== INSTALLED DATABASE ===");
+                if let Err(e) = installed.dump_installed_table() {
+                    error!("Failed to dump installed database table: {}", e);
+                    return Err(Pkg6Error::Other(format!("Failed to dump installed database table: {}", e)));
+                }
+            }
+            
+            if let Some(table_name) = dump_table {
+                info!("Dumping table: {}", table_name);
+                
+                // Determine which database to use based on the table name
+                match table_name.as_str() {
+                    "installed" => {
+                        // Use the installed packages database
+                        println!("=== INSTALLED DATABASE ===");
+                        if let Err(e) = installed.dump_installed_table() {
+                            error!("Failed to dump installed table: {}", e);
+                            return Err(Pkg6Error::Other(format!("Failed to dump installed table: {}", e)));
+                        }
+                    },
+                    "catalog" | "obsoleted" => {
+                        // Use the catalog database
+                        println!("=== CATALOG DATABASE ===");
+                        if let Err(e) = catalog.dump_table(table_name) {
+                            error!("Failed to dump table {}: {}", table_name, e);
+                            return Err(Pkg6Error::Other(format!("Failed to dump table {}: {}", table_name, e)));
+                        }
+                    },
+                    _ => {
+                        error!("Unknown table: {}", table_name);
+                        return Err(Pkg6Error::Other(format!("Unknown table: {}. Available tables: catalog, obsoleted, installed", table_name)));
+                    }
+                }
+            }
+            
+            info!("Debug database command completed successfully");
             Ok(())
         },
     }

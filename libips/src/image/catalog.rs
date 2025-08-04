@@ -90,6 +90,206 @@ impl ImageCatalog {
         }
     }
     
+    /// Dump the contents of a specific table to stdout for debugging
+    pub fn dump_table(&self, table_name: &str) -> Result<()> {
+        // Open the database
+        let db = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
+        
+        // Begin a read transaction
+        let tx = db.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        
+        // Determine which table to dump
+        match table_name {
+            "catalog" => self.dump_catalog_table(&tx)?,
+            "obsoleted" => self.dump_obsoleted_table(&tx)?,
+            "installed" => self.dump_installed_table(&tx)?,
+            _ => return Err(CatalogError::Database(format!("Unknown table: {}", table_name))),
+        }
+        
+        Ok(())
+    }
+    
+    /// Dump the contents of all tables to stdout for debugging
+    pub fn dump_all_tables(&self) -> Result<()> {
+        // Open the database
+        let db = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
+        
+        // Begin a read transaction
+        let tx = db.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        
+        println!("=== CATALOG TABLE ===");
+        let _ = self.dump_catalog_table(&tx);
+        
+        println!("\n=== OBSOLETED TABLE ===");
+        let _ = self.dump_obsoleted_table(&tx);
+        
+        println!("\n=== INSTALLED TABLE ===");
+        let _ = self.dump_installed_table(&tx);
+        
+        Ok(())
+    }
+    
+    /// Dump the contents of the catalog table
+    fn dump_catalog_table(&self, tx: &redb::ReadTransaction) -> Result<()> {
+        match tx.open_table(CATALOG_TABLE) {
+            Ok(table) => {
+                let mut count = 0;
+                for entry_result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate catalog table: {}", e)))? {
+                    let (key, value) = entry_result.map_err(|e| CatalogError::Database(format!("Failed to get entry from catalog table: {}", e)))?;
+                    let key_str = key.value();
+                    
+                    // Try to deserialize the manifest
+                    match serde_json::from_slice::<Manifest>(value.value()) {
+                        Ok(manifest) => {
+                            // Extract the publisher from the FMRI attribute
+                            let publisher = manifest.attributes.iter()
+                                .find(|attr| attr.key == "pkg.fmri")
+                                .and_then(|attr| attr.values.get(0).cloned())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            
+                            println!("Key: {}", key_str);
+                            println!("  FMRI: {}", publisher);
+                            println!("  Attributes: {}", manifest.attributes.len());
+                            println!("  Files: {}", manifest.files.len());
+                            println!("  Directories: {}", manifest.directories.len());
+                            println!("  Dependencies: {}", manifest.dependencies.len());
+                        },
+                        Err(e) => {
+                            println!("Key: {}", key_str);
+                            println!("  Error deserializing manifest: {}", e);
+                        }
+                    }
+                    count += 1;
+                }
+                println!("Total entries in catalog table: {}", count);
+                Ok(())
+            },
+            Err(e) => {
+                println!("Error opening catalog table: {}", e);
+                Err(CatalogError::Database(format!("Failed to open catalog table: {}", e)))
+            }
+        }
+    }
+    
+    /// Dump the contents of the obsoleted table
+    fn dump_obsoleted_table(&self, tx: &redb::ReadTransaction) -> Result<()> {
+        match tx.open_table(OBSOLETED_TABLE) {
+            Ok(table) => {
+                let mut count = 0;
+                for entry_result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate obsoleted table: {}", e)))? {
+                    let (key, _) = entry_result.map_err(|e| CatalogError::Database(format!("Failed to get entry from obsoleted table: {}", e)))?;
+                    let key_str = key.value();
+                    
+                    println!("Key: {}", key_str);
+                    count += 1;
+                }
+                println!("Total entries in obsoleted table: {}", count);
+                Ok(())
+            },
+            Err(e) => {
+                println!("Error opening obsoleted table: {}", e);
+                Err(CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))
+            }
+        }
+    }
+    
+    /// Dump the contents of the installed table
+    fn dump_installed_table(&self, tx: &redb::ReadTransaction) -> Result<()> {
+        match tx.open_table(INSTALLED_TABLE) {
+            Ok(table) => {
+                let mut count = 0;
+                for entry_result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate installed table: {}", e)))? {
+                    let (key, value) = entry_result.map_err(|e| CatalogError::Database(format!("Failed to get entry from installed table: {}", e)))?;
+                    let key_str = key.value();
+                    
+                    // Try to deserialize the manifest
+                    match serde_json::from_slice::<Manifest>(value.value()) {
+                        Ok(manifest) => {
+                            // Extract the publisher from the FMRI attribute
+                            let publisher = manifest.attributes.iter()
+                                .find(|attr| attr.key == "pkg.fmri")
+                                .and_then(|attr| attr.values.get(0).cloned())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            
+                            println!("Key: {}", key_str);
+                            println!("  FMRI: {}", publisher);
+                            println!("  Attributes: {}", manifest.attributes.len());
+                            println!("  Files: {}", manifest.files.len());
+                            println!("  Directories: {}", manifest.directories.len());
+                            println!("  Dependencies: {}", manifest.dependencies.len());
+                        },
+                        Err(e) => {
+                            println!("Key: {}", key_str);
+                            println!("  Error deserializing manifest: {}", e);
+                        }
+                    }
+                    count += 1;
+                }
+                println!("Total entries in installed table: {}", count);
+                Ok(())
+            },
+            Err(e) => {
+                println!("Error opening installed table: {}", e);
+                Err(CatalogError::Database(format!("Failed to open installed table: {}", e)))
+            }
+        }
+    }
+    
+    /// Get database statistics
+    pub fn get_db_stats(&self) -> Result<()> {
+        // Open the database
+        let db = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
+        
+        // Begin a read transaction
+        let tx = db.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        
+        // Get table statistics
+        let mut catalog_count = 0;
+        let mut obsoleted_count = 0;
+        let mut installed_count = 0;
+        
+        // Count catalog entries
+        if let Ok(table) = tx.open_table(CATALOG_TABLE) {
+            for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate catalog table: {}", e)))? {
+                let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from catalog table: {}", e)))?;
+                catalog_count += 1;
+            }
+        }
+        
+        // Count obsoleted entries
+        if let Ok(table) = tx.open_table(OBSOLETED_TABLE) {
+            for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate obsoleted table: {}", e)))? {
+                let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from obsoleted table: {}", e)))?;
+                obsoleted_count += 1;
+            }
+        }
+        
+        // Count installed entries
+        if let Ok(table) = tx.open_table(INSTALLED_TABLE) {
+            for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate installed table: {}", e)))? {
+                let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from installed table: {}", e)))?;
+                installed_count += 1;
+            }
+        }
+        
+        // Print statistics
+        println!("Database path: {}", self.db_path.display());
+        println!("Catalog directory: {}", self.catalog_dir.display());
+        println!("Table statistics:");
+        println!("  Catalog table: {} entries", catalog_count);
+        println!("  Obsoleted table: {} entries", obsoleted_count);
+        println!("  Installed table: {} entries", installed_count);
+        println!("Total entries: {}", catalog_count + obsoleted_count + installed_count);
+        
+        Ok(())
+    }
+    
     /// Initialize the catalog database
     pub fn init_db(&self) -> Result<()> {
         // Create a parent directory if it doesn't exist
