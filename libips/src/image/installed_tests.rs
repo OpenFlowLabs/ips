@@ -1,7 +1,7 @@
 use super::*;
 use crate::actions::{Attr, Manifest};
 use crate::fmri::Fmri;
-use redb::ReadableTable;
+use redb::{Database, ReadableTable};
 use std::str::FromStr;
 use tempfile::tempdir;
 
@@ -12,7 +12,7 @@ fn test_installed_packages() {
     let image_path = temp_dir.path().join("image");
     
     // Create the image
-    let image = Image::create_image(&image_path).unwrap();
+    let image = Image::create_image(&image_path, ImageType::Full).unwrap();
     
     // Verify that the installed packages database was initialized
     assert!(image.installed_db_path().exists());

@@ -396,8 +396,7 @@ pub struct CatalogManager {
 impl CatalogManager {
     /// Create a new catalog manager
     pub fn new<P: AsRef<Path>>(base_dir: P, publisher: &str) -> Result<Self> {
-        let base_dir = base_dir.as_ref().to_path_buf();
-        let publisher_catalog_dir = base_dir.join(publisher).join("catalog");
+        let publisher_catalog_dir = base_dir.as_ref().to_path_buf();
 
         // Create catalog directory if it doesn't exist
         if !publisher_catalog_dir.exists() {

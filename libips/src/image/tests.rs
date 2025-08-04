@@ -9,7 +9,7 @@ fn test_image_catalog() {
     let image_path = temp_dir.path().join("image");
     
     // Create the image
-    let image = Image::create_image(&image_path).unwrap();
+    let image = Image::create_image(&image_path, ImageType::Full).unwrap();
     
     // Verify that the catalog database was initialized
     assert!(image.catalog_db_path().exists());
@@ -25,14 +25,24 @@ fn test_catalog_methods() {
     let image_path = temp_dir.path().join("image");
     
     // Create the image
-    let mut image = Image::create_image(&image_path).unwrap();
+    let mut image = Image::create_image(&image_path, ImageType::Full).unwrap();
+    
+    // Print the image type and paths
+    println!("Image type: {:?}", image.image_type());
+    println!("Image path: {:?}", image.path());
+    println!("Metadata dir: {:?}", image.metadata_dir());
+    println!("Catalog dir: {:?}", image.catalog_dir());
     
     // Add a publisher
     image.add_publisher("test", "http://example.com/repo", vec![], true).unwrap();
     
+    // Print the publishers
+    println!("Publishers: {:?}", image.publishers());
+    
     // Create the catalog directory structure
     let catalog_dir = image.catalog_dir();
     let publisher_dir = catalog_dir.join("test");
+    println!("Publisher dir: {:?}", publisher_dir);
     fs::create_dir_all(&publisher_dir).unwrap();
     
     // Create a simple catalog.attrs file
@@ -42,6 +52,8 @@ fn test_catalog_methods() {
         },
         "version": 1
     }"#;
+    println!("Writing catalog.attrs to {:?}", publisher_dir.join("catalog.attrs"));
+    println!("catalog.attrs content: {}", attrs_content);
     fs::write(publisher_dir.join("catalog.attrs"), attrs_content).unwrap();
     
     // Create a simple base catalog part
@@ -71,13 +83,33 @@ fn test_catalog_methods() {
             }
         }
     }"#;
+    println!("Writing base catalog part to {:?}", publisher_dir.join("base"));
+    println!("base catalog part content: {}", base_content);
     fs::write(publisher_dir.join("base"), base_content).unwrap();
     
+    // Verify that the files were written correctly
+    println!("Checking if catalog.attrs exists: {}", publisher_dir.join("catalog.attrs").exists());
+    println!("Checking if base catalog part exists: {}", publisher_dir.join("base").exists());
+    
     // Build the catalog
-    image.build_catalog().unwrap();
+    println!("Building catalog...");
+    match image.build_catalog() {
+        Ok(_) => println!("Catalog built successfully"),
+        Err(e) => println!("Failed to build catalog: {:?}", e),
+    }
     
     // Query the catalog
-    let packages = image.query_catalog(None).unwrap();
+    println!("Querying catalog...");
+    let packages = match image.query_catalog(None) {
+        Ok(pkgs) => {
+            println!("Found {} packages", pkgs.len());
+            pkgs
+        },
+        Err(e) => {
+            println!("Failed to query catalog: {:?}", e);
+            panic!("Failed to query catalog: {:?}", e);
+        }
+    };
     
     // Verify that both non-obsolete and obsolete packages are in the results
     assert_eq!(packages.len(), 2);

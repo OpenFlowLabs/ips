@@ -2,8 +2,6 @@ mod error;
 use error::{Pkg6Error, Result};
 
 use clap::{Parser, Subcommand};
-use libips::fmri::Fmri;
-use libips::image::Publisher;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::io::Write;
@@ -39,6 +37,14 @@ struct PublisherOutput {
 #[clap(author, version, about, long_about = None)]
 #[clap(propagate_version = true)]
 struct App {
+    /// Path to the image to operate on
+    /// 
+    /// If not specified, the default image is determined as follows:
+    /// - If $HOME/.pkg exists, that directory is used
+    /// - Otherwise, the root directory (/) is used
+    #[clap(short = 'R', global = true)]
+    image_path: Option<PathBuf>,
+
     #[clap(subcommand)]
     command: Commands,
 }
@@ -411,7 +417,37 @@ enum Commands {
         /// Publisher origin URL (required if publisher is specified)
         #[clap(short = 'g', requires = "publisher")]
         origin: Option<String>,
+
+        /// Type of image to create (full or partial, default: full)
+        #[clap(short = 't', long = "type", default_value = "full")]
+        image_type: String,
     },
+}
+
+/// Determines the image path to use based on the provided argument and default rules
+///
+/// If the image_path argument is provided, that path is used.
+/// Otherwise, if $HOME/.pkg exists, that path is used.
+/// Otherwise, the root directory (/) is used.
+fn determine_image_path(image_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = image_path {
+        // Use the explicitly provided path
+        debug!("Using explicitly provided image path: {}", path.display());
+        path
+    } else {
+        // Check if $HOME/.pkg exists
+        if let Ok(home_dir) = std::env::var("HOME") {
+            let home_pkg = PathBuf::from(home_dir).join(".pkg");
+            if home_pkg.exists() {
+                debug!("Using user home image path: {}", home_pkg.display());
+                return PathBuf::from(home_pkg);
+            }
+        }
+        
+        // Default to root directory
+        debug!("Using root directory as image path");
+        PathBuf::from("/")
+    }
 }
 
 fn main() -> Result<()> {
@@ -588,15 +624,16 @@ fn main() -> Result<()> {
             debug!("Origin: {:?}", origin);
             debug!("Mirror: {:?}", mirror);
             
-            // Get the current working directory as the default image path
-            let current_dir = std::env::current_dir()?;
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            info!("Using image at: {}", image_path.display());
             
-            // Try to load the image from the current directory
-            let mut image = match libips::image::Image::load(&current_dir) {
+            // Try to load the image from the determined path
+            let mut image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
-                    error!("Failed to load image from current directory: {}", e);
-                    error!("Make sure you are in an image directory or use pkg6 image-create first");
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
                     return Err(e.into());
                 }
             };
@@ -639,15 +676,16 @@ fn main() -> Result<()> {
         Commands::UnsetPublisher { publisher } => {
             info!("Unsetting publisher: {}", publisher);
             
-            // Get the current working directory as the default image path
-            let current_dir = std::env::current_dir()?;
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            info!("Using image at: {}", image_path.display());
             
-            // Try to load the image from the current directory
-            let mut image = match libips::image::Image::load(&current_dir) {
+            // Try to load the image from the determined path
+            let mut image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
-                    error!("Failed to load image from current directory: {}", e);
-                    error!("Make sure you are in an image directory or use pkg6 image-create first");
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
                     return Err(e.into());
                 }
             };
@@ -670,27 +708,19 @@ fn main() -> Result<()> {
         Commands::Publisher { verbose, output_format, publishers } => {
             info!("Showing publisher information");
             
-            // Get the current working directory as the default image path
-            let current_dir = std::env::current_dir()?;
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            info!("Using image at: {}", image_path.display());
             
-            // Determine the path to the image configuration file
-            let image_json_path = match libips::image::ImageType::Full {
-                libips::image::ImageType::Full => current_dir.join("var/pkg/pkg6.image.json"),
-                libips::image::ImageType::Partial => current_dir.join(".pkg/pkg6.image.json"),
+            // Try to load the image from the determined path
+            let image = match libips::image::Image::load(&image_path) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    return Err(e.into());
+                }
             };
-            
-            // Check if the image configuration file exists
-            if !image_json_path.exists() {
-                error!("Image configuration file not found at {}", image_json_path.display());
-                error!("Make sure you are in an image directory or use pkg6 image-create first");
-                return Err(Pkg6Error::from(format!("Image configuration file not found at {}", image_json_path.display())));
-            }
-            
-            // Read the image configuration file
-            let image_json = std::fs::read_to_string(&image_json_path)?;
-            
-            // Parse the image configuration file
-            let image: libips::image::Image = serde_json::from_str(&image_json)?;
             
             // Get all publishers
             let all_publishers = image.publishers();
@@ -725,8 +755,8 @@ fn main() -> Result<()> {
                 .map(|p| {
                     let catalog_dir = if *verbose {
                         let dir = match image.image_type() {
-                            libips::image::ImageType::Full => current_dir.join("var/pkg/catalog"),
-                            libips::image::ImageType::Partial => current_dir.join(".pkg/catalog"),
+                            libips::image::ImageType::Full => image_path.join("var/pkg/catalog"),
+                            libips::image::ImageType::Partial => image_path.join(".pkg/catalog"),
                         };
                         Some(dir.join(&p.name).display().to_string())
                     } else {
@@ -808,13 +838,24 @@ fn main() -> Result<()> {
             info!("Publisher completed successfully");
             Ok(())
         },
-        Commands::ImageCreate { full_path, publisher, origin } => {
+        Commands::ImageCreate { full_path, publisher, origin, image_type } => {
             info!("Creating image at: {}", full_path.display());
             debug!("Publisher: {:?}", publisher);
             debug!("Origin: {:?}", origin);
+            debug!("Image type: {}", image_type);
+            
+            // Convert the image type string to the ImageType enum
+            let image_type = match image_type.to_lowercase().as_str() {
+                "full" => libips::image::ImageType::Full,
+                "partial" => libips::image::ImageType::Partial,
+                _ => {
+                    error!("Invalid image type: {}. Using default (full)", image_type);
+                    libips::image::ImageType::Full
+                }
+            };
             
             // Create the image (only creates the basic structure)
-            let mut image = libips::image::Image::create_image(&full_path)?;
+            let mut image = libips::image::Image::create_image(&full_path, image_type)?;
             info!("Image created successfully at: {}", full_path.display());
             
             // If publisher and origin are provided, add the publisher and download the catalog

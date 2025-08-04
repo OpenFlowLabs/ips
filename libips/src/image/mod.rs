@@ -4,7 +4,6 @@ mod tests;
 
 use miette::Diagnostic;
 use properties::*;
-use redb::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -455,9 +454,17 @@ impl Image {
     /// 
     /// This method only creates the image structure without adding publishers or downloading catalogs.
     /// Publisher addition and catalog downloading should be handled separately.
-    pub fn create_image<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // Create a new image
-        let image = Image::new_full(path.as_ref().to_path_buf());
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the image will be created
+    /// * `image_type` - The type of image to create (Full or Partial)
+    pub fn create_image<P: AsRef<Path>>(path: P, image_type: ImageType) -> Result<Self> {
+        // Create a new image based on the specified type
+        let image = match image_type {
+            ImageType::Full => Image::new_full(path.as_ref().to_path_buf()),
+            ImageType::Partial => Image::new_partial(path.as_ref().to_path_buf()),
+        };
         
         // Create the directory structure
         image.create_metadata_dir()?;
