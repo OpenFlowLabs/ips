@@ -331,6 +331,25 @@ pub trait ReadableRepository {
         action_types: Option<&[String]>,
     ) -> Result<Vec<PackageContents>>;
 
+    /// Fetch a content payload identified by digest into the destination path.
+    /// Implementations should download/copy the payload to a temporary path,
+    /// verify integrity, and atomically move into `dest`.
+    fn fetch_payload(
+        &mut self,
+        publisher: &str,
+        digest: &str,
+        dest: &Path,
+    ) -> Result<()>;
+
+    /// Fetch a package manifest by FMRI from the repository.
+    /// Implementations should retrieve and parse the manifest for the given
+    /// publisher and fully-qualified FMRI (name@version).
+    fn fetch_manifest(
+        &mut self,
+        publisher: &str,
+        fmri: &crate::fmri::Fmri,
+    ) -> Result<crate::actions::Manifest>;
+
     /// Search for packages in the repository
     ///
     /// This method searches for packages in the repository using the search index.

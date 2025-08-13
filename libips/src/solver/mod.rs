@@ -25,10 +25,11 @@ use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvide
 use miette::Diagnostic;
 use thiserror::Error;
 
-use crate::actions::{Dependency, Manifest};
+use crate::actions::Manifest;
 
 #[derive(Clone, Debug)]
 struct PkgCand {
+    #[allow(dead_code)]
     id: SolvableId,
     name_id: NameId,
     fmri: Fmri,
@@ -58,7 +59,7 @@ struct IpsProvider<'a> {
     // per-name publisher preference order; set by dependency processing or top-level specs
     publisher_prefs: RefCell<HashMap<NameId, Vec<String>>>, 
 }
-use crate::fmri::{Fmri, Version};
+use crate::fmri::Fmri;
 use crate::image::{catalog::PackageInfo, Image};
 
 impl<'a> IpsProvider<'a> {
@@ -577,6 +578,8 @@ mod solver_integration_tests {
     use crate::image::catalog::{CATALOG_TABLE, OBSOLETED_TABLE};
     use redb::Database;
     use tempfile::tempdir;
+    use crate::fmri::Version;
+    use crate::actions::Dependency;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);

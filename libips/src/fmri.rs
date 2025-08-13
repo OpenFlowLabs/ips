@@ -378,7 +378,7 @@ impl Version {
 
     /// Parse a version string into a Version
     ///
-    /// The version string should be in the format: release[,branch][-build][:timestamp]
+    /// The version string should be in the format: release\[,branch\]\[-build\]\[:timestamp\]
     pub fn parse(version_str: &str) -> Result<Self, FmriError> {
         let mut version = Version {
             release: String::new(),
@@ -574,7 +574,7 @@ impl Fmri {
 
     /// Parse an FMRI string into an Fmri
     ///
-    /// The FMRI string should be in the format: [scheme://][publisher/]name[@version]
+    /// The FMRI string should be in the format: \[scheme://\]\[publisher/\]name[@version]
     pub fn parse(fmri_str: &str) -> Result<Self, FmriError> {
         let mut fmri = Fmri {
             scheme: "pkg".to_string(),

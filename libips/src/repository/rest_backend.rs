@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use tracing::{debug, info, warn};
 
 use reqwest::blocking::Client;
@@ -33,7 +34,7 @@ use super::catalog::CatalogManager;
 /// use std::path::Path;
 ///
 /// // Open a connection to a remote repository
-/// let mut repo = RestBackend::open("http://pkg.opensolaris.org/release").unwrap();
+/// let mut repo = RestBackend::open("https://pkg.opensolaris.org/release").unwrap();
 ///
 /// // Set a local cache path for downloaded catalog files
 /// repo.set_local_cache_path(Path::new("/tmp/pkg_cache")).unwrap();
@@ -533,6 +534,136 @@ impl ReadableRepository for RestBackend {
         }
 
         Ok(package_contents)
+    }
+
+    fn fetch_payload(
+        &mut self,
+        publisher: &str,
+        digest: &str,
+        dest: &Path,
+    ) -> Result<()> {
+        // Determine hash and algorithm from the provided digest string
+        let mut hash = digest.to_string();
+        let mut algo: Option<crate::digest::DigestAlgorithm> = None;
+        if digest.contains(':') {
+            if let Ok(d) = crate::digest::Digest::from_str(digest) {
+                hash = d.hash.clone();
+                algo = Some(d.algorithm);
+            }
+        }
+
+        if hash.is_empty() {
+            return Err(RepositoryError::Other("Empty digest provided".to_string()));
+        }
+
+        let shard = if hash.len() >= 2 { &hash[0..2] } else { &hash[..] };
+        let candidates = vec![
+            format!("{}/file/{}/{}", self.uri, shard, hash),
+            format!("{}/publisher/{}/file/{}/{}", self.uri, publisher, shard, hash),
+        ];
+
+        // Ensure destination directory exists
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut last_err: Option<String> = None;
+        for url in candidates {
+            match self.client.get(&url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    let body = resp.bytes().map_err(|e| RepositoryError::Other(format!("Failed to read payload body: {}", e)))?;
+
+                    // Verify digest if algorithm is known
+                    if let Some(alg) = algo.clone() {
+                        match crate::digest::Digest::from_bytes(&body, alg, crate::digest::DigestSource::PrimaryPayloadHash) {
+                            Ok(comp) => {
+                                if comp.hash != hash {
+                                    return Err(RepositoryError::DigestError(format!(
+                                        "Digest mismatch: expected {}, got {}",
+                                        hash, comp.hash
+                                    )));
+                                }
+                            }
+                            Err(e) => return Err(RepositoryError::DigestError(format!("{}", e))),
+                        }
+                    }
+
+                    // Write atomically
+                    let tmp = dest.with_extension("tmp");
+                    let mut f = File::create(&tmp)?;
+                    f.write_all(&body)?;
+                    drop(f);
+                    fs::rename(&tmp, dest)?;
+                    return Ok(());
+                }
+                Ok(resp) => {
+                    last_err = Some(format!("HTTP {} for {}", resp.status(), url));
+                }
+                Err(e) => {
+                    last_err = Some(format!("{} for {}", e, url));
+                }
+            }
+        }
+
+        Err(RepositoryError::NotFound(last_err.unwrap_or_else(|| "payload not found".to_string())))
+    }
+
+    fn fetch_manifest(
+        &mut self,
+        publisher: &str,
+        fmri: &crate::fmri::Fmri,
+    ) -> Result<crate::actions::Manifest> {
+        // Require versioned FMRI
+        let version = fmri.version();
+        if version.is_empty() {
+            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+        }
+
+        // URL-encode helper
+        let url_encode = |s: &str| -> String {
+            let mut out = String::new();
+            for b in s.bytes() {
+                match b {
+                    b'-' | b'_' | b'.' | b'~' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => out.push(b as char),
+                    b' ' => out.push('+'),
+                    _ => {
+                        out.push('%');
+                        out.push_str(&format!("{:02X}", b));
+                    }
+                }
+            }
+            out
+        };
+
+        let encoded_fmri = url_encode(&format!("{}@{}", fmri.stem(), version));
+        let encoded_stem = url_encode(fmri.stem());
+        let encoded_version = url_encode(&version);
+
+        let candidates = vec![
+            format!("{}/manifest/0/{}", self.uri, encoded_fmri),
+            format!("{}/publisher/{}/manifest/0/{}", self.uri, publisher, encoded_fmri),
+            // Fallbacks to direct file-style paths if server exposes static files
+            format!("{}/pkg/{}/{}", self.uri, encoded_stem, encoded_version),
+            format!("{}/publisher/{}/pkg/{}/{}", self.uri, publisher, encoded_stem, encoded_version),
+        ];
+
+        let mut last_err: Option<String> = None;
+        for url in candidates {
+            match self.client.get(&url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    let text = resp.text().map_err(|e| RepositoryError::Other(format!("Failed to read manifest body: {}", e)))?;
+                    return crate::actions::Manifest::parse_string(text).map_err(RepositoryError::from);
+                }
+                Ok(resp) => {
+                    last_err = Some(format!("HTTP {} for {}", resp.status(), url));
+                }
+                Err(e) => {
+                    last_err = Some(format!("{} for {}", e, url));
+                }
+            }
+        }
+
+        Err(RepositoryError::NotFound(last_err.unwrap_or_else(|| "manifest not found".to_string())))
     }
 
     fn search(

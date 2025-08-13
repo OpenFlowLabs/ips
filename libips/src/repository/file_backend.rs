@@ -1240,6 +1240,115 @@ impl ReadableRepository for FileBackend {
         Ok(package_contents)
     }
 
+    fn fetch_payload(&mut self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
+        // Parse digest; supports both raw hash and source:algorithm:hash
+        let parsed = match Digest::from_str(digest) {
+            Ok(d) => d,
+            Err(e) => return Err(RepositoryError::DigestError(e.to_string())),
+        };
+        let hash = parsed.hash.clone();
+        let algo = parsed.algorithm.clone();
+
+        if hash.is_empty() {
+            return Err(RepositoryError::Other("Empty digest provided".to_string()));
+        }
+
+        // Prepare candidate paths (prefer publisher-specific, then global)
+        let cand_pub = Self::construct_file_path_with_publisher(&self.path, publisher, &hash);
+        let cand_global = Self::construct_file_path(&self.path, &hash);
+
+        let source_path = if cand_pub.exists() {
+            cand_pub
+        } else if cand_global.exists() {
+            cand_global
+        } else {
+            return Err(RepositoryError::NotFound(format!(
+                "payload {} not found in repository",
+                hash
+            )));
+        };
+
+        // Ensure destination directory exists
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // If destination already exists and matches digest, do nothing
+        if dest.exists() {
+            let bytes = fs::read(dest)?;
+            match crate::digest::Digest::from_bytes(&bytes, algo.clone(), crate::digest::DigestSource::PrimaryPayloadHash) {
+                Ok(comp) if comp.hash == hash => return Ok(()),
+                _ => { /* fall through to overwrite */ }
+            }
+        }
+
+        // Read source content and verify digest
+        let bytes = fs::read(&source_path)?;
+        match crate::digest::Digest::from_bytes(&bytes, algo, crate::digest::DigestSource::PrimaryPayloadHash) {
+            Ok(comp) => {
+                if comp.hash != hash {
+                    return Err(RepositoryError::DigestError(format!(
+                        "Digest mismatch: expected {}, got {}",
+                        hash, comp.hash
+                    )));
+                }
+            }
+            Err(e) => return Err(RepositoryError::DigestError(e.to_string())),
+        }
+
+        // Write atomically
+        let tmp = dest.with_extension("tmp");
+        {
+            let mut f = File::create(&tmp)?;
+            f.write_all(&bytes)?;
+        }
+        fs::rename(&tmp, dest)?;
+
+        Ok(())
+    }
+
+    fn fetch_manifest(
+        &mut self,
+        publisher: &str,
+        fmri: &crate::fmri::Fmri,
+    ) -> Result<crate::actions::Manifest> {
+        // Require a concrete version
+        let version = fmri.version();
+        if version.is_empty() {
+            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+        }
+
+        // Preferred path: publisher-scoped manifest path
+        let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
+        if path.exists() {
+            return crate::actions::Manifest::parse_file(&path).map_err(RepositoryError::from);
+        }
+
+        // Fallbacks: global pkg layout without publisher
+        let encoded_stem = Self::url_encode(fmri.stem());
+        let encoded_version = Self::url_encode(&version);
+        let alt1 = self.path.join("pkg").join(&encoded_stem).join(&encoded_version);
+        if alt1.exists() {
+            return crate::actions::Manifest::parse_file(&alt1).map_err(RepositoryError::from);
+        }
+
+        let alt2 = self
+            .path
+            .join("publisher")
+            .join(publisher)
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
+        if alt2.exists() {
+            return crate::actions::Manifest::parse_file(&alt2).map_err(RepositoryError::from);
+        }
+
+        Err(RepositoryError::NotFound(format!(
+            "manifest for {} not found",
+            fmri
+        )))
+    }
+
     /// Search for packages in the repository
     fn search(
         &self,
