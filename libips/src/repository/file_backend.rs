@@ -2152,7 +2152,7 @@ impl FileBackend {
     pub fn get_catalog_manager(
         &mut self,
         publisher: &str,
-    ) -> Result<std::cell::RefMut<crate::repository::catalog::CatalogManager>> {
+    ) -> Result<std::cell::RefMut<'_, crate::repository::catalog::CatalogManager>> {
         if self.catalog_manager.is_none() {
             let publisher_dir = self.path.join("publisher");
             let manager = crate::repository::catalog::CatalogManager::new(&publisher_dir, publisher)?;
@@ -2170,7 +2170,7 @@ impl FileBackend {
     /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
     pub fn get_obsoleted_manager(
         &mut self,
-    ) -> Result<std::cell::RefMut<crate::repository::obsoleted::ObsoletedPackageManager>> {
+    ) -> Result<std::cell::RefMut<'_, crate::repository::obsoleted::ObsoletedPackageManager>> {
         if self.obsoleted_manager.is_none() {
             let manager = crate::repository::obsoleted::ObsoletedPackageManager::new(&self.path);
             let refcell = std::cell::RefCell::new(manager);

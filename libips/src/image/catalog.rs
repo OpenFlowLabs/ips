@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{info, warn, trace};
 
 /// Table definition for the catalog database
 /// Key: stem@version
@@ -319,90 +319,86 @@ impl ImageCatalog {
     
     /// Build the catalog from downloaded catalogs
     pub fn build_catalog(&self, publishers: &[String]) -> Result<()> {
-        println!("Building catalog with publishers: {:?}", publishers);
-        println!("Catalog directory: {:?}", self.catalog_dir);
-        println!("Catalog database path: {:?}", self.db_path);
+        info!("Building catalog (publishers: {})", publishers.len());
+        trace!("Catalog directory: {:?}", self.catalog_dir);
+        trace!("Catalog database path: {:?}", self.db_path);
         
         if publishers.is_empty() {
-            println!("No publishers provided");
             return Err(CatalogError::NoPublishers);
         }
         
         // Open the database
-        println!("Opening database at {:?}", self.db_path);
+        trace!("Opening database at {:?}", self.db_path);
         let db = Database::open(&self.db_path)
             .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
         
         // Begin a writing transaction
-        println!("Beginning write transaction");
+        trace!("Beginning write transaction");
         let tx = db.begin_write()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         
         // Open the catalog table
-        println!("Opening catalog table");
+        trace!("Opening catalog table");
         let mut catalog_table = tx.open_table(CATALOG_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open catalog table: {}", e)))?;
         
         // Open the obsoleted table
-        println!("Opening obsoleted table");
+        trace!("Opening obsoleted table");
         let mut obsoleted_table = tx.open_table(OBSOLETED_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))?;
         
         // Process each publisher
         for publisher in publishers {
-            println!("Processing publisher: {}", publisher);
+            trace!("Processing publisher: {}", publisher);
             let publisher_catalog_dir = self.catalog_dir.join(publisher);
-            println!("Publisher catalog directory: {:?}", publisher_catalog_dir);
+            trace!("Publisher catalog directory: {:?}", publisher_catalog_dir);
             
             // Skip if the publisher catalog directory doesn't exist
             if !publisher_catalog_dir.exists() {
-                println!("Publisher catalog directory not found: {}", publisher_catalog_dir.display());
                 warn!("Publisher catalog directory not found: {}", publisher_catalog_dir.display());
                 continue;
             }
             
-            // Create a catalog manager for this publisher
-            // The catalog parts are in a subdirectory: publisher/<publisher>/catalog/
-            let catalog_parts_dir = publisher_catalog_dir.join("publisher").join(publisher).join("catalog");
-            println!("Creating catalog manager for publisher: {}", publisher);
-            println!("Catalog parts directory: {:?}", catalog_parts_dir);
-            
-            // Check if the catalog parts directory exists
+            // Determine where catalog parts live. Support both legacy nested layout
+            // (publisher/<publisher>/catalog) and flat layout (directly under publisher dir).
+            let nested_dir = publisher_catalog_dir.join("publisher").join(publisher).join("catalog");
+            let flat_dir = publisher_catalog_dir.clone();
+
+            let catalog_parts_dir = if nested_dir.exists() { &nested_dir } else { &flat_dir };
+
+            trace!("Creating catalog manager for publisher: {}", publisher);
+            trace!("Catalog parts directory: {:?}", catalog_parts_dir);
+
+            // Check if the catalog parts directory exists (either layout)
             if !catalog_parts_dir.exists() {
-                println!("Catalog parts directory not found: {}", catalog_parts_dir.display());
                 warn!("Catalog parts directory not found: {}", catalog_parts_dir.display());
                 continue;
             }
-            
-            let mut catalog_manager = CatalogManager::new(&catalog_parts_dir, publisher)
+
+            let mut catalog_manager = CatalogManager::new(catalog_parts_dir, publisher)
                 .map_err(|e| CatalogError::Repository(crate::repository::RepositoryError::Other(format!("Failed to create catalog manager: {}", e))))?;
             
             // Get all catalog parts
-            println!("Getting catalog parts for publisher: {}", publisher);
+            trace!("Getting catalog parts for publisher: {}", publisher);
             let parts = catalog_manager.attrs().parts.clone();
-            println!("Catalog parts: {:?}", parts.keys().collect::<Vec<_>>());
+            trace!("Catalog parts: {:?}", parts.keys().collect::<Vec<_>>());
             
             // Load all catalog parts
             for part_name in parts.keys() {
-                println!("Loading catalog part: {}", part_name);
+                trace!("Loading catalog part: {}", part_name);
                 catalog_manager.load_part(part_name)
                     .map_err(|e| CatalogError::Repository(crate::repository::RepositoryError::Other(format!("Failed to load catalog part: {}", e))))?;
             }
             
             // Process each catalog part
             for (part_name, _) in parts {
-                println!("Processing catalog part: {}", part_name);
+                trace!("Processing catalog part: {}", part_name);
                 if let Some(part) = catalog_manager.get_part(&part_name) {
-                    println!("Found catalog part: {}", part_name);
-                    println!("Packages in part: {:?}", part.packages.keys().collect::<Vec<_>>());
-                    if let Some(publisher_packages) = part.packages.get(publisher) {
-                        println!("Packages for publisher {}: {:?}", publisher, publisher_packages.keys().collect::<Vec<_>>());
-                    } else {
-                        println!("No packages found for publisher: {}", publisher);
-                    }
+                    trace!("Found catalog part: {}", part_name);
+                    trace!("Packages in part: {:?}", part.packages.keys().collect::<Vec<_>>());
                     self.process_catalog_part(&mut catalog_table, &mut obsoleted_table, part, publisher)?;
                 } else {
-                    println!("Catalog part not found: {}", part_name);
+                    trace!("Catalog part not found: {}", part_name);
                 }
             }
         }
@@ -427,109 +423,101 @@ impl ImageCatalog {
         part: &CatalogPart,
         publisher: &str,
     ) -> Result<()> {
-        println!("Processing catalog part for publisher: {}", publisher);
+        trace!("Processing catalog part for publisher: {}", publisher);
         
         // Get packages for this publisher
         if let Some(publisher_packages) = part.packages.get(publisher) {
-            println!("Found {} package stems for publisher {}", publisher_packages.len(), publisher);
+            let total_versions: usize = publisher_packages.values().map(|v| v.len()).sum();
+            let mut processed: usize = 0;
+            let mut obsolete_count: usize = 0;
+            let progress_step: usize = 500; // report every N packages
+
+            trace!(
+                "Found {} package stems ({} versions) for publisher {}",
+                publisher_packages.len(),
+                total_versions,
+                publisher
+            );
             
             // Process each package stem
             for (stem, versions) in publisher_packages {
-                println!("Processing package stem: {}", stem);
-                println!("Found {} versions for stem {}", versions.len(), stem);
+                trace!("Processing package stem: {} ({} versions)", stem, versions.len());
                 
                 // Process each package version
                 for version_entry in versions {
-                    println!("Processing version: {}", version_entry.version);
-                    println!("Actions: {:?}", version_entry.actions);
+                    trace!("Processing version: {} | actions: {:?}", version_entry.version, version_entry.actions);
                     
                     // Create the FMRI
                     let version = if !version_entry.version.is_empty() {
                         match crate::fmri::Version::parse(&version_entry.version) {
-                            Ok(v) => {
-                                println!("Parsed version: {:?}", v);
-                                Some(v)
-                            },
+                            Ok(v) => Some(v),
                             Err(e) => {
-                                println!("Failed to parse version '{}': {}", version_entry.version, e);
                                 warn!("Failed to parse version '{}': {}", version_entry.version, e);
                                 continue;
                             }
                         }
                     } else {
-                        println!("Empty version string");
                         None
                     };
                     
                     let fmri = Fmri::with_publisher(publisher, stem, version);
-                    println!("Created FMRI: {}", fmri);
-                    
-                    // Create the key for the catalog table (stem@version)
                     let catalog_key = format!("{}@{}", stem, version_entry.version);
-                    println!("Catalog key: {}", catalog_key);
-                    
-                    // Create the key for the obsoleted table (full FMRI including publisher)
                     let obsoleted_key = fmri.to_string();
-                    println!("Obsoleted key: {}", obsoleted_key);
                     
                     // Check if we already have this package in the catalog
-                    let existing_manifest = if let Ok(bytes) = catalog_table.get(catalog_key.as_str()) {
-                        if let Some(bytes) = bytes {
-                            println!("Found existing manifest for {}", catalog_key);
-                            Some(serde_json::from_slice::<Manifest>(bytes.value())?)
-                        } else {
-                            println!("No existing manifest found for {}", catalog_key);
-                            None
-                        }
-                    } else {
-                        println!("Error getting manifest for {}", catalog_key);
-                        None
+                    let existing_manifest = match catalog_table.get(catalog_key.as_str()) {
+                        Ok(Some(bytes)) => Some(serde_json::from_slice::<Manifest>(bytes.value())?),
+                        _ => None,
                     };
                     
                     // Create or update the manifest
-                    println!("Creating or updating manifest");
                     let manifest = self.create_or_update_manifest(existing_manifest, version_entry, stem, publisher)?;
                     
                     // Check if the package is obsolete
                     let is_obsolete = self.is_package_obsolete(&manifest);
-                    println!("Package is obsolete: {}", is_obsolete);
+                    if is_obsolete { obsolete_count += 1; }
                     
                     // Serialize the manifest
                     let manifest_bytes = serde_json::to_vec(&manifest)?;
-                    println!("Serialized manifest size: {} bytes", manifest_bytes.len());
                     
                     // Store the package in the appropriate table
                     if is_obsolete {
-                        println!("Storing obsolete package in obsoleted table");
                         // Store obsolete packages in the obsoleted table with the full FMRI as key
-                        // We don't store any meaningful values in the obsoleted table as per requirements,
-                        // but we need to provide a valid byte slice
                         let empty_bytes: &[u8] = &[0u8; 0];
-                        match obsoleted_table.insert(obsoleted_key.as_str(), empty_bytes) {
-                            Ok(_) => println!("Successfully inserted into obsoleted table"),
-                            Err(e) => {
-                                println!("Failed to insert into obsoleted table: {}", e);
-                                return Err(CatalogError::Database(format!("Failed to insert into obsoleted table: {}", e)));
-                            }
-                        }
+                        obsoleted_table
+                            .insert(obsoleted_key.as_str(), empty_bytes)
+                            .map_err(|e| CatalogError::Database(format!("Failed to insert into obsoleted table: {}", e)))?;
                     } else {
-                        println!("Storing non-obsolete package in catalog table");
                         // Store non-obsolete packages in the catalog table with stem@version as a key
-                        match catalog_table.insert(catalog_key.as_str(), manifest_bytes.as_slice()) {
-                            Ok(_) => println!("Successfully inserted into catalog table"),
-                            Err(e) => {
-                                println!("Failed to insert into catalog table: {}", e);
-                                return Err(CatalogError::Database(format!("Failed to insert into catalog table: {}", e)));
-                            }
-                        }
+                        catalog_table
+                            .insert(catalog_key.as_str(), manifest_bytes.as_slice())
+                            .map_err(|e| CatalogError::Database(format!("Failed to insert into catalog table: {}", e)))?;
+                    }
+
+                    processed += 1;
+                    if processed % progress_step == 0 {
+                        info!(
+                            "Import progress (publisher {}): {}/{} packages ({} obsolete)",
+                            publisher,
+                            processed,
+                            total_versions,
+                            obsolete_count
+                        );
                     }
                 }
             }
+
+            // Final summary for this part/publisher
+            info!(
+                "Finished import for publisher {}: {} packages processed ({} obsolete)",
+                publisher,
+                processed,
+                obsolete_count
+            );
         } else {
-            println!("No packages found for publisher: {}", publisher);
+            trace!("No packages found for publisher: {}", publisher);
         }
         
-        println!("Finished processing catalog part for publisher: {}", publisher);
         Ok(())
     }
     

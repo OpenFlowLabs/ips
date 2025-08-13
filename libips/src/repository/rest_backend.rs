@@ -611,21 +611,17 @@ impl RestBackend {
             Some(path) => path,
             None => return Err(RepositoryError::Other("No local cache path set".to_string())),
         };
-        
-        // Create publisher directory if it doesn't exist
-        let publisher_dir = cache_path.join("publisher").join(publisher);
-        fs::create_dir_all(&publisher_dir)?;
-        
-        // Create catalog directory if it doesn't exist
-        let catalog_dir = publisher_dir.join("catalog");
-        fs::create_dir_all(&catalog_dir)?;
-        
-        // Get or create the catalog manager
+
+        // The local cache path is expected to already point to the per-publisher directory
+        // Ensure the directory exists
+        fs::create_dir_all(cache_path)?;
+
+        // Get or create the catalog manager pointing at the per-publisher directory directly
         if !self.catalog_managers.contains_key(publisher) {
-            let catalog_manager = CatalogManager::new(&catalog_dir, publisher)?;
+            let catalog_manager = CatalogManager::new(cache_path, publisher)?;
             self.catalog_managers.insert(publisher.to_string(), catalog_manager);
         }
-        
+
         Ok(self.catalog_managers.get_mut(publisher).unwrap())
     }
     
@@ -655,62 +651,81 @@ impl RestBackend {
     ) -> Result<Vec<u8>> {
         // Use a no-op reporter if none was provided
         let progress = progress.unwrap_or(&NoopProgressReporter);
-        
-        // Construct the URL for the catalog file
-        let url = format!("{}/catalog/1/{}", self.uri, file_name);
-        
-        debug!("Downloading catalog file: {}", url);
-        
+
+        // Prepare candidate URLs to support both modern and legacy pkg5 depotd layouts
+        let mut urls: Vec<String> = vec![
+            format!("{}/catalog/1/{}", self.uri, file_name),
+            format!("{}/publisher/{}/catalog/1/{}", self.uri, publisher, file_name),
+        ];
+        if file_name == "catalog.attrs" {
+            // Some older depots expose catalog.attrs at the root or under publisher path
+            urls.insert(1, format!("{}/catalog.attrs", self.uri));
+            urls.push(format!("{}/publisher/{}/catalog.attrs", self.uri, publisher));
+        }
+
+        debug!(
+            "Attempting to download '{}' via {} candidate URL(s)",
+            file_name,
+            urls.len()
+        );
+
         // Create progress info for this operation
         let mut progress_info = ProgressInfo::new(format!("Downloading {}", file_name))
             .with_context(format!("Publisher: {}", publisher));
-        
+
         // Notify that we're starting the download
         progress.start(&progress_info);
-        
-        // Make the HTTP request
-        let response = self.client.get(&url)
-            .send()
-            .map_err(|e| {
-                // Report failure
-                progress.finish(&progress_info);
-                RepositoryError::Other(format!("Failed to download catalog file: {}", e))
-            })?;
-        
-        // Check if the request was successful
-        if !response.status().is_success() {
-            // Report failure
-            progress.finish(&progress_info);
-            return Err(RepositoryError::Other(format!(
-                "Failed to download catalog file: HTTP status {}", 
-                response.status()
-            )));
+
+        let mut last_error: Option<String> = None;
+
+        for url in urls {
+            debug!("Trying URL: {}", url);
+            match self.client.get(&url).send() {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        // Update total if server provided content length
+                        if let Some(content_length) = resp.content_length() {
+                            progress_info = progress_info.with_total(content_length);
+                            progress.update(&progress_info);
+                        }
+
+                        // Read the response body
+                        let body = resp.bytes().map_err(|e| {
+                            progress.finish(&progress_info);
+                            RepositoryError::Other(format!("Failed to read response body: {}", e))
+                        })?;
+
+                        // Update progress with the final size
+                        progress_info = progress_info.with_current(body.len() as u64);
+                        if progress_info.total.is_none() {
+                            progress_info = progress_info.with_total(body.len() as u64);
+                        }
+
+                        // Report completion
+                        progress.finish(&progress_info);
+                        return Ok(body.to_vec());
+                    } else {
+                        last_error = Some(format!("HTTP status {} for {}", resp.status(), url));
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(format!("{} for {}", e, url));
+                }
+            }
         }
-        
-        // Get the content length if available
-        if let Some(content_length) = response.content_length() {
-            progress_info = progress_info.with_total(content_length);
-            progress.update(&progress_info);
-        }
-        
-        // Read the response body
-        let body = response.bytes()
-            .map_err(|e| {
-                // Report failure
-                progress.finish(&progress_info);
-                RepositoryError::Other(format!("Failed to read response body: {}", e))
-            })?;
-        
-        // Update progress with the final size
-        progress_info = progress_info.with_current(body.len() as u64);
-        if progress_info.total.is_none() {
-            progress_info = progress_info.with_total(body.len() as u64);
-        }
-        
-        // Report completion
+
+        // Report failure after exhausting all URLs
         progress.finish(&progress_info);
-        
-        Ok(body.to_vec())
+        Err(RepositoryError::Other(match last_error {
+            Some(s) => format!(
+                "Failed to download '{}' from any known endpoint: {}",
+                file_name, s
+            ),
+            None => format!(
+                "Failed to download '{}' from any known endpoint",
+                file_name
+            ),
+        }))
     }
     
     /// Download and store a catalog file
@@ -743,52 +758,47 @@ impl RestBackend {
             Some(path) => path,
             None => return Err(RepositoryError::Other("No local cache path set".to_string())),
         };
-        
-        // Create publisher directory if it doesn't exist
-        let publisher_dir = cache_path.join("publisher").join(publisher);
-        fs::create_dir_all(&publisher_dir)?;
-        
-        // Create catalog directory if it doesn't exist
-        let catalog_dir = publisher_dir.join("catalog");
-        fs::create_dir_all(&catalog_dir)?;
-        
+
+        // Ensure the per-publisher directory (local cache path) exists
+        fs::create_dir_all(cache_path)?;
+
         // Download the catalog file
         let content = self.download_catalog_file(publisher, file_name, progress)?;
-        
+
         // Use a no-op reporter if none was provided
         let progress = progress.unwrap_or(&NoopProgressReporter);
-        
+
         // Create progress info for storing the file
         let progress_info = ProgressInfo::new(format!("Storing {}", file_name))
             .with_context(format!("Publisher: {}", publisher))
             .with_current(0)
             .with_total(content.len() as u64);
-        
+
         // Notify that we're starting to store the file
         progress.start(&progress_info);
-        
-        // Store the file
-        let file_path = catalog_dir.join(file_name);
+
+        // Store the file directly under the per-publisher directory
+        let file_path = cache_path.join(file_name);
         let mut file = File::create(&file_path)
             .map_err(|e| {
                 // Report failure
                 progress.finish(&progress_info);
                 RepositoryError::FileWriteError(format!("Failed to create file: {}", e))
             })?;
-        
+
         file.write_all(&content)
             .map_err(|e| {
                 // Report failure
                 progress.finish(&progress_info);
                 RepositoryError::FileWriteError(format!("Failed to write file: {}", e))
             })?;
-        
+
         debug!("Stored catalog file: {}", file_path.display());
-        
+
         // Report completion
         let progress_info = progress_info.with_current(content.len() as u64);
         progress.finish(&progress_info);
-        
+
         Ok(file_path)
     }
     
