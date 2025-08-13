@@ -3,38 +3,27 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Minimal dependency resolution and planning over the ImageCatalog.
-//! This module contains an MVP greedy resolver and a Catalog-backed provider
-//! that is structured after resolvo's DependencyProvider. The provider encodes
-//! IPS-specific selection rules so we can plug it into resolvo with minimal
-//! changes later:
-//! - Package identity is the IPS stem (name) and the publisher.
-//! - Prefer the same publisher as the dependant; if not available, try the
-//!   publishers in the image search order; finally fall back to the image's
-//!   default publisher.
-//! - Ignore obsolete packages when enumerating candidates.
-//! - While resolving a dependency, restrict candidates to the same branch as
-//!   the dependant (required by IPS). If no candidate exists on that branch,
-//!   resolution fails with a missing dependency.
-//! - When a dependency expression carries a version, we match by the main
-//!   release component of the version (the part before branch/build/timestamp).
-//! - Candidate ordering picks the newest release first; if releases are equal,
-//!   the candidate with the newest timestamp wins.
+//! Dependency resolution and planning over the ImageCatalog using resolvo.
+//! This module implements a resolvo::DependencyProvider with IPS-specific
+//! selection rules:
+//! - Package identity uses IPS stems and publishers.
+//! - Ignore obsolete packages.
+//! - Branch is locked to the dependant when resolving dependencies.
+//! - Version requirements match on the release component; ordering prefers
+//!   newest release, then publisher preference, then timestamp.
 //!
-//! The public API resolve_install keeps returning an InstallPlan and internally
-//! uses the provider to choose candidates. Swapping the greedy traversal for
-//! resolvo::Solver will only require wiring this provider into resolvo.
+//! resolve_install builds a resolvo Problem from user constraints, runs the
+//! solver, and assembles an InstallPlan from the chosen solvables.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 // Begin resolvo wiring imports (names discovered by compiler)
 // We start broad and refine with compiler guidance.
-use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, Solver as RSolver, SolverCache, SolvableId, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId};
+use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, Solver as RSolver, SolverCache, SolvableId, StringId, VersionSetId, VersionSetUnionId};
 
 use miette::Diagnostic;
 use thiserror::Error;
-use tracing::trace;
 
 use crate::actions::{Dependency, Manifest};
 
@@ -416,61 +405,8 @@ impl<'a> CatalogProvider<'a> {
         Ok(())
     }
 
-    /// Get the best candidate PackageInfo for a constraint, applying IPS rules:
-    /// 1) Filter out candidates not on the required branch (if specified).
-    /// 2) If a version_req (release) is given, restrict to that release.
-    /// 3) Order by publisher preference (preferred_publishers) if provided.
-    /// 4) Choose newest release; if release equal, choose newest timestamp.
-    fn best_match(&self, c: &Constraint) -> Option<&PackageInfo> {
-        let list = self.cache.get(&c.stem)?;
-
-        // Filter by branch if specified
-        let mut filtered: Vec<&PackageInfo> = list
-            .iter()
-            .filter(|p| match (&c.branch, &p.fmri.version) {
-                (Some(branch_req), Some(ver)) => ver.branch.as_ref().map(|b| b == branch_req).unwrap_or(false),
-                (Some(_), None) => false,
-                (None, _) => true,
-            })
-            .collect();
-
-        // If a version (release) is required, keep only matching releases
-        if let Some(release_req) = &c.version_req {
-            filtered.retain(|p| match &p.fmri.version {
-                Some(ver) => &ver.release == release_req,
-                None => false,
-            });
-        }
-
-        if filtered.is_empty() {
-            return None;
-        }
-
-        // Sort by IPS ordering: newest release, then newest timestamp
-        filtered.sort_by(|a, b| version_order_desc(&a.fmri, &b.fmri));
-
-        // Apply publisher preference: find first candidate matching the preferred publishers order
-        if !c.preferred_publishers.is_empty() {
-            for pref in &c.preferred_publishers {
-                if let Some(pkg) = filtered.iter().find(|p| &p.publisher == pref) {
-                    return Some(pkg);
-                }
-            }
-        }
-
-        // Fall back to the top candidate
-        filtered.first().copied()
-    }
 }
 
-fn pick_version_req<'a>(cands: Vec<&'a PackageInfo>, ver_req: &str) -> Option<&'a PackageInfo> {
-    // Deprecated: kept for compatibility in case external callers rely on it.
-    let req = ver_req.trim_start_matches('=');
-    for c in &cands {
-        if c.fmri.version() == req { return Some(*c); }
-    }
-    cands.first().copied()
-}
 
 fn cmp_version_desc(a: &Fmri, b: &Fmri) -> std::cmp::Ordering {
     // Basic descending order by stringified version as a fallback for cache sorting.
@@ -595,49 +531,6 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     Ok(plan)
 }
 
-fn resolve_one(provider: &mut CatalogProvider, c: &Constraint, plan: &mut InstallPlan, visited: &mut BTreeSet<String>) -> Result<(), SolverError> {
-    if visited.contains(&c.stem) { return Ok(()); }
-
-    // Limit immutable borrow scope of provider through this block
-    let (selected_fmri, manifest, dep_constraints): (Fmri, Manifest, Vec<Constraint>) = {
-        let pkg = provider
-            .best_match(c)
-            .ok_or_else(|| SolverError::new(format!("no candidate found for {}", c.stem)))?;
-
-        trace!(stem = %c.stem, fmri = %pkg.fmri, "selected candidate");
-
-        // get manifest
-        let manifest = provider
-            .image
-            .get_manifest_from_catalog(&pkg.fmri)
-            .map_err(|e| SolverError::new(format!("failed to load manifest for {}: {e}", pkg.fmri)))?
-            .ok_or_else(|| SolverError::new(format!("manifest not found in catalog for {}", pkg.fmri)))?;
-
-        let selected_fmri = pkg.fmri.clone();
-
-        // collect dependency constraints now, before dropping the borrow on provider
-        let dep_constraints: Vec<Constraint> = manifest
-            .dependencies
-            .iter()
-            .filter(|d| d.dependency_type == "require")
-            .filter_map(|d| constraint_from_dependency(d, &selected_fmri, provider.image))
-            .collect();
-
-        (selected_fmri, manifest, dep_constraints)
-    };
-
-    // add to plan
-    plan.add.push(ResolvedPkg { fmri: selected_fmri.clone(), manifest: manifest.clone() });
-    plan.reasons.push(format!("selected {} due to user request or dependency", selected_fmri));
-    visited.insert(c.stem.clone());
-
-    // traverse require dependencies
-    for dep_c in dep_constraints {
-        resolve_one(provider, &dep_c, plan, visited)?;
-    }
-
-    Ok(())
-}
 
 fn build_publisher_preference(parent_pub: Option<&str>, image: &Image) -> Vec<String> {
     let mut order: Vec<String> = Vec::new();
@@ -660,27 +553,6 @@ fn build_publisher_preference(parent_pub: Option<&str>, image: &Image) -> Vec<St
     order
 }
 
-fn constraint_from_dependency(dep: &Dependency, parent: &Fmri, image: &Image) -> Option<Constraint> {
-    // We only support simple FMRI deps without complex predicates for MVP
-    if let Some(f) = &dep.fmri {
-        let stem = f.stem().to_string();
-        // The dependant's branch is enforced for dependencies
-        let branch = parent
-            .version
-            .as_ref()
-            .and_then(|v| v.branch.clone());
-        // Use only the main release component from the dependency's version expression
-        let version_req = f
-            .version
-            .as_ref()
-            .map(|v| v.release.clone());
-        // Publisher preference: parent publisher, then image order, then default
-        let preferred_publishers = build_publisher_preference(parent.publisher.as_deref(), image);
-
-        return Some(Constraint { stem, version_req, preferred_publishers, branch });
-    }
-    None
-}
 
 #[cfg(test)]
 mod tests {
