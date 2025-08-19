@@ -115,7 +115,7 @@ impl Digest {
                 format!("{:x}", sha2::Sha256::digest(b))
             }
             DigestAlgorithm::SHA512Half => {
-                format!("{:x}", sha2::Sha512Trunc256::digest(b))
+                format!("{:x}", sha2::Sha512_256::digest(b))
             }
             DigestAlgorithm::SHA512 => {
                 format!("{:x}", sha2::Sha512::digest(b))

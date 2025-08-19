@@ -3,7 +3,7 @@ use crate::repository::{Result, RepositoryError};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use miette::Diagnostic;
 use regex::Regex;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_cbor;
@@ -212,8 +212,14 @@ impl From<redb::CommitError> for ObsoletedPackageError {
     }
 }
 
-impl From<bincode::Error> for ObsoletedPackageError {
-    fn from(err: bincode::Error) -> Self {
+impl From<bincode::error::EncodeError> for ObsoletedPackageError {
+    fn from(err: bincode::error::EncodeError) -> Self {
+        ObsoletedPackageError::SerializationError(err.to_string())
+    }
+}
+
+impl From<bincode::error::DecodeError> for ObsoletedPackageError {
+    fn from(err: bincode::error::DecodeError) -> Self {
         ObsoletedPackageError::SerializationError(err.to_string())
     }
 }
@@ -792,7 +798,7 @@ impl RedbObsoletedPackageIndex {
     
     /// Clear the index
     fn clear(&self) -> Result<()> {
-        // Begin a write transaction
+        // Begin a writing transaction
         let write_txn = self.db.begin_write()?;
         {
             // Clear all tables by removing all entries
@@ -802,7 +808,7 @@ impl RedbObsoletedPackageIndex {
             {
                 let mut hash_to_manifest = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
                 let keys_to_remove = {
-                    // First collect all keys in a separate scope
+                    // First, collect all keys in a separate scope
                     let read_txn = self.db.begin_read()?;
                     let hash_to_manifest_read = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
                     let mut keys = Vec::new();
@@ -824,7 +830,7 @@ impl RedbObsoletedPackageIndex {
             {
                 let mut hash_to_manifest = write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
                 let keys_to_remove = {
-                    // First collect all keys in a separate scope
+                    // First, collect all keys in a separate scope
                     let read_txn = self.db.begin_read()?;
                     let hash_to_manifest_read = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
                     let mut keys = Vec::new();
@@ -884,7 +890,7 @@ impl RedbObsoletedPackageIndex {
 
 
 /// Constant for null hash value, indicating no manifest content is stored
-/// When this value is used for content_hash, the original manifest is not stored
+/// When this value is used for content_hash, the original manifest is not stored,
 /// and a minimal manifest with obsoletion attributes is generated on-the-fly when requested
 pub const NULL_HASH: &str = "null";
 
@@ -1325,7 +1331,7 @@ impl ObsoletedPackageManager {
     /// * `obsoleted_by` - Optional list of FMRIs that replace this package
     /// * `deprecation_message` - Optional message explaining why the package was obsoleted
     /// * `store_manifest` - Whether to store the original manifest content
-    ///   If false, a null hash is used and no manifest file is stored
+    ///   If false, a null hash is used, and no manifest file is stored
     ///
     /// # Returns
     ///
@@ -1365,7 +1371,7 @@ impl ObsoletedPackageManager {
             )
         };
 
-        // Construct path for the obsoleted package
+        // Construct a path for the obsoleted package
         let stem = fmri.stem();
         let version = fmri.version();
         let pkg_dir = publisher_dir.join(stem);
@@ -1375,7 +1381,7 @@ impl ObsoletedPackageManager {
         let encoded_version = url_encode(&version);
         let metadata_path = pkg_dir.join(format!("{}.json", encoded_version));
 
-        // Write metadata to file
+        // Write metadata to a file
         let metadata_json = serde_json::to_string_pretty(&metadata)?;
         fs::write(&metadata_path, metadata_json)?;
 
@@ -1401,7 +1407,7 @@ impl ObsoletedPackageManager {
 
     /// Check if a package is obsoleted
     pub fn is_obsoleted(&self, publisher: &str, fmri: &Fmri) -> bool {
-        // First check the filesystem directly for faster results in tests
+        // First, check the filesystem directly for faster results in tests
         let stem = fmri.stem();
         let version = fmri.version();
         let encoded_version = url_encode(&version);
@@ -1478,7 +1484,7 @@ impl ObsoletedPackageManager {
             },
             Err(e) => {
                 warn!("Failed to get entry from index: {}", e);
-                // Fall back to the filesystem check if there's an error
+                // Fall back to the filesystem to check if there's an error
                 self.get_obsoleted_package_metadata_from_filesystem(publisher, fmri)
             }
         }
@@ -1583,7 +1589,7 @@ impl ObsoletedPackageManager {
             },
             Err(e) => {
                 warn!("Failed to get entry from index: {}", e);
-                // Fall back to the filesystem check if there's an error
+                // Fall back to the filesystem to check if there's an error
                 self.get_obsoleted_package_manifest_from_filesystem(publisher, fmri)
             }
         }
@@ -1672,7 +1678,7 @@ impl ObsoletedPackageManager {
     /// Get manifest content and remove an obsoleted package
     ///
     /// This method retrieves the manifest content of an obsoleted package and removes it
-    /// from the obsoleted packages directory. It's used as part of the process to restore
+    /// from the obsoleted packages' directory. It's used as part of the process to restore
     /// an obsoleted package to the main repository.
     ///
     /// # Arguments
@@ -1710,7 +1716,7 @@ impl ObsoletedPackageManager {
     
     /// Remove an obsoleted package
     ///
-    /// This method removes an obsoleted package from the obsoleted packages directory.
+    /// This method removes an obsoleted package from the obsoleted packages' directory.
     /// It can be used after restoring a package to the main repository.
     ///
     /// # Arguments
@@ -1814,7 +1820,7 @@ impl ObsoletedPackageManager {
                 warn!("Failed to acquire write lock on index, package not removed from index: {}: {}", fmri, e);
                 // If we can't get a write lock, mark the index as dirty so it will be rebuilt next time
                 if let Ok(index) = self.index.write() {
-                    // This is a new write attempt, so it might succeed even if the previous one failed
+                    // This is a new writing attempt, so it might succeed even if the previous one failed
                     if let Err(e) = index.clear() {
                         warn!("Failed to clear index: {}", e);
                     }
@@ -2017,7 +2023,7 @@ impl ObsoletedPackageManager {
         
         // Get packages for the requested page
         let packages = if start_idx >= total_count {
-            // If start index is beyond the total count, return an empty page
+            // If the start index is beyond the total count, return an empty page
             Vec::new()
         } else {
             all_packages[start_idx..end_idx.min(total_count)].to_vec()
@@ -2475,7 +2481,7 @@ impl ObsoletedPackageManager {
 
     /// Batch process multiple obsoleted packages
     ///
-    /// This method applies a function to multiple obsoleted packages in batch.
+    /// This method applies a function to multiple obsoleted packages in a batch.
     /// It's useful for operations that need to be performed on many packages at once.
     ///
     /// # Arguments
@@ -2636,7 +2642,7 @@ mod tests {
         let results = manager.search_obsoleted_packages("test", "package-.*").unwrap();
         assert_eq!(results.len(), 2);
         
-        // Test search for specific version
+        // Test search for a specific version
         let results = manager.search_obsoleted_packages("test", "2.0").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].to_string(), fmri2.to_string());
@@ -2688,7 +2694,7 @@ mod tests {
         assert_eq!(page2.page, 2);
         
         let page4 = manager.list_obsoleted_packages_paginated("test", Some(4), Some(3)).unwrap();
-        assert_eq!(page4.packages.len(), 1); // Last page has only 1 item
+        assert_eq!(page4.packages.len(), 1); // The last page has only 1 item
         
         // Test pagination with page beyond total
         let empty_page = manager.list_obsoleted_packages_paginated("test", Some(5), Some(3)).unwrap();

@@ -2,7 +2,7 @@ use crate::actions::{Manifest};
 use crate::fmri::Fmri;
 use crate::repository::catalog::{CatalogManager, CatalogPart, PackageVersionEntry};
 use miette::Diagnostic;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,11 @@ pub const CATALOG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("ca
 /// Key: full FMRI including publisher (pkg://publisher/stem@version)
 /// Value: nothing
 pub const OBSOLETED_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("obsoleted");
+
+/// Table definition for the incorporate locks table
+/// Key: stem (e.g., "compress/gzip")
+/// Value: version string as bytes (same format as Fmri::version())
+pub const INCORPORATE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("incorporate");
 
 /// Table definition for the installed packages database
 /// Key: full FMRI including publisher (pkg://publisher/stem@version)
@@ -105,6 +110,17 @@ impl ImageCatalog {
             "catalog" => self.dump_catalog_table(&tx)?,
             "obsoleted" => self.dump_obsoleted_table(&tx)?,
             "installed" => self.dump_installed_table(&tx)?,
+            "incorporate" => {
+                // Simple dump of incorporate locks
+                if let Ok(table) = tx.open_table(INCORPORATE_TABLE) {
+                    for entry in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate incorporate table: {}", e)))? {
+                        let (k, v) = entry.map_err(|e| CatalogError::Database(format!("Failed to read incorporate table entry: {}", e)))?;
+                        let stem = k.value();
+                        let ver = String::from_utf8_lossy(v.value());
+                        println!("{} -> {}", stem, ver);
+                    }
+                }
+            }
             _ => return Err(CatalogError::Database(format!("Unknown table: {}", table_name))),
         }
         
@@ -310,6 +326,9 @@ impl ImageCatalog {
         
         tx.open_table(OBSOLETED_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to create obsoleted table: {}", e)))?;
+        
+        tx.open_table(INCORPORATE_TABLE)
+            .map_err(|e| CatalogError::Database(format!("Failed to create incorporate table: {}", e)))?;
         
         tx.commit()
             .map_err(|e| CatalogError::Database(format!("Failed to commit transaction: {}", e)))?;

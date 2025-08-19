@@ -1,7 +1,7 @@
 use crate::actions::Manifest;
 use crate::fmri::Fmri;
 use miette::Diagnostic;
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};

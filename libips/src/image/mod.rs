@@ -9,12 +9,13 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use redb::{Database, ReadableDatabase, ReadableTable};
 
 use crate::repository::{ReadableRepository, RepositoryError, RestBackend, FileBackend};
 
 // Export the catalog module
 pub mod catalog;
-use catalog::{ImageCatalog, PackageInfo};
+use catalog::{ImageCatalog, PackageInfo, INCORPORATE_TABLE};
 
 // Export the installed packages module
 pub mod installed;
@@ -338,10 +339,41 @@ impl Image {
     
     /// Add a package to the installed packages database
     pub fn install_package(&self, fmri: &crate::fmri::Fmri, manifest: &crate::actions::Manifest) -> Result<()> {
+        // Precheck incorporation dependencies: fail if any stem already has a lock
+        for d in &manifest.dependencies {
+            if d.dependency_type == "incorporate" {
+                if let Some(df) = &d.fmri {
+                    let stem = df.stem();
+                    if let Some(_) = self.get_incorporated_release(stem)? {
+                        return Err(ImageError::Database(format!(
+                            "Incorporation lock already exists for stem {}", stem
+                        )));
+                    }
+                }
+            }
+        }
+
+        // Add to installed database
         let installed = InstalledPackages::new(self.installed_db_path());
         installed.add_package(fmri, manifest).map_err(|e| {
             ImageError::Database(format!("Failed to add package to installed database: {}", e))
-        })
+        })?;
+
+        // Write incorporation locks for any incorporate dependencies
+        for d in &manifest.dependencies {
+            if d.dependency_type == "incorporate" {
+                if let Some(df) = &d.fmri {
+                    let stem = df.stem();
+                    let ver = df.version();
+                    if !ver.is_empty() {
+                        // Store the full version string (release[,branch][-build][:timestamp])
+                        // Ignore errors here? Better to propagate to ensure consistency
+                        self.add_incorporation_lock(stem, &ver)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     
     /// Remove a package from the installed packages database
@@ -554,6 +586,47 @@ impl Image {
         catalog.query_packages(pattern).map_err(|e| {
             ImageError::Database(format!("Failed to query catalog: {}", e))
         })
+    }
+
+    /// Look up an incorporation lock for a given stem.
+    /// Returns Some(release) if a lock exists, otherwise None.
+    pub fn get_incorporated_release(&self, stem: &str) -> Result<Option<String>> {
+        let db = Database::open(self.catalog_db_path())
+            .map_err(|e| ImageError::Database(format!("Failed to open catalog database: {}", e)))?;
+        let tx = db.begin_read()
+            .map_err(|e| ImageError::Database(format!("Failed to begin read transaction: {}", e)))?;
+        match tx.open_table(INCORPORATE_TABLE) {
+            Ok(table) => {
+                match table.get(stem) {
+                    Ok(Some(val)) => Ok(Some(String::from_utf8_lossy(val.value()).to_string())),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(ImageError::Database(format!("Failed to read incorporate lock: {}", e))),
+                }
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Add an incorporation lock for a stem to a specific release.
+    /// Fails if a lock already exists for the stem.
+    pub fn add_incorporation_lock(&self, stem: &str, release: &str) -> Result<()> {
+        let db = Database::open(self.catalog_db_path())
+            .map_err(|e| ImageError::Database(format!("Failed to open catalog database: {}", e)))?;
+        let tx = db.begin_write()
+            .map_err(|e| ImageError::Database(format!("Failed to begin write transaction: {}", e)))?;
+        {
+            let mut table = tx.open_table(INCORPORATE_TABLE)
+                .map_err(|e| ImageError::Database(format!("Failed to open incorporate table: {}", e)))?;
+            if let Ok(Some(_)) = table.get(stem) {
+                return Err(ImageError::Database(format!("Incorporation lock already exists for stem {}", stem)));
+            }
+            table.insert(stem, release.as_bytes())
+                .map_err(|e| ImageError::Database(format!("Failed to insert incorporate lock: {}", e)))?;
+        }
+        tx.commit()
+            .map_err(|e| ImageError::Database(format!("Failed to commit incorporate lock: {}", e)))?
+            ;
+        Ok(())
     }
     
     /// Get a manifest from the catalog

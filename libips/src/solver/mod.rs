@@ -17,11 +17,11 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-
+use std::fmt::Display;
 use miette::Diagnostic;
 // Begin resolvo wiring imports (names discovered by compiler)
 // We start broad and refine with compiler guidance.
-use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, SolvableId, Solver as RSolver, SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId};
+use resolvo::{self, Candidates, Condition, ConditionId, ConditionalRequirement, Dependencies as RDependencies, DependencyProvider, HintDependenciesAvailable, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, SolvableId, Solver as RSolver, SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId};
 use thiserror::Error;
 
 use crate::actions::Manifest;
@@ -138,6 +138,14 @@ impl<'a> Interner for IpsProvider<'a> {
         fmri.to_string()
     }
 
+    fn display_solvable_name(&self, solvable: SolvableId) -> impl Display + '_ {
+        todo!()
+    }
+
+    fn display_merged_solvables(&self, solvables: &[SolvableId]) -> impl Display + '_ {
+        todo!()
+    }
+
     fn display_name(&self, name: NameId) -> impl std::fmt::Display + '_ {
         self.names.get(name).cloned().unwrap_or_default()
     }
@@ -175,6 +183,10 @@ impl<'a> Interner for IpsProvider<'a> {
             .cloned()
             .unwrap_or_default()
             .into_iter()
+    }
+
+    fn resolve_condition(&self, condition: ConditionId) -> Condition {
+        todo!()
     }
 }
 
@@ -248,11 +260,50 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
 
     async fn get_candidates(&self, name: NameId) -> Option<Candidates> {
         let list = self.cands_by_name.get(&name)?;
+        // Check if an incorporation lock exists for this stem; if so, restrict candidates
+        let stem = self.display_name(name).to_string();
+        if let Ok(Some(locked_ver)) = self.image.get_incorporated_release(&stem) {
+            // Parse the locked version; if parsed, match by release/branch/build and optionally timestamp.
+            let parsed_lock = crate::fmri::Version::parse(&locked_ver).ok();
+            let locked_cands: Vec<SolvableId> = list
+                .iter()
+                .copied()
+                .filter(|sid| {
+                    let fmri = &self.solvables.get(*sid).unwrap().fmri;
+                    if let Some(cv) = fmri.version.as_ref() {
+                        if let Some(lv) = parsed_lock.as_ref() {
+                            // Match release/branch/build exactly; timestamp must match only if lock includes it
+                            if cv.release != lv.release { return false; }
+                            if cv.branch != lv.branch { return false; }
+                            if cv.build != lv.build { return false; }
+                            if lv.timestamp.is_some() {
+                                return cv.timestamp == lv.timestamp;
+                            }
+                            true
+                        } else {
+                            // Fallback: compare stringified version
+                            fmri.version() == locked_ver
+                        }
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            if !locked_cands.is_empty() {
+                return Some(Candidates {
+                    candidates: locked_cands,
+                    favored: None,
+                    locked: None,
+                    hint_dependencies_available: HintDependenciesAvailable::None,
+                    excluded: vec![],
+                });
+            }
+        }
         Some(Candidates {
             candidates: list.clone(),
             favored: None,
             locked: None,
-            hint_dependencies_available: vec![],
+            hint_dependencies_available: HintDependenciesAvailable::None,
             excluded: vec![],
         })
     }
@@ -302,7 +353,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
         };
 
         // Build requirements for "require" deps
-        let mut reqs: Vec<RRequirement> = Vec::new();
+        let mut reqs: Vec<ConditionalRequirement> = Vec::new();
         let parent_branch = fmri
             .version
             .as_ref()
@@ -327,7 +378,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
                     (None, None) => VersionSetKind::Any,
                 };
                 let vs_id = self.version_set_for(child_name_id, vs_kind);
-                reqs.push(RRequirement::from(vs_id));
+                reqs.push(ConditionalRequirement::from(vs_id));
 
                 // Set publisher preferences for the child to parent-first, then image order
                 let order = build_publisher_preference(parent_pub, self.image);
@@ -486,6 +537,7 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     // Track each root's NameId with the originating constraint for diagnostics
     let mut root_names: Vec<(NameId, Constraint)> = Vec::new();
 
+    let mut reqs: Vec<ConditionalRequirement> = Vec::new();
     for c in constraints.iter().cloned() {
         // Intern name
         let name_id = provider.intern_name(&c.stem);
@@ -512,8 +564,9 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
             (None, None) => VersionSetKind::Any,
         };
         let vs_id = provider.version_set_for(name_id, vs_kind);
-        problem.requirements.push(RRequirement::from(vs_id));
+        reqs.push(ConditionalRequirement::from(vs_id));
     }
+    let problem = problem.requirements(reqs);
 
     // Early diagnostic: detect roots with zero candidates before invoking solver
     let mut missing: Vec<String> = Vec::new();
@@ -962,6 +1015,81 @@ mod solver_error_message_tests {
     }
 }
 
+
+#[cfg(test)]
+mod incorporate_lock_tests {
+    use super::*;
+    use crate::fmri::Version;
+    use crate::image::ImageType;
+    use crate::image::catalog::CATALOG_TABLE;
+    use redb::Database;
+    use tempfile::tempdir;
+
+    fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
+        let mut v = Version::new(release);
+        if let Some(b) = branch { v.branch = Some(b.to_string()); }
+        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        v
+    }
+
+    fn mk_fmri(publisher: &str, name: &str, v: Version) -> Fmri { Fmri::with_publisher(publisher, name, Some(v)) }
+
+    fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
+        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
+        let tx = db.begin_write().expect("begin write");
+        {
+            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
+            let key = format!("{}@{}", fmri.stem(), fmri.version());
+            let val = serde_json::to_vec(manifest).expect("serialize manifest");
+            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+        }
+        tx.commit().expect("commit");
+    }
+
+    fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {
+        let td = tempdir().expect("tempdir");
+        let path = td.keep();
+        let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
+        for (name, is_default) in pubs.iter().copied() {
+            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
+                .expect("add publisher");
+        }
+        img
+    }
+
+    #[test]
+    fn incorporate_lock_enforced() {
+        let img = make_image_with_publishers(&[("pubA", true)]);
+        // Two versions of same stem in catalog
+        let v_old = mk_fmri("pubA", "compress/gzip", mk_version("1.0.0", None, Some("20200101T000000Z")));
+        let v_new = mk_fmri("pubA", "compress/gzip", mk_version("2.0.0", None, Some("20200201T000000Z")));
+        write_manifest_to_catalog(&img, &v_old, &Manifest::new());
+        write_manifest_to_catalog(&img, &v_new, &Manifest::new());
+
+        // Add incorporation lock to old version
+        img.add_incorporation_lock("compress/gzip", &v_old.version()).expect("add lock");
+
+        // Resolve without version constraints should pick locked version
+        let c = Constraint { stem: "compress/gzip".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let plan = resolve_install(&img, &[c]).expect("resolve");
+        assert_eq!(plan.add.len(), 1);
+        assert_eq!(plan.add[0].fmri.version(), v_old.version());
+    }
+
+    #[test]
+    fn incorporate_lock_ignored_if_missing() {
+        let img = make_image_with_publishers(&[("pubA", true)]);
+        // Only version 2.0 exists
+        let v_new = mk_fmri("pubA", "compress/gzip", mk_version("2.0.0", None, Some("20200201T000000Z")));
+        write_manifest_to_catalog(&img, &v_new, &Manifest::new());
+        // Add lock to non-existent 1.0.0 -> should be ignored
+        img.add_incorporation_lock("compress/gzip", "1.0.0").expect("add lock");
+        let c = Constraint { stem: "compress/gzip".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let plan = resolve_install(&img, &[c]).expect("resolve");
+        assert_eq!(plan.add.len(), 1);
+        assert_eq!(plan.add[0].fmri.version(), v_new.version());
+    }
+}
 
 #[cfg(test)]
 mod composite_release_tests {

@@ -192,12 +192,17 @@ impl From<redb::CommitError> for RepositoryError {
     }
 }
 
-impl From<bincode::Error> for RepositoryError {
-    fn from(err: bincode::Error) -> Self {
+impl From<bincode::error::DecodeError> for RepositoryError {
+    fn from(err: bincode::error::DecodeError) -> Self {
         RepositoryError::Other(format!("Serialization error: {}", err))
     }
 }
 
+impl From<bincode::error::EncodeError> for RepositoryError {
+    fn from(err: bincode::error::EncodeError) -> Self {
+        RepositoryError::Other(format!("Serialization error: {}", err))
+    }
+}
 pub mod catalog;
 mod file_backend;
 mod obsoleted;
