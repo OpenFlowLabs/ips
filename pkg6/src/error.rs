@@ -1,5 +1,7 @@
 use libips::fmri::FmriError;
 use libips::image::ImageError;
+use libips::solver::SolverError;
+use libips::actions::executors::InstallerError as LibInstallerError;
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -36,6 +38,20 @@ pub enum Pkg6Error {
         help("Check the image configuration and try again")
     )]
     ImageError(#[from] ImageError),
+
+    #[error("Solver error: {0}")]
+    #[diagnostic(
+        code(pkg6::solver_error),
+        help("Resolve constraints or check catalogs; try 'pkg6 refresh' then retry.")
+    )]
+    Solver(#[from] SolverError),
+
+    #[error("Installer error: {0}")]
+    #[diagnostic(
+        code(pkg6::installer_error),
+        help("See details; you can retry with --dry-run for diagnostics")
+    )]
+    Installer(#[from] LibInstallerError),
 
     #[error("logging environment setup error: {0}")]
     #[diagnostic(

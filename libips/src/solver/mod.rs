@@ -16,13 +16,14 @@
 //! solver, and assembles an InstallPlan from the chosen solvables.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // Begin resolvo wiring imports (names discovered by compiler)
 // We start broad and refine with compiler guidance.
-use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, Solver as RSolver, SolverCache, SolvableId, StringId, VersionSetId, VersionSetUnionId};
+use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, Solver as RSolver, SolverCache, SolvableId, StringId, VersionSetId, VersionSetUnionId, UnsolvableOrCancelled};
 
 use miette::Diagnostic;
+use redb::ReadableTable;
 use thiserror::Error;
 
 use crate::actions::Manifest;
@@ -181,12 +182,29 @@ impl<'a> Interner for IpsProvider<'a> {
 
 // Helper to evaluate if a candidate FMRI matches a VersionSetKind constraint
 fn fmri_matches_version_set(fmri: &Fmri, kind: &VersionSetKind) -> bool {
+    // Allow composite releases like "20,5.11": a requirement of single token (e.g., "5.11")
+    // matches any candidate whose comma-separated release segments contain that token.
+    // Multi-token requirements (contain a comma) require exact equality.
+    fn release_satisfies(req: &str, cand: &str) -> bool {
+        if req == cand {
+            return true;
+        }
+        if req.contains(',') {
+            // Multi-token requirement must match exactly
+            return false;
+        }
+        // Single token requirement: match if present among candidate segments
+        cand.split(',').any(|seg| seg.trim() == req)
+    }
     match kind {
         VersionSetKind::Any => true,
         VersionSetKind::ReleaseEq(req_rel) => fmri
             .version
             .as_ref()
-            .map(|v| &v.release == req_rel)
+            .map(|v| {
+                release_satisfies(req_rel, &v.release)
+                    || v.branch.as_deref() == Some(req_rel)
+            })
             .unwrap_or(false),
         VersionSetKind::BranchEq(req_branch) => fmri
             .version
@@ -194,17 +212,14 @@ fn fmri_matches_version_set(fmri: &Fmri, kind: &VersionSetKind) -> bool {
             .and_then(|v| v.branch.as_ref())
             .map(|b| b == req_branch)
             .unwrap_or(false),
-        VersionSetKind::ReleaseAndBranch { release, branch } => fmri
-            .version
-            .as_ref()
-            .map(|v| &v.release == release)
-            .unwrap_or(false)
-            && fmri
-                .version
-                .as_ref()
-                .and_then(|v| v.branch.as_ref())
-                .map(|b| b == branch)
-                .unwrap_or(false),
+        VersionSetKind::ReleaseAndBranch { release, branch } => {
+            let (mut ok_rel, mut ok_branch) = (false, false);
+            if let Some(v) = fmri.version.as_ref() {
+                ok_rel = release_satisfies(release, &v.release) || v.branch.as_deref() == Some(release);
+                ok_branch = v.branch.as_ref().map(|b| b == branch).unwrap_or(false);
+            }
+            ok_rel && ok_branch
+        }
     }
 }
 
@@ -473,9 +488,13 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
         .map(|p| p.name.clone())
         .unwrap_or_else(|_| String::new());
 
+    // Track each root's NameId with the originating constraint for diagnostics
+    let mut root_names: Vec<(NameId, Constraint)> = Vec::new();
+
     for c in constraints.iter().cloned() {
         // Intern name
         let name_id = provider.intern_name(&c.stem);
+        root_names.push((name_id, c.clone()));
 
         // Store publisher preferences for this root
         let mut prefs = c.preferred_publishers.clone();
@@ -501,7 +520,30 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
         problem.requirements.push(RRequirement::from(vs_id));
     }
 
-    // Before moving provider into the solver, capture a map from solvable id to fmri
+    // Early diagnostic: detect roots with zero candidates before invoking solver
+    let mut missing: Vec<String> = Vec::new();
+    for (name_id, c) in &root_names {
+        let has = provider
+            .cands_by_name
+            .get(name_id)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if !has {
+            let mut req = c.stem.clone();
+            if let Some(v) = &c.version_req { req.push('@'); req.push_str(v); }
+            missing.push(req);
+        }
+    }
+    if !missing.is_empty() {
+        let pubs: Vec<String> = image.publishers().iter().map(|p| p.name.clone()).collect();
+        return Err(SolverError::new(format!(
+            "No candidates found for requested package(s): {}.\nChecked publishers: {}.\nRun 'pkg6 refresh' to update catalogs or verify the package names.",
+            missing.join(", "),
+            pubs.join(", ")
+        )));
+    }
+
+    // Before moving provider into the solver, capture useful snapshots for diagnostics
     let mut sid_to_fmri: HashMap<SolvableId, Fmri> = HashMap::new();
     for ids in provider.cands_by_name.values() {
         for sid in ids {
@@ -509,22 +551,57 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
             sid_to_fmri.insert(*sid, fmri);
         }
     }
+    // Snapshot: NameId -> name string
+    let mut name_to_string: HashMap<NameId, String> = HashMap::new();
+    for (name_id, _cands) in provider.cands_by_name.iter() {
+        name_to_string.insert(*name_id, provider.display_name(*name_id).to_string());
+    }
+    // Reverse: stem string -> NameId
+    let mut stem_to_nameid: HashMap<String, NameId> = HashMap::new();
+    for (nid, nstr) in name_to_string.iter() {
+        stem_to_nameid.insert(nstr.clone(), *nid);
+    }
+    // Snapshot: NameId -> candidate FMRIs
+    let mut name_to_fmris: HashMap<NameId, Vec<Fmri>> = HashMap::new();
+    for (name_id, sids) in provider.cands_by_name.iter() {
+        let mut v: Vec<Fmri> = Vec::new();
+        for sid in sids {
+            if let Some(pc) = provider.solvables.get(*sid) {
+                v.push(pc.fmri.clone());
+            }
+        }
+        name_to_fmris.insert(*name_id, v);
+    }
 
     // Run the solver
     let mut solver = RSolver::new(provider);
-    let solution_ids = solver
-        .solve(problem)
-        .map_err(|e| SolverError::new(format!("dependency solving failed: {e:?}")))?;
+    let solution_ids = solver.solve(problem).map_err(|conflict_or_cancelled| {
+        match conflict_or_cancelled {
+            UnsolvableOrCancelled::Unsolvable(u) => {
+                SolverError::new(u.display_user_friendly(&solver).to_string())
+            }
+            UnsolvableOrCancelled::Cancelled(_) => {
+                SolverError::new("dependency resolution cancelled".to_string())
+            }
+        }
+    })?;
 
     // Build plan from solution
     let image_ref = image;
     let mut plan = InstallPlan::default();
     for sid in solution_ids {
         if let Some(fmri) = sid_to_fmri.get(&sid).cloned() {
-            let manifest = image_ref
-                .get_manifest_from_catalog(&fmri)
-                .map_err(|e| SolverError::new(format!("failed to load manifest for {}: {e}", fmri)))?
-                .ok_or_else(|| SolverError::new(format!("manifest not found in catalog for {}", fmri)))?;
+            // Fetch full manifest from repository; fallback to catalog if repo fetch fails (useful for tests/offline)
+            let manifest = match image_ref.get_manifest_from_repository(&fmri) {
+                Ok(m) => m,
+                Err(repo_err) => {
+                    // Try catalog as a fallback
+                    match image_ref.get_manifest_from_catalog(&fmri) {
+                        Ok(Some(m)) => m,
+                        _ => return Err(SolverError::new(format!("failed to obtain manifest for {}: {}", fmri, repo_err))),
+                    }
+                }
+            };
             plan.reasons.push(format!("selected {} via solver", fmri));
             plan.add.push(ResolvedPkg { fmri, manifest });
         }
@@ -684,6 +761,52 @@ mod solver_integration_tests {
     }
 
     #[test]
+    fn resolve_uses_repo_manifest_after_solving() {
+        use crate::image::ImageType;
+        use crate::repository::{FileBackend, WritableRepository, RepositoryVersion};
+        use std::fs;
+
+        // Create a temp image
+        let td_img = tempfile::tempdir().expect("tempdir img");
+        let img_path = td_img.path().to_path_buf();
+        let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
+
+        // Create a temp file-based repository and add publisher
+        let td_repo = tempfile::tempdir().expect("tempdir repo");
+        let repo_path = td_repo.path().to_path_buf();
+        let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
+        repo.add_publisher("pubA").expect("add publisher");
+
+        // Configure image publisher to point to file:// repo
+        let origin = format!("file://{}", repo_path.display());
+        img.add_publisher("pubA", &origin, vec![], true).expect("add publisher to image");
+
+        // Define FMRI and limited manifest in catalog (deps only)
+        let fmri = mk_fmri("pubA", "pkg/alpha", mk_version("1.0", None, Some("20200401T000000Z")));
+        let limited = mk_manifest(&fmri, &[]); // no files/dirs
+        write_manifest_to_catalog(&img, &fmri, &limited);
+
+        // Write full manifest into repository at expected path
+        let repo_manifest_path = FileBackend::construct_manifest_path(&repo_path, "pubA", fmri.stem(), &fmri.version());
+        if let Some(parent) = repo_manifest_path.parent() { fs::create_dir_all(parent).unwrap(); }
+        let full_manifest_text = format!(
+            "set name=pkg.fmri value={}\n\
+             dir path=opt/test owner=root group=bin mode=0755\n\
+             file path=opt/test/hello owner=root group=bin mode=0644\n",
+            fmri
+        );
+        fs::write(&repo_manifest_path, full_manifest_text).expect("write manifest to repo");
+
+        // Resolve and ensure we got the repo (full) manifest with file/dir actions
+        let c = Constraint { stem: "pkg/alpha".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let plan = resolve_install(&img, &[c]).expect("resolve");
+        assert_eq!(plan.add.len(), 1);
+        let man = &plan.add[0].manifest;
+        assert!(man.directories.len() >= 1, "expected directories from repo manifest");
+        assert!(man.files.len() >= 1, "expected files from repo manifest");
+    }
+
+    #[test]
     fn dependency_sticks_to_parent_branch() {
         let img = make_image_with_publishers(&[("pubA", true)]);
         // Parent pkg on branch 1 with a require on dep@5.11
@@ -748,5 +871,190 @@ mod solver_integration_tests {
         let v = chosen.version.as_ref().unwrap();
         assert_eq!(v.release, "1.0");
         assert_eq!(v.timestamp.as_deref(), Some("20200201T000000Z"));
+    }
+}
+
+
+#[cfg(test)]
+mod no_candidate_error_tests {
+    use super::*;
+    use crate::image::ImageType;
+
+    #[test]
+    fn error_message_includes_no_candidates() {
+        // Create a temporary image with a publisher but no packages
+        let td = tempfile::tempdir().expect("tempdir");
+        let img_path = td.path().to_path_buf();
+        let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
+        img.add_publisher("pubA", "https://example.com/pubA", vec![], true).expect("add publisher");
+
+        // Request a non-existent package so the root has zero candidates
+        let c = Constraint { stem: "pkg/does-not-exist".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let err = resolve_install(&img, &[c]).err().expect("expected error");
+        let msg = err.message;
+        assert!(msg.contains("No candidates") || msg.contains("no candidates"), "unexpected message: {}", msg);
+    }
+}
+
+
+#[cfg(test)]
+mod solver_error_message_tests {
+    use super::*;
+    use crate::actions::{Dependency, Manifest};
+    use crate::fmri::{Fmri, Version};
+    use crate::image::ImageType;
+    use redb::Database;
+    use crate::image::catalog::CATALOG_TABLE;
+
+    fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
+        let mut v = Version::new(release);
+        if let Some(b) = branch { v.branch = Some(b.to_string()); }
+        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        v
+    }
+
+    fn mk_fmri(publisher: &str, name: &str, v: Version) -> Fmri {
+        Fmri::with_publisher(publisher, name, Some(v))
+    }
+
+    fn mk_manifest_with_dep(parent: &Fmri, dep: &Fmri) -> Manifest {
+        let mut m = Manifest::new();
+        let mut attr = crate::actions::Attr::default();
+        attr.key = "pkg.fmri".to_string();
+        attr.values = vec![parent.to_string()];
+        m.attributes.push(attr);
+        let mut d = Dependency::default();
+        d.fmri = Some(dep.clone());
+        d.dependency_type = "require".to_string();
+        m.dependencies.push(d);
+        m
+    }
+
+    fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
+        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
+        let tx = db.begin_write().expect("begin write");
+        {
+            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
+            let key = format!("{}@{}", fmri.stem(), fmri.version());
+            let val = serde_json::to_vec(manifest).expect("serialize manifest");
+            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+        }
+        tx.commit().expect("commit");
+    }
+
+    #[test]
+    fn unsatisfied_dependency_message_no_clause_ids() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let img_path = td.path().to_path_buf();
+        let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
+        img.add_publisher("pubA", "https://example.com/pubA", vec![], true).expect("add publisher");
+
+        // Parent requires child@2.0 but only child@1.0 exists in catalog (unsatisfiable)
+        let parent = mk_fmri("pubA", "pkg/root", mk_version("1.0", None, Some("20200101T000000Z")));
+        let child_req = Fmri::with_version("pkg/child", Version::new("2.0"));
+        let parent_manifest = mk_manifest_with_dep(&parent, &child_req);
+        write_manifest_to_catalog(&img, &parent, &parent_manifest);
+        // Add a child candidate with non-matching release
+        let child_present = mk_fmri("pubA", "pkg/child", mk_version("1.0", None, Some("20200101T000000Z")));
+        write_manifest_to_catalog(&img, &child_present, &Manifest::new());
+
+        let c = Constraint { stem: "pkg/root".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let err = resolve_install(&img, &[c]).err().expect("expected solver error");
+        let msg = err.message;
+        assert!(!msg.contains("ClauseId("), "message should not include ClauseId identifiers: {}", msg);
+        assert!(msg.to_lowercase().contains("rejected because"), "expected rejection explanation in message: {}", msg);
+        assert!(msg.to_lowercase().contains("unsatisfied dependency"), "expected unsatisfied dependency in message: {}", msg);
+    }
+}
+
+
+#[cfg(test)]
+mod composite_release_tests {
+    use super::*;
+    use crate::actions::{Dependency, Manifest};
+    use crate::fmri::{Fmri, Version};
+    use crate::image::catalog::CATALOG_TABLE;
+    use crate::image::ImageType;
+    use redb::Database;
+
+    fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
+        let mut v = Version::new(release);
+        if let Some(b) = branch { v.branch = Some(b.to_string()); }
+        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        v
+    }
+
+    fn mk_fmri(publisher: &str, name: &str, v: Version) -> Fmri {
+        Fmri::with_publisher(publisher, name, Some(v))
+    }
+
+    fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
+        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
+        let tx = db.begin_write().expect("begin write");
+        {
+            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
+            let key = format!("{}@{}", fmri.stem(), fmri.version());
+            let val = serde_json::to_vec(manifest).expect("serialize manifest");
+            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+        }
+        tx.commit().expect("commit");
+    }
+
+    fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {
+        let td = tempfile::tempdir().expect("tempdir");
+        // Persist the directory for the duration of the test
+        let path = td.keep();
+        let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
+        for (name, is_default) in pubs.iter().copied() {
+            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
+                .expect("add publisher");
+        }
+        img
+    }
+
+    #[test]
+    fn require_5_11_matches_candidate_20_5_11() {
+        let img = make_image_with_publishers(&[("pubA", true)]);
+
+        // Parent requires child@5.11
+        let parent = mk_fmri("pubA", "pkg/root", mk_version("1.0", None, Some("20200101T000000Z")));
+        let child_req = Fmri::with_version("pkg/child", Version::new("5.11"));
+        let mut man = Manifest::new();
+        // add pkg.fmri attribute
+        let mut attr = crate::actions::Attr::default();
+        attr.key = "pkg.fmri".to_string();
+        attr.values = vec![parent.to_string()];
+        man.attributes.push(attr);
+        // add require dep
+        let mut d = Dependency::default();
+        d.fmri = Some(child_req);
+        d.dependency_type = "require".to_string();
+        man.dependencies.push(d);
+        write_manifest_to_catalog(&img, &parent, &man);
+
+        // Only child candidate is release "20,5.11"
+        let child = mk_fmri("pubA", "pkg/child", mk_version("20,5.11", None, Some("20200401T000000Z")));
+        write_manifest_to_catalog(&img, &child, &Manifest::new());
+
+        let c = Constraint { stem: "pkg/root".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let plan = resolve_install(&img, &[c]).expect("should resolve by matching composite release");
+        let dep_pkg = plan.add.iter().find(|p| p.fmri.stem() == "pkg/child").expect("child present");
+        let v = dep_pkg.fmri.version.as_ref().unwrap();
+        assert_eq!(v.release, "20");
+        assert_eq!(v.branch.as_deref(), Some("5.11"));
+    }
+
+    #[test]
+    fn require_20_5_11_does_not_match_candidate_5_11() {
+        let img = make_image_with_publishers(&[("pubA", true)]);
+
+        // Only candidate for stem is 5.11
+        let only = mk_fmri("pubA", "pkg/alpha", mk_version("5.11", None, Some("20200101T000000Z")));
+        write_manifest_to_catalog(&img, &only, &Manifest::new());
+
+        // Top-level constraint requires composite 20,5.11
+        let c = Constraint { stem: "pkg/alpha".to_string(), version_req: Some("20,5.11".to_string()), preferred_publishers: vec![], branch: None };
+        let err = resolve_install(&img, &[c]).err().expect("expected unsatisfiable");
+        assert!(err.message.contains("No candidates") || err.message.contains("dependency solving failed"));
     }
 }

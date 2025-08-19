@@ -535,7 +535,7 @@ impl ImageCatalog {
         // Parse and add actions from the version entry
         if let Some(actions) = &version_entry.actions {
             for action_str in actions {
-                // Parse each action string to extract attributes
+                // Parse each action string to extract attributes we care about in the catalog
                 if action_str.starts_with("set ") {
                     // Format is typically "set name=pkg.key value=value"
                     if let Some(name_part) = action_str.split_whitespace().nth(1) {
@@ -566,6 +566,41 @@ impl ImageCatalog {
                                 }
                             }
                         }
+                    }
+                } else if action_str.starts_with("depend ") {
+                    // Example: "depend fmri=desktop/mate/caja type=require"
+                    let rest = &action_str[7..]; // strip leading "depend "
+                    let mut dep_type: String = String::new();
+                    let mut dep_predicate: Option<crate::fmri::Fmri> = None;
+                    let mut dep_fmris: Vec<crate::fmri::Fmri> = Vec::new();
+                    let mut root_image: String = String::new();
+
+                    for tok in rest.split_whitespace() {
+                        if let Some((k, v)) = tok.split_once('=') {
+                            match k {
+                                "type" => dep_type = v.to_string(),
+                                "predicate" => {
+                                    if let Ok(f) = crate::fmri::Fmri::parse(v) { dep_predicate = Some(f); }
+                                }
+                                "fmri" => {
+                                    if let Ok(f) = crate::fmri::Fmri::parse(v) { dep_fmris.push(f); }
+                                }
+                                "root-image" => {
+                                    root_image = v.to_string();
+                                }
+                                _ => { /* ignore other props for catalog */ }
+                            }
+                        }
+                    }
+
+                    // For each fmri property, add a Dependency entry
+                    for f in dep_fmris {
+                        let mut d = crate::actions::Dependency::default();
+                        d.fmri = Some(f);
+                        d.dependency_type = dep_type.clone();
+                        d.predicate = dep_predicate.clone();
+                        d.root_image = root_image.clone();
+                        manifest.dependencies.push(d);
                     }
                 }
             }
@@ -612,7 +647,6 @@ impl ImageCatalog {
     
     /// Check if a package is obsolete
     fn is_package_obsolete(&self, manifest: &Manifest) -> bool {
-        // Check for the pkg.obsolete attribute
         manifest.attributes.iter().any(|attr| {
             attr.key == "pkg.obsolete" && attr.values.get(0).map_or(false, |v| v == "true")
         })

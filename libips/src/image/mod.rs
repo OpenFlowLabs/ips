@@ -10,7 +10,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::repository::{ReadableRepository, RepositoryError, RestBackend};
+use crate::repository::{ReadableRepository, RepositoryError, RestBackend, FileBackend};
 
 // Export the catalog module
 pub mod catalog;
@@ -18,6 +18,8 @@ use catalog::{ImageCatalog, PackageInfo};
 
 // Export the installed packages module
 pub mod installed;
+// Export the action plan module
+pub mod action_plan;
 use installed::{InstalledPackageInfo, InstalledPackages};
 
 // Include tests
@@ -374,6 +376,75 @@ impl Image {
         })
     }
     
+    /// Save a manifest into the metadata manifests directory for this image.
+    ///
+    /// The original, unprocessed manifest text is downloaded from the repository
+    /// and stored under a flattened path:
+    ///   manifests/<publisher>/<encoded_stem>@<encoded_version>.p5m
+    /// Missing publisher will fall back to the image default publisher, then "unknown".
+    pub fn save_manifest(&self, fmri: &crate::fmri::Fmri, _manifest: &crate::actions::Manifest) -> Result<std::path::PathBuf> {
+        // Determine publisher name
+        let pub_name = if let Some(p) = &fmri.publisher {
+            p.clone()
+        } else if let Ok(def) = self.default_publisher() {
+            def.name.clone()
+        } else {
+            "unknown".to_string()
+        };
+
+        // Build directory path manifests/<publisher> (flattened, no stem subfolders)
+        let dir_path = self.manifest_dir().join(&pub_name);
+        std::fs::create_dir_all(&dir_path)?;
+
+        // Encode helpers for filename parts
+        fn url_encode(s: &str) -> String {
+            let mut out = String::new();
+            for b in s.bytes() {
+                match b {
+                    b'-' | b'_' | b'.' | b'~' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => out.push(b as char),
+                    b' ' => out.push('+'),
+                    _ => {
+                        out.push('%');
+                        out.push_str(&format!("{:02X}", b));
+                    }
+                }
+            }
+            out
+        }
+
+        let version = fmri.version();
+        let encoded_stem = url_encode(fmri.stem());
+        let encoded_version = url_encode(&version);
+        let file_path = dir_path.join(format!("{}@{}.p5m", encoded_stem, encoded_version));
+
+        // Fetch raw manifest text from repository
+        let publisher_name = pub_name.clone();
+        let raw_text = {
+            // Look up publisher configuration
+            let publisher = self.get_publisher(&publisher_name)?;
+            let origin = &publisher.origin;
+            if origin.starts_with("file://") {
+                let path_str = origin.trim_start_matches("file://");
+                let path = std::path::PathBuf::from(path_str);
+                let repo = crate::repository::FileBackend::open(&path)?;
+                repo.fetch_manifest_text(&publisher_name, fmri)?
+            } else {
+                let mut repo = crate::repository::RestBackend::open(origin)?;
+                // Set cache path for completeness
+                let publisher_catalog_dir = self.catalog_dir().join(&publisher.name);
+                repo.set_local_cache_path(&publisher_catalog_dir)?;
+                repo.fetch_manifest_text(&publisher_name, fmri)?
+            }
+        };
+
+        // Write atomically
+        let tmp_path = file_path.with_extension("p5m.tmp");
+        std::fs::write(&tmp_path, raw_text.as_bytes())?;
+        std::fs::rename(&tmp_path, &file_path)?;
+
+        Ok(file_path)
+    }
+    
     /// Initialize the catalog database
     pub fn init_catalog_db(&self) -> Result<()> {
         let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
@@ -491,6 +562,45 @@ impl Image {
         catalog.get_manifest(fmri).map_err(|e| {
             ImageError::Database(format!("Failed to get manifest from catalog: {}", e))
         })
+    }
+    
+    /// Fetch a full manifest for the given FMRI directly from its repository origin.
+    ///
+    /// This bypasses the local catalog database and retrieves the full manifest from
+    /// the configured publisher origin (REST for http/https origins; File backend for
+    /// file:// origins). A versioned FMRI is required.
+    pub fn get_manifest_from_repository(&self, fmri: &crate::fmri::Fmri) -> Result<crate::actions::Manifest> {
+        // Determine publisher: use FMRI's publisher if present, otherwise default publisher
+        let publisher_name = if let Some(p) = &fmri.publisher {
+            p.clone()
+        } else {
+            self.default_publisher()?.name.clone()
+        };
+        
+        // Look up publisher configuration
+        let publisher = self.get_publisher(&publisher_name)?;
+        let origin = &publisher.origin;
+        
+        // Require a concrete version in the FMRI
+        if fmri.version().is_empty() {
+            return Err(ImageError::Repository(RepositoryError::Other(
+                "FMRI must include a version to fetch manifest".to_string(),
+            )));
+        }
+        
+        // Choose backend based on origin scheme
+        if origin.starts_with("file://") {
+            let path_str = origin.trim_start_matches("file://");
+            let path = PathBuf::from(path_str);
+            let mut repo = FileBackend::open(&path)?;
+            repo.fetch_manifest(&publisher_name, fmri).map_err(Into::into)
+        } else {
+            let mut repo = RestBackend::open(origin)?;
+            // Optionally set a per-publisher cache directory (used by other REST ops)
+            let publisher_catalog_dir = self.catalog_dir().join(&publisher.name);
+            repo.set_local_cache_path(&publisher_catalog_dir)?;
+            repo.fetch_manifest(&publisher_name, fmri).map_err(Into::into)
+        }
     }
     
     /// Download catalog for a specific publisher

@@ -613,12 +613,31 @@ impl ReadableRepository for RestBackend {
         publisher: &str,
         fmri: &crate::fmri::Fmri,
     ) -> Result<crate::actions::Manifest> {
+        let text = self.fetch_manifest_text(publisher, fmri)?;
+        crate::actions::Manifest::parse_string(text).map_err(RepositoryError::from)
+    }
+
+    fn search(
+        &self,
+        _query: &str,
+        _publisher: Option<&str>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<PackageInfo>> {
+        todo!()
+    }
+}
+
+impl RestBackend {
+    pub fn fetch_manifest_text(
+        &mut self,
+        publisher: &str,
+        fmri: &crate::fmri::Fmri,
+    ) -> Result<String> {
         // Require versioned FMRI
         let version = fmri.version();
         if version.is_empty() {
             return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
         }
-
         // URL-encode helper
         let url_encode = |s: &str| -> String {
             let mut out = String::new();
@@ -634,11 +653,9 @@ impl ReadableRepository for RestBackend {
             }
             out
         };
-
         let encoded_fmri = url_encode(&format!("{}@{}", fmri.stem(), version));
         let encoded_stem = url_encode(fmri.stem());
         let encoded_version = url_encode(&version);
-
         let candidates = vec![
             format!("{}/manifest/0/{}", self.uri, encoded_fmri),
             format!("{}/publisher/{}/manifest/0/{}", self.uri, publisher, encoded_fmri),
@@ -646,13 +663,12 @@ impl ReadableRepository for RestBackend {
             format!("{}/pkg/{}/{}", self.uri, encoded_stem, encoded_version),
             format!("{}/publisher/{}/pkg/{}/{}", self.uri, publisher, encoded_stem, encoded_version),
         ];
-
         let mut last_err: Option<String> = None;
         for url in candidates {
             match self.client.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
                     let text = resp.text().map_err(|e| RepositoryError::Other(format!("Failed to read manifest body: {}", e)))?;
-                    return crate::actions::Manifest::parse_string(text).map_err(RepositoryError::from);
+                    return Ok(text);
                 }
                 Ok(resp) => {
                     last_err = Some(format!("HTTP {} for {}", resp.status(), url));
@@ -662,21 +678,8 @@ impl ReadableRepository for RestBackend {
                 }
             }
         }
-
         Err(RepositoryError::NotFound(last_err.unwrap_or_else(|| "manifest not found".to_string())))
     }
-
-    fn search(
-        &self,
-        _query: &str,
-        _publisher: Option<&str>,
-        _limit: Option<usize>,
-    ) -> Result<Vec<PackageInfo>> {
-        todo!()
-    }
-}
-
-impl RestBackend {
     /// Sets the local path where catalog files will be cached.
     ///
     /// This method creates the directory if it doesn't exist. The local cache path

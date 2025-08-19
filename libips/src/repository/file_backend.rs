@@ -1660,6 +1660,36 @@ impl WritableRepository for FileBackend {
 }
 
 impl FileBackend {
+    pub fn fetch_manifest_text(&self, publisher: &str, fmri: &Fmri) -> Result<String> {
+        // Require a concrete version
+        let version = fmri.version();
+        if version.is_empty() {
+            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+        }
+        // Preferred path: publisher-scoped manifest path
+        let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
+        if path.exists() {
+            return std::fs::read_to_string(&path).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+        }
+        // Fallbacks: global pkg layout without publisher
+        let encoded_stem = Self::url_encode(fmri.stem());
+        let encoded_version = Self::url_encode(&version);
+        let alt1 = self.path.join("pkg").join(&encoded_stem).join(&encoded_version);
+        if alt1.exists() {
+            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+        }
+        let alt2 = self
+            .path
+            .join("publisher")
+            .join(publisher)
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
+        if alt2.exists() {
+            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+        }
+        Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
+    }
     /// Save the legacy pkg5.repository INI file for backward compatibility
     pub fn save_legacy_config(&self) -> Result<()> {
         let legacy_config_path = self.path.join("pkg5.repository");

@@ -568,8 +568,97 @@ fn main() -> Result<()> {
             debug!("Show licenses: {}", licenses);
             debug!("No index update: {}", no_index);
             debug!("No refresh: {}", no_refresh);
-            
-            // Stub implementation
+
+            // Determine the image path using the -R argument or default rules
+            let image_path = determine_image_path(cli.image_path.clone());
+            if !quiet { println!("Using image at: {}", image_path.display()); }
+
+            // Load the image
+            let image = match libips::image::Image::load(&image_path) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("Failed to load image from {}: {}", image_path.display(), e);
+                    return Err(e.into());
+                }
+            };
+
+            // Note: Install now relies on existing redb databases and does not perform
+            // a full import or refresh automatically. Run `pkg6 refresh` explicitly
+            // to update catalogs before installing if needed.
+            if !*quiet {
+                eprintln!("Install uses existing catalogs in redb; run 'pkg6 refresh' to update catalogs if needed.");
+            }
+
+            // Build solver constraints from the provided pkg specs
+            if pkg_fmri_patterns.is_empty() {
+                if !quiet { eprintln!("No packages specified to install"); }
+                return Err(Pkg6Error::Other("no packages specified".to_string()));
+            }
+            let mut constraints: Vec<libips::solver::Constraint> = Vec::new();
+            for spec in pkg_fmri_patterns {
+                let mut preferred_publishers: Vec<String> = Vec::new();
+                let mut name_part = spec.as_str();
+                // parse optional publisher prefix pkg://<pub>/
+                if let Some(rest) = name_part.strip_prefix("pkg://") {
+                    if let Some((pubr, rest2)) = rest.split_once('/') {
+                        preferred_publishers.push(pubr.to_string());
+                        name_part = rest2;
+                    }
+                }
+                // split version requirement after '@'
+                let (stem, version_req) = if let Some((s, v)) = name_part.split_once('@') {
+                    (s.to_string(), Some(v.to_string()))
+                } else {
+                    (name_part.to_string(), None)
+                };
+                constraints.push(libips::solver::Constraint { stem, version_req, preferred_publishers, branch: None });
+            }
+
+            // Resolve install plan
+            let plan = match libips::solver::resolve_install(&image, &constraints) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!("Failed to resolve install plan: {}", e);
+                    return Err(e.into());
+                }
+            };
+
+            if !quiet { println!("Resolved {} package(s) to install", plan.add.len()); }
+
+            // Build and apply action plan
+            let ap = libips::image::action_plan::ActionPlan::from_install_plan(&plan);
+            let apply_opts = libips::actions::executors::ApplyOptions { dry_run: *dry_run };
+            if !quiet { println!("Applying action plan (dry-run: {})", dry_run); }
+            ap.apply(image.path(), &apply_opts)?;
+
+            // Update installed DB after success (skip on dry-run)
+            if !*dry_run {
+                for rp in &plan.add {
+                    image.install_package(&rp.fmri, &rp.manifest)?;
+                    // Save full manifest into manifests directory for reproducibility
+                    match image.save_manifest(&rp.fmri, &rp.manifest) {
+                        Ok(path) => {
+                            if *verbose && !*quiet {
+                                eprintln!("Saved manifest for {} to {}", rp.fmri, path.display());
+                            }
+                        }
+                        Err(e) => {
+                            // Non-fatal: log error but continue install
+                            error!("Failed to save manifest for {}: {}", rp.fmri, e);
+                        }
+                    }
+                }
+                if !quiet { println!("Installed {} package(s)", plan.add.len()); }
+
+                // Dump installed database to make changes visible
+                let installed = libips::image::installed::InstalledPackages::new(image.installed_db_path());
+                if let Err(e) = installed.dump_installed_table() {
+                    error!("Failed to dump installed database: {}", e);
+                }
+            } else if !quiet {
+                println!("Dry-run completed: {} package(s) would be installed", plan.add.len());
+            }
+
             info!("Installation completed successfully");
             Ok(())
         },
