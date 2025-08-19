@@ -292,6 +292,11 @@ impl Image {
     pub fn catalog_db_path(&self) -> PathBuf {
         self.metadata_dir().join("catalog.redb")
     }
+    
+    /// Returns the path to the obsoleted packages database (separate DB)
+    pub fn obsoleted_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("obsoleted.redb")
+    }
 
     /// Creates the metadata directory if it doesn't exist
     pub fn create_metadata_dir(&self) -> Result<()> {
@@ -479,7 +484,7 @@ impl Image {
     
     /// Initialize the catalog database
     pub fn init_catalog_db(&self) -> Result<()> {
-        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path(), self.obsoleted_db_path());
         catalog.init_db().map_err(|e| {
             ImageError::Database(format!("Failed to initialize catalog database: {}", e))
         })
@@ -574,7 +579,7 @@ impl Image {
             .collect();
         
         // Create the catalog and build it
-        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path(), self.obsoleted_db_path());
         catalog.build_catalog(&publisher_names).map_err(|e| {
             ImageError::Database(format!("Failed to build catalog: {}", e))
         })
@@ -582,7 +587,7 @@ impl Image {
     
     /// Query the catalog for packages matching a pattern
     pub fn query_catalog(&self, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
-        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path(), self.obsoleted_db_path());
         catalog.query_packages(pattern).map_err(|e| {
             ImageError::Database(format!("Failed to query catalog: {}", e))
         })
@@ -631,7 +636,7 @@ impl Image {
     
     /// Get a manifest from the catalog
     pub fn get_manifest_from_catalog(&self, fmri: &crate::fmri::Fmri) -> Result<Option<crate::actions::Manifest>> {
-        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path());
+        let catalog = ImageCatalog::new(self.catalog_dir(), self.catalog_db_path(), self.obsoleted_db_path());
         catalog.get_manifest(fmri).map_err(|e| {
             ImageError::Database(format!("Failed to get manifest from catalog: {}", e))
         })

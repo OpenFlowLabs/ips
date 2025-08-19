@@ -65,23 +65,16 @@ fi
 # 3) Show publishers for confirmation (table output)
 "$PKG6_BIN" -R "$IMG_PATH" publisher -o table
 
-# 4) Dry-run install
-# clap short flag for --dry-run is -d in this CLI
-"$PKG6_BIN" -R "$IMG_PATH" install -d "pkg://$PUBLISHER/$PKG_NAME" || {
-  echo "Dry-run install failed" >&2
-  exit 1
-}
-
-# 5) Real install
-"$PKG6_BIN" -R "$IMG_PATH" install "pkg://$PUBLISHER/$PKG_NAME" || {
+# 4) Real install
+RUST_LOG=trace "$PKG6_BIN" -R "$IMG_PATH" install "pkg://$PUBLISHER/$PKG_NAME" || {
   echo "Real install failed" >&2
   exit 1
 }
 
-# 6) Show installed packages
+# 5) Show installed packages
 "$PKG6_BIN" -R "$IMG_PATH" list
 
-# 7) Dump installed database
+# 6) Dump installed database
 "$PKG6_BIN" -R "$IMG_PATH" debug-db --dump-table installed
 
 echo "Sample installation completed successfully at $IMG_PATH"

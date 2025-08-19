@@ -55,7 +55,7 @@ mod tests {
         assert!(ap.manifest.directories.is_empty());
         assert!(ap.manifest.files.is_empty());
         assert!(ap.manifest.links.is_empty());
-        let opts = ApplyOptions { dry_run: true };
+        let opts = ApplyOptions { dry_run: true, ..Default::default() };
         let root = Path::new("/tmp/ips_image_test_nonexistent_root");
         // Even if root doesn't exist, dry_run should not perform any IO and succeed.
         let res = ap.apply(root, &opts);

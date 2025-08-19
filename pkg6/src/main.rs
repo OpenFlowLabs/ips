@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::io::Write;
+use std::sync::Arc;
 use tracing::{debug, error, info};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -485,9 +486,6 @@ fn determine_image_path(image_path: Option<PathBuf>) -> PathBuf {
 }
 
 fn main() -> Result<()> {
-    // Add debug statement at the very beginning
-    eprintln!("MAIN: Starting pkg6 command");
-    
     // Initialize the tracing subscriber with the default log level as debug and no decorations
     // Parse the environment filter first, handling any errors with our custom error type
     let env_filter = EnvFilter::builder()
@@ -506,15 +504,7 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    eprintln!("MAIN: Parsing command line arguments");
     let cli = App::parse();
-    
-    // Print the command that was parsed
-    match &cli.command {
-        Commands::Publisher { .. } => eprintln!("MAIN: Publisher command detected"),
-        Commands::DebugDb { .. } => eprintln!("MAIN: Debug database command detected"),
-        _ => eprintln!("MAIN: Other command detected: {:?}", cli.command),
-    };
 
     match &cli.command {
         Commands::Refresh { full, quiet, publishers } => {
@@ -615,6 +605,7 @@ fn main() -> Result<()> {
             }
 
             // Resolve install plan
+            if !quiet { println!("Resolving dependencies..."); }
             let plan = match libips::solver::resolve_install(&image, &constraints) {
                 Ok(p) => p,
                 Err(e) => {
@@ -626,15 +617,38 @@ fn main() -> Result<()> {
             if !quiet { println!("Resolved {} package(s) to install", plan.add.len()); }
 
             // Build and apply action plan
+            if !quiet { println!("Building action plan..."); }
             let ap = libips::image::action_plan::ActionPlan::from_install_plan(&plan);
-            let apply_opts = libips::actions::executors::ApplyOptions { dry_run: *dry_run };
+            let quiet_mode = *quiet;
+            let progress_cb: libips::actions::executors::ProgressCallback = Arc::new(move |evt| {
+                if quiet_mode { return; }
+                match evt {
+                    libips::actions::executors::ProgressEvent::StartingPhase { phase, total } => {
+                        println!("Applying: {} (total {})...", phase, total);
+                    }
+                    libips::actions::executors::ProgressEvent::Progress { phase, current, total } => {
+                        println!("Applying: {} {}/{}", phase, current, total);
+                    }
+                    libips::actions::executors::ProgressEvent::FinishedPhase { phase, total } => {
+                        println!("Done: {} (total {})", phase, total);
+                    }
+                }
+            });
+            let apply_opts = libips::actions::executors::ApplyOptions { dry_run: *dry_run, progress: Some(progress_cb), progress_interval: 10 };
             if !quiet { println!("Applying action plan (dry-run: {})", dry_run); }
             ap.apply(image.path(), &apply_opts)?;
 
             // Update installed DB after success (skip on dry-run)
             if !*dry_run {
+                if !quiet { println!("Recording installation in image database..."); }
+                let total_pkgs = plan.add.len();
+                let mut idx = 0usize;
                 for rp in &plan.add {
                     image.install_package(&rp.fmri, &rp.manifest)?;
+                    idx += 1;
+                    if !quiet && (idx % 5 == 0 || idx == total_pkgs) {
+                        println!("Recorded {}/{} packages", idx, total_pkgs);
+                    }
                     // Save full manifest into manifests directory for reproducibility
                     match image.save_manifest(&rp.fmri, &rp.manifest) {
                         Ok(path) => {
@@ -1090,18 +1104,15 @@ fn main() -> Result<()> {
             let mut image = libips::image::Image::create_image(&full_path, image_type)?;
             info!("Image created successfully at: {}", full_path.display());
             
-            // If publisher and origin are provided, add the publisher and download the catalog
+            // If publisher and origin are provided, only add the publisher; do not download/open catalogs here.
             if let (Some(publisher_name), Some(origin_url)) = (publisher.as_ref(), origin.as_ref()) {
                 info!("Adding publisher {} with origin {}", publisher_name, origin_url);
                 
                 // Add the publisher
                 image.add_publisher(publisher_name, origin_url, vec![], true)?;
                 
-                // Download the catalog
-                image.download_publisher_catalog(publisher_name)?;
-                
                 info!("Publisher {} configured with origin: {}", publisher_name, origin_url);
-                info!("Catalog downloaded from publisher: {}", publisher_name);
+                info!("Catalogs are not downloaded during image creation. Use 'pkg6 -R {} refresh {}' to download and open catalogs.", full_path.display(), publisher_name);
             } else {
                 info!("No publisher configured. Use 'pkg6 set-publisher' to add a publisher.");
             }
@@ -1131,7 +1142,8 @@ fn main() -> Result<()> {
             // Create a catalog object for the catalog.redb database
             let catalog = libips::image::catalog::ImageCatalog::new(
                 image.catalog_dir(),
-                image.catalog_db_path()
+                image.catalog_db_path(),
+                image.obsoleted_db_path()
             );
             
             // Create an installed packages object for the installed.redb database

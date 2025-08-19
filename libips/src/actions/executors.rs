@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::os::unix::fs as unix_fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use miette::Diagnostic;
 use thiserror::Error;
@@ -93,28 +94,86 @@ pub enum ActionOrder {
     Other = 3,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Clone)]
 pub struct ApplyOptions {
     pub dry_run: bool,
+    /// Optional progress callback. If set, library will emit coarse-grained progress events.
+    pub progress: Option<ProgressCallback>,
+    /// Emit numeric progress every N items per phase. 0 disables periodic progress.
+    pub progress_interval: usize,
 }
+
+impl std::fmt::Debug for ApplyOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplyOptions")
+            .field("dry_run", &self.dry_run)
+            .field("progress", &self.progress.as_ref().map(|_| "Some(callback)"))
+            .field("progress_interval", &self.progress_interval)
+            .finish()
+    }
+}
+
+impl Default for ApplyOptions {
+    fn default() -> Self {
+        Self { dry_run: false, progress: None, progress_interval: 0 }
+    }
+}
+
+/// Progress event emitted by apply_manifest when a callback is provided.
+#[derive(Debug, Clone, Copy)]
+pub enum ProgressEvent {
+    StartingPhase { phase: &'static str, total: usize },
+    Progress { phase: &'static str, current: usize, total: usize },
+    FinishedPhase { phase: &'static str, total: usize },
+}
+
+pub type ProgressCallback = Arc<dyn Fn(ProgressEvent) + Send + Sync + 'static>;
 
 /// Apply a manifest to the filesystem rooted at image_root.
 /// This function enforces ordering: directories, then files, then links, then others (no-ops for now).
 pub fn apply_manifest(image_root: &Path, manifest: &Manifest, opts: &ApplyOptions) -> Result<(), InstallerError> {
+    let emit = |evt: ProgressEvent, cb: &Option<ProgressCallback>| {
+        if let Some(cb) = cb.as_ref() { (cb)(evt); }
+    };
+
     // Directories first
+    let total_dirs = manifest.directories.len();
+    if total_dirs > 0 { emit(ProgressEvent::StartingPhase { phase: "directories", total: total_dirs }, &opts.progress); }
+    let mut i = 0usize;
     for d in &manifest.directories {
         apply_dir(image_root, d, opts)?;
+        i += 1;
+        if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_dirs) {
+            emit(ProgressEvent::Progress { phase: "directories", current: i, total: total_dirs }, &opts.progress);
+        }
     }
+    if total_dirs > 0 { emit(ProgressEvent::FinishedPhase { phase: "directories", total: total_dirs }, &opts.progress); }
 
     // Files next
-    for f in &manifest.files {
-        apply_file(image_root, f, opts)?;
+    let total_files = manifest.files.len();
+    if total_files > 0 { emit(ProgressEvent::StartingPhase { phase: "files", total: total_files }, &opts.progress); }
+    i = 0;
+    for f_action in &manifest.files {
+        apply_file(image_root, f_action, opts)?;
+        i += 1;
+        if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_files) {
+            emit(ProgressEvent::Progress { phase: "files", current: i, total: total_files }, &opts.progress);
+        }
     }
+    if total_files > 0 { emit(ProgressEvent::FinishedPhase { phase: "files", total: total_files }, &opts.progress); }
 
     // Links
+    let total_links = manifest.links.len();
+    if total_links > 0 { emit(ProgressEvent::StartingPhase { phase: "links", total: total_links }, &opts.progress); }
+    i = 0;
     for l in &manifest.links {
         apply_link(image_root, l, opts)?;
+        i += 1;
+        if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_links) {
+            emit(ProgressEvent::Progress { phase: "links", current: i, total: total_links }, &opts.progress);
+        }
     }
+    if total_links > 0 { emit(ProgressEvent::FinishedPhase { phase: "links", total: total_links }, &opts.progress); }
 
     // Other action kinds are ignored for now and left for future extension.
     Ok(())

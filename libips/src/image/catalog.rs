@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::{info, warn, trace};
+use std::io::{Cursor, Read, Write};
+use lz4::{Decoder as Lz4Decoder, EncoderBuilder as Lz4EncoderBuilder};
 
 /// Table definition for the catalog database
 /// Key: stem@version
@@ -24,10 +26,6 @@ pub const OBSOLETED_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("
 /// Value: version string as bytes (same format as Fmri::version())
 pub const INCORPORATE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("incorporate");
 
-/// Table definition for the installed packages database
-/// Key: full FMRI including publisher (pkg://publisher/stem@version)
-/// Value: serialized Manifest
-pub const INSTALLED_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("installed");
 
 /// Errors that can occur when working with the image catalog
 #[derive(Error, Debug, Diagnostic)]
@@ -64,6 +62,48 @@ pub enum CatalogError {
 /// Result type for catalog operations
 pub type Result<T> = std::result::Result<T, CatalogError>;
 
+// Internal helpers for (de)compressing manifest JSON payloads stored in redb
+fn is_likely_json(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') { i += 1; }
+    if i >= bytes.len() { return false; }
+    matches!(bytes[i], b'{' | b'[')
+}
+
+fn compress_json_lz4(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut dst = Vec::with_capacity(bytes.len() / 2 + 32);
+    let mut enc = Lz4EncoderBuilder::new()
+        .level(4)
+        .build(Cursor::new(&mut dst))
+        .map_err(|e| CatalogError::Database(format!("Failed to create LZ4 encoder: {}", e)))?;
+    enc.write_all(bytes)
+        .map_err(|e| CatalogError::Database(format!("Failed to write to LZ4 encoder: {}", e)))?;
+    let (_out, res) = enc.finish();
+    res.map_err(|e| CatalogError::Database(format!("Failed to finish LZ4 encoding: {}", e)))?;
+    Ok(dst)
+}
+
+fn decode_manifest_bytes(bytes: &[u8]) -> Result<Manifest> {
+    // Fast path: uncompressed legacy JSON
+    if is_likely_json(bytes) {
+        return Ok(serde_json::from_slice::<Manifest>(bytes)?);
+    }
+    // Try LZ4 frame decode
+    let mut decoder = match Lz4Decoder::new(Cursor::new(bytes)) {
+        Ok(d) => d,
+        Err(_) => {
+            // Fallback: attempt JSON anyway
+            return Ok(serde_json::from_slice::<Manifest>(bytes)?);
+        }
+    };
+    let mut out = Vec::new();
+    if let Err(_e) = decoder.read_to_end(&mut out) {
+        // On decode failure, try JSON as last resort
+        return Ok(serde_json::from_slice::<Manifest>(bytes)?);
+    }
+    Ok(serde_json::from_slice::<Manifest>(&out)?)
+}
+
 /// Information about a package in the catalog
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageInfo {
@@ -79,8 +119,10 @@ pub struct PackageInfo {
 
 /// The image catalog, which merges catalogs from all publishers
 pub struct ImageCatalog {
-    /// Path to the catalog database
+    /// Path to the catalog database (non-obsolete manifests)
     db_path: PathBuf,
+    /// Path to the separate obsoleted database
+    obsoleted_db_path: PathBuf,
     
     /// Path to the catalog directory
     catalog_dir: PathBuf,
@@ -88,29 +130,37 @@ pub struct ImageCatalog {
 
 impl ImageCatalog {
     /// Create a new image catalog
-    pub fn new<P: AsRef<Path>>(catalog_dir: P, db_path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(catalog_dir: P, db_path: P, obsoleted_db_path: P) -> Self {
         ImageCatalog {
             db_path: db_path.as_ref().to_path_buf(),
+            obsoleted_db_path: obsoleted_db_path.as_ref().to_path_buf(),
             catalog_dir: catalog_dir.as_ref().to_path_buf(),
         }
     }
     
     /// Dump the contents of a specific table to stdout for debugging
     pub fn dump_table(&self, table_name: &str) -> Result<()> {
-        // Open the database
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
-        
-        // Begin a read transaction
-        let tx = db.begin_read()
-            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
-        
-        // Determine which table to dump
+        // Determine which table to dump and open the appropriate database
         match table_name {
-            "catalog" => self.dump_catalog_table(&tx)?,
-            "obsoleted" => self.dump_obsoleted_table(&tx)?,
-            "installed" => self.dump_installed_table(&tx)?,
+            "catalog" => {
+                let db = Database::open(&self.db_path)
+                    .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
+                let tx = db.begin_read()
+                    .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+                self.dump_catalog_table(&tx)?;
+            }
+            "obsoleted" => {
+                let db = Database::open(&self.obsoleted_db_path)
+                    .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
+                let tx = db.begin_read()
+                    .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+                self.dump_obsoleted_table(&tx)?;
+            }
             "incorporate" => {
+                let db = Database::open(&self.db_path)
+                    .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
+                let tx = db.begin_read()
+                    .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
                 // Simple dump of incorporate locks
                 if let Ok(table) = tx.open_table(INCORPORATE_TABLE) {
                     for entry in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate incorporate table: {}", e)))? {
@@ -129,22 +179,21 @@ impl ImageCatalog {
     
     /// Dump the contents of all tables to stdout for debugging
     pub fn dump_all_tables(&self) -> Result<()> {
-        // Open the database
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
-        
-        // Begin a read transaction
-        let tx = db.begin_read()
+        // Catalog DB
+        let db_cat = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
+        let tx_cat = db_cat.begin_read()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
-        
         println!("=== CATALOG TABLE ===");
-        let _ = self.dump_catalog_table(&tx);
+        let _ = self.dump_catalog_table(&tx_cat);
         
+        // Obsoleted DB
+        let db_obs = Database::open(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
+        let tx_obs = db_obs.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         println!("\n=== OBSOLETED TABLE ===");
-        let _ = self.dump_obsoleted_table(&tx);
-        
-        println!("\n=== INSTALLED TABLE ===");
-        let _ = self.dump_installed_table(&tx);
+        let _ = self.dump_obsoleted_table(&tx_obs);
         
         Ok(())
     }
@@ -158,8 +207,8 @@ impl ImageCatalog {
                     let (key, value) = entry_result.map_err(|e| CatalogError::Database(format!("Failed to get entry from catalog table: {}", e)))?;
                     let key_str = key.value();
                     
-                    // Try to deserialize the manifest
-                    match serde_json::from_slice::<Manifest>(value.value()) {
+                    // Try to deserialize the manifest (supports JSON or LZ4-compressed JSON)
+                    match decode_manifest_bytes(value.value()) {
                         Ok(manifest) => {
                             // Extract the publisher from the FMRI attribute
                             let publisher = manifest.attributes.iter()
@@ -213,125 +262,80 @@ impl ImageCatalog {
         }
     }
     
-    /// Dump the contents of the installed table
-    fn dump_installed_table(&self, tx: &redb::ReadTransaction) -> Result<()> {
-        match tx.open_table(INSTALLED_TABLE) {
-            Ok(table) => {
-                let mut count = 0;
-                for entry_result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate installed table: {}", e)))? {
-                    let (key, value) = entry_result.map_err(|e| CatalogError::Database(format!("Failed to get entry from installed table: {}", e)))?;
-                    let key_str = key.value();
-                    
-                    // Try to deserialize the manifest
-                    match serde_json::from_slice::<Manifest>(value.value()) {
-                        Ok(manifest) => {
-                            // Extract the publisher from the FMRI attribute
-                            let publisher = manifest.attributes.iter()
-                                .find(|attr| attr.key == "pkg.fmri")
-                                .and_then(|attr| attr.values.get(0).cloned())
-                                .unwrap_or_else(|| "unknown".to_string());
-                            
-                            println!("Key: {}", key_str);
-                            println!("  FMRI: {}", publisher);
-                            println!("  Attributes: {}", manifest.attributes.len());
-                            println!("  Files: {}", manifest.files.len());
-                            println!("  Directories: {}", manifest.directories.len());
-                            println!("  Dependencies: {}", manifest.dependencies.len());
-                        },
-                        Err(e) => {
-                            println!("Key: {}", key_str);
-                            println!("  Error deserializing manifest: {}", e);
-                        }
-                    }
-                    count += 1;
-                }
-                println!("Total entries in installed table: {}", count);
-                Ok(())
-            },
-            Err(e) => {
-                println!("Error opening installed table: {}", e);
-                Err(CatalogError::Database(format!("Failed to open installed table: {}", e)))
-            }
-        }
-    }
     
     /// Get database statistics
     pub fn get_db_stats(&self) -> Result<()> {
-        // Open the database
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
+        // Open the catalog database
+        let db_cat = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
+        let tx_cat = db_cat.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         
-        // Begin a read transaction
-        let tx = db.begin_read()
+        // Open the obsoleted database
+        let db_obs = Database::open(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
+        let tx_obs = db_obs.begin_read()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         
         // Get table statistics
         let mut catalog_count = 0;
         let mut obsoleted_count = 0;
-        let mut installed_count = 0;
         
         // Count catalog entries
-        if let Ok(table) = tx.open_table(CATALOG_TABLE) {
+        if let Ok(table) = tx_cat.open_table(CATALOG_TABLE) {
             for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate catalog table: {}", e)))? {
                 let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from catalog table: {}", e)))?;
                 catalog_count += 1;
             }
         }
         
-        // Count obsoleted entries
-        if let Ok(table) = tx.open_table(OBSOLETED_TABLE) {
+        // Count obsoleted entries (separate DB)
+        if let Ok(table) = tx_obs.open_table(OBSOLETED_TABLE) {
             for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate obsoleted table: {}", e)))? {
                 let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from obsoleted table: {}", e)))?;
                 obsoleted_count += 1;
             }
         }
         
-        // Count installed entries
-        if let Ok(table) = tx.open_table(INSTALLED_TABLE) {
-            for result in table.iter().map_err(|e| CatalogError::Database(format!("Failed to iterate installed table: {}", e)))? {
-                let _ = result.map_err(|e| CatalogError::Database(format!("Failed to get entry from installed table: {}", e)))?;
-                installed_count += 1;
-            }
-        }
-        
         // Print statistics
-        println!("Database path: {}", self.db_path.display());
+        println!("Catalog database path: {}", self.db_path.display());
+        println!("Obsoleted database path: {}", self.obsoleted_db_path.display());
         println!("Catalog directory: {}", self.catalog_dir.display());
         println!("Table statistics:");
         println!("  Catalog table: {} entries", catalog_count);
         println!("  Obsoleted table: {} entries", obsoleted_count);
-        println!("  Installed table: {} entries", installed_count);
-        println!("Total entries: {}", catalog_count + obsoleted_count + installed_count);
+        println!("Total entries: {}", catalog_count + obsoleted_count);
         
         Ok(())
     }
     
     /// Initialize the catalog database
     pub fn init_db(&self) -> Result<()> {
-        // Create a parent directory if it doesn't exist
-        if let Some(parent) = self.db_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        // Ensure parent directories exist
+        if let Some(parent) = self.db_path.parent() { fs::create_dir_all(parent)?; }
+        if let Some(parent) = self.obsoleted_db_path.parent() { fs::create_dir_all(parent)?; }
         
-        // Open or create the database
-        let db = Database::create(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to create database: {}", e)))?;
-        
-        // Create tables
-        let tx = db.begin_write()
+        // Create/open catalog database and tables
+        let db_cat = Database::create(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to create catalog database: {}", e)))?;
+        let tx_cat = db_cat.begin_write()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
-        
-        tx.open_table(CATALOG_TABLE)
+        tx_cat.open_table(CATALOG_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to create catalog table: {}", e)))?;
-        
-        tx.open_table(OBSOLETED_TABLE)
-            .map_err(|e| CatalogError::Database(format!("Failed to create obsoleted table: {}", e)))?;
-        
-        tx.open_table(INCORPORATE_TABLE)
+        tx_cat.open_table(INCORPORATE_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to create incorporate table: {}", e)))?;
+        tx_cat.commit()
+            .map_err(|e| CatalogError::Database(format!("Failed to commit catalog transaction: {}", e)))?;
         
-        tx.commit()
-            .map_err(|e| CatalogError::Database(format!("Failed to commit transaction: {}", e)))?;
+        // Create/open obsoleted database and table
+        let db_obs = Database::create(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to create obsoleted database: {}", e)))?;
+        let tx_obs = db_obs.begin_write()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        tx_obs.open_table(OBSOLETED_TABLE)
+            .map_err(|e| CatalogError::Database(format!("Failed to create obsoleted table: {}", e)))?;
+        tx_obs.commit()
+            .map_err(|e| CatalogError::Database(format!("Failed to commit obsoleted transaction: {}", e)))?;
         
         Ok(())
     }
@@ -346,24 +350,28 @@ impl ImageCatalog {
             return Err(CatalogError::NoPublishers);
         }
         
-        // Open the database
-        trace!("Opening database at {:?}", self.db_path);
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
+        // Open the databases
+        trace!("Opening databases at {:?} and {:?}", self.db_path, self.obsoleted_db_path);
+        let db_cat = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
+        let db_obs = Database::open(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
         
-        // Begin a writing transaction
-        trace!("Beginning write transaction");
-        let tx = db.begin_write()
-            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        // Begin writing transactions
+        trace!("Beginning write transactions");
+        let tx_cat = db_cat.begin_write()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin catalog transaction: {}", e)))?;
+        let tx_obs = db_obs.begin_write()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin obsoleted transaction: {}", e)))?;
         
         // Open the catalog table
         trace!("Opening catalog table");
-        let mut catalog_table = tx.open_table(CATALOG_TABLE)
+        let mut catalog_table = tx_cat.open_table(CATALOG_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open catalog table: {}", e)))?;
         
         // Open the obsoleted table
         trace!("Opening obsoleted table");
-        let mut obsoleted_table = tx.open_table(OBSOLETED_TABLE)
+        let mut obsoleted_table = tx_obs.open_table(OBSOLETED_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))?;
         
         // Process each publisher
@@ -409,13 +417,20 @@ impl ImageCatalog {
                     .map_err(|e| CatalogError::Repository(crate::repository::RepositoryError::Other(format!("Failed to load catalog part: {}", e))))?;
             }
             
-            // Process each catalog part
-            for (part_name, _) in parts {
+            // Process each catalog part in a deterministic order: base, dependency, summary, others
+            let mut part_names: Vec<String> = parts.keys().cloned().collect();
+            part_names.sort_by_key(|name| {
+                if name.contains(".base") { 1 }
+                else if name.contains(".dependency") { 0 }
+                else if name.contains(".summary") { 2 }
+                else { 3 }
+            });
+            for part_name in part_names {
                 trace!("Processing catalog part: {}", part_name);
                 if let Some(part) = catalog_manager.get_part(&part_name) {
                     trace!("Found catalog part: {}", part_name);
                     trace!("Packages in part: {:?}", part.packages.keys().collect::<Vec<_>>());
-                    self.process_catalog_part(&mut catalog_table, &mut obsoleted_table, part, publisher)?;
+                    self.process_catalog_part(&mut catalog_table, &mut obsoleted_table, &part_name, part, publisher)?;
                 } else {
                     trace!("Catalog part not found: {}", part_name);
                 }
@@ -426,9 +441,11 @@ impl ImageCatalog {
         drop(catalog_table);
         drop(obsoleted_table);
         
-        // Commit the transaction
-        tx.commit()
-            .map_err(|e| CatalogError::Database(format!("Failed to commit transaction: {}", e)))?;
+        // Commit the transactions
+        tx_cat.commit()
+            .map_err(|e| CatalogError::Database(format!("Failed to commit catalog transaction: {}", e)))?;
+        tx_obs.commit()
+            .map_err(|e| CatalogError::Database(format!("Failed to commit obsoleted transaction: {}", e)))?;
         
         info!("Catalog built successfully");
         Ok(())
@@ -439,6 +456,7 @@ impl ImageCatalog {
         &self,
         catalog_table: &mut redb::Table<&str, &[u8]>,
         obsoleted_table: &mut redb::Table<&str, &[u8]>,
+        part_name: &str,
         part: &CatalogPart,
         publisher: &str,
     ) -> Result<()> {
@@ -448,7 +466,9 @@ impl ImageCatalog {
         if let Some(publisher_packages) = part.packages.get(publisher) {
             let total_versions: usize = publisher_packages.values().map(|v| v.len()).sum();
             let mut processed: usize = 0;
-            let mut obsolete_count: usize = 0;
+            // Count of packages marked obsolete in this part, including those skipped because they were already marked obsolete in earlier parts.
+            let mut obsolete_count_incl_skipped: usize = 0;
+            let mut skipped_obsolete: usize = 0;
             let progress_step: usize = 500; // report every N packages
 
             trace!(
@@ -482,10 +502,31 @@ impl ImageCatalog {
                     let fmri = Fmri::with_publisher(publisher, stem, version);
                     let catalog_key = format!("{}@{}", stem, version_entry.version);
                     let obsoleted_key = fmri.to_string();
+
+                    // If this is not the base part and this package/version was already marked
+                    // obsolete in an earlier part (present in obsoleted_table) and is NOT present
+                    // in the catalog_table, skip importing it from this part.
+                    if !part_name.contains(".base") {
+                        let has_catalog = matches!(catalog_table.get(catalog_key.as_str()), Ok(Some(_)));
+                        if !has_catalog {
+                            let was_obsoleted = matches!(obsoleted_table.get(obsoleted_key.as_str()), Ok(Some(_)));
+                            if was_obsoleted {
+                                // Count as obsolete for progress accounting, even though we skip processing
+                                obsolete_count_incl_skipped += 1;
+                                skipped_obsolete += 1;
+                                trace!(
+                                    "Skipping {} from part {} because it is marked obsolete and not present in catalog",
+                                    obsoleted_key,
+                                    part_name
+                                );
+                                continue;
+                            }
+                        }
+                    }
                     
                     // Check if we already have this package in the catalog
                     let existing_manifest = match catalog_table.get(catalog_key.as_str()) {
-                        Ok(Some(bytes)) => Some(serde_json::from_slice::<Manifest>(bytes.value())?),
+                        Ok(Some(bytes)) => Some(decode_manifest_bytes(bytes.value())?),
                         _ => None,
                     };
                     
@@ -494,7 +535,7 @@ impl ImageCatalog {
                     
                     // Check if the package is obsolete
                     let is_obsolete = self.is_package_obsolete(&manifest);
-                    if is_obsolete { obsolete_count += 1; }
+                    if is_obsolete { obsolete_count_incl_skipped += 1; }
                     
                     // Serialize the manifest
                     let manifest_bytes = serde_json::to_vec(&manifest)?;
@@ -508,19 +549,22 @@ impl ImageCatalog {
                             .map_err(|e| CatalogError::Database(format!("Failed to insert into obsoleted table: {}", e)))?;
                     } else {
                         // Store non-obsolete packages in the catalog table with stem@version as a key
+                        let compressed = compress_json_lz4(&manifest_bytes)?;
                         catalog_table
-                            .insert(catalog_key.as_str(), manifest_bytes.as_slice())
+                            .insert(catalog_key.as_str(), compressed.as_slice())
                             .map_err(|e| CatalogError::Database(format!("Failed to insert into catalog table: {}", e)))?;
                     }
 
                     processed += 1;
                     if processed % progress_step == 0 {
                         info!(
-                            "Import progress (publisher {}): {}/{} packages ({} obsolete)",
+                            "Import progress (publisher {}, part {}): {}/{} versions processed ({} obsolete incl. skipped, {} skipped)",
                             publisher,
+                            part_name,
                             processed,
                             total_versions,
-                            obsolete_count
+                            obsolete_count_incl_skipped,
+                            skipped_obsolete
                         );
                     }
                 }
@@ -528,10 +572,12 @@ impl ImageCatalog {
 
             // Final summary for this part/publisher
             info!(
-                "Finished import for publisher {}: {} packages processed ({} obsolete)",
+                "Finished import for publisher {}, part {}: {} versions processed ({} obsolete incl. skipped, {} skipped)",
                 publisher,
+                part_name,
                 processed,
-                obsolete_count
+                obsolete_count_incl_skipped,
+                skipped_obsolete
             );
         } else {
             trace!("No packages found for publisher: {}", publisher);
@@ -673,20 +719,23 @@ impl ImageCatalog {
     
     /// Query the catalog for packages matching a pattern
     pub fn query_packages(&self, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
-        // Open the database
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
-        
+        // Open the catalog database
+        let db_cat = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
         // Begin a read transaction
-        let tx = db.begin_read()
+        let tx_cat = db_cat.begin_read()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         
         // Open the catalog table
-        let catalog_table = tx.open_table(CATALOG_TABLE)
+        let catalog_table = tx_cat.open_table(CATALOG_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open catalog table: {}", e)))?;
         
-        // Open the obsoleted table
-        let obsoleted_table = tx.open_table(OBSOLETED_TABLE)
+        // Open the obsoleted database
+        let db_obs = Database::open(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
+        let tx_obs = db_obs.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let obsoleted_table = tx_obs.open_table(OBSOLETED_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))?;
         
         let mut results = Vec::new();
@@ -715,7 +764,7 @@ impl ImageCatalog {
             let version = parts[1];
             
             // Deserialize the manifest
-            let manifest: Manifest = serde_json::from_slice(value.value())?;
+            let manifest: Manifest = decode_manifest_bytes(value.value())?;
             
             // Extract the publisher from the FMRI attribute
             let publisher = manifest.attributes.iter()
@@ -792,55 +841,45 @@ impl ImageCatalog {
     
     /// Get a manifest from the catalog
     pub fn get_manifest(&self, fmri: &Fmri) -> Result<Option<Manifest>> {
-        // Open the database
-        let db = Database::open(&self.db_path)
-            .map_err(|e| CatalogError::Database(format!("Failed to open database: {}", e)))?;
-        
+        // Open the catalog database
+        let db_cat = Database::open(&self.db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open catalog database: {}", e)))?;
         // Begin a read transaction
-        let tx = db.begin_read()
+        let tx_cat = db_cat.begin_read()
             .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
         
         // Open the catalog table
-        let catalog_table = tx.open_table(CATALOG_TABLE)
+        let catalog_table = tx_cat.open_table(CATALOG_TABLE)
             .map_err(|e| CatalogError::Database(format!("Failed to open catalog table: {}", e)))?;
-        
-        // Open the obsoleted table
-        let obsoleted_table = tx.open_table(OBSOLETED_TABLE)
-            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))?;
         
         // Create the key for the catalog table (stem@version)
         let catalog_key = format!("{}@{}", fmri.stem(), fmri.version());
         
-        // Create the key for the obsoleted table (full FMRI including publisher)
-        let obsoleted_key = fmri.to_string();
-        
         // Try to get the manifest from the catalog table
         if let Ok(Some(bytes)) = catalog_table.get(catalog_key.as_str()) {
-            return Ok(Some(serde_json::from_slice(bytes.value())?));
+            return Ok(Some(decode_manifest_bytes(bytes.value())?));
         }
         
-        // Check if the package is in the obsoleted table
+        // If not found in catalog DB, check obsoleted DB
+        let db_obs = Database::open(&self.obsoleted_db_path)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted database: {}", e)))?;
+        let tx_obs = db_obs.begin_read()
+            .map_err(|e| CatalogError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let obsoleted_table = tx_obs.open_table(OBSOLETED_TABLE)
+            .map_err(|e| CatalogError::Database(format!("Failed to open obsoleted table: {}", e)))?;
+        let obsoleted_key = fmri.to_string();
         if let Ok(Some(_)) = obsoleted_table.get(obsoleted_key.as_str()) {
-            // The package is obsolete, but we don't store the manifest in the obsoleted table
-            // We could return a minimal manifest with just the FMRI and obsolete flag
             let mut manifest = Manifest::new();
-            
-            // Add the FMRI attribute
             let mut attr = crate::actions::Attr::default();
             attr.key = "pkg.fmri".to_string();
             attr.values = vec![fmri.to_string()];
             manifest.attributes.push(attr);
-            
-            // Add the obsolete attribute
             let mut attr = crate::actions::Attr::default();
             attr.key = "pkg.obsolete".to_string();
             attr.values = vec!["true".to_string()];
             manifest.attributes.push(attr);
-            
             return Ok(Some(manifest));
         }
-        
-        // Manifest not found
         Ok(None)
     }
 }

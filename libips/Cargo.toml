@@ -37,7 +37,7 @@ diff-struct = "0.5.3"
 chrono = "0.4.41"
 tempfile = "3.20.0"
 walkdir = "2.4.0"
-redb = "3"
+redb = { version = "3" }
 bincode = { version = "2", features = ["serde"] }
 rust-ini = "0.21"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
