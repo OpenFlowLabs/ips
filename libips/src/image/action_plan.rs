@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::actions::{Manifest, Dir, File, Link};
 use crate::actions::executors::{apply_manifest, ApplyOptions, InstallerError};
+use crate::actions::Manifest;
 use crate::solver::InstallPlan;
 
 /// ActionPlan represents a merged list of actions across all manifests
@@ -45,8 +45,7 @@ impl ActionPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::solver::{InstallPlan as SInstallPlan, ResolvedPkg};
-    use crate::fmri::{Fmri, Version};
+    use crate::solver::InstallPlan as SInstallPlan;
 
     #[test]
     fn build_and_apply_empty_plan_dry_run() {

@@ -16,14 +16,12 @@
 //! solver, and assembles an InstallPlan from the chosen solvables.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-// Begin resolvo wiring imports (names discovered by compiler)
-// We start broad and refine with compiler guidance.
-use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, Solver as RSolver, SolverCache, SolvableId, StringId, VersionSetId, VersionSetUnionId, UnsolvableOrCancelled};
+use std::collections::{BTreeMap, HashMap};
 
 use miette::Diagnostic;
-use redb::ReadableTable;
+// Begin resolvo wiring imports (names discovered by compiler)
+// We start broad and refine with compiler guidance.
+use resolvo::{self, Candidates, Dependencies as RDependencies, DependencyProvider, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, Requirement as RRequirement, SolvableId, Solver as RSolver, SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId};
 use thiserror::Error;
 
 use crate::actions::Manifest;
@@ -298,10 +296,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
     async fn get_dependencies(&self, solvable: SolvableId) -> RDependencies {
         let pkg = self.solvables.get(solvable).unwrap();
         let fmri = &pkg.fmri;
-        let manifest_opt = match self.image.get_manifest_from_catalog(fmri) {
-            Ok(m) => m,
-            Err(_) => None,
-        };
+        let manifest_opt = self.image.get_manifest_from_catalog(fmri).unwrap_or_else(|_| None);
         let Some(manifest) = manifest_opt else {
             return RDependencies::Known(KnownDependencies::default());
         };
@@ -651,12 +646,12 @@ mod tests {
 #[cfg(test)]
 mod solver_integration_tests {
     use super::*;
-    use crate::image::ImageType;
+    use crate::actions::Dependency;
+    use crate::fmri::Version;
     use crate::image::catalog::{CATALOG_TABLE, OBSOLETED_TABLE};
+    use crate::image::ImageType;
     use redb::Database;
     use tempfile::tempdir;
-    use crate::fmri::Version;
-    use crate::actions::Dependency;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
@@ -763,16 +758,16 @@ mod solver_integration_tests {
     #[test]
     fn resolve_uses_repo_manifest_after_solving() {
         use crate::image::ImageType;
-        use crate::repository::{FileBackend, WritableRepository, RepositoryVersion};
+        use crate::repository::{FileBackend, RepositoryVersion, WritableRepository};
         use std::fs;
 
         // Create a temp image
-        let td_img = tempfile::tempdir().expect("tempdir img");
+        let td_img = tempdir().expect("tempdir img");
         let img_path = td_img.path().to_path_buf();
         let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
 
         // Create a temp file-based repository and add publisher
-        let td_repo = tempfile::tempdir().expect("tempdir repo");
+        let td_repo = tempdir().expect("tempdir repo");
         let repo_path = td_repo.path().to_path_buf();
         let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
         repo.add_publisher("pubA").expect("add publisher");
@@ -902,9 +897,9 @@ mod solver_error_message_tests {
     use super::*;
     use crate::actions::{Dependency, Manifest};
     use crate::fmri::{Fmri, Version};
+    use crate::image::catalog::CATALOG_TABLE;
     use crate::image::ImageType;
     use redb::Database;
-    use crate::image::catalog::CATALOG_TABLE;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);

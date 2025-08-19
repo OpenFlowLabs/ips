@@ -93,17 +93,6 @@ pub enum ActionOrder {
     Other = 3,
 }
 
-impl ActionOrder {
-    fn for_manifest_section(section: &'static str) -> ActionOrder {
-        match section {
-            "dir" | "directories" => ActionOrder::Dir,
-            "file" | "files" => ActionOrder::File,
-            "link" | "links" => ActionOrder::Link,
-            _ => ActionOrder::Other,
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct ApplyOptions {
     pub dry_run: bool,
