@@ -66,7 +66,7 @@ fi
 "$PKG6_BIN" -R "$IMG_PATH" publisher -o table
 
 # 4) Real install
-RUST_LOG=trace "$PKG6_BIN" -R "$IMG_PATH" install "pkg://$PUBLISHER/$PKG_NAME" || {
+RUST_LOG=debug "$PKG6_BIN" -R "$IMG_PATH" install "pkg://$PUBLISHER/$PKG_NAME" || {
   echo "Real install failed" >&2
   exit 1
 }

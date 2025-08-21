@@ -23,8 +23,37 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use thiserror::Error;
+use redb::{ReadableDatabase, ReadableTable};
+use lz4::Decoder as Lz4Decoder;
+use std::io::{Cursor, Read};
 
 use crate::actions::Manifest;
+use crate::image::catalog::{CATALOG_TABLE, INCORPORATE_TABLE};
+
+// Local helpers to decode manifest bytes stored in catalog DB (JSON or LZ4-compressed JSON)
+fn is_likely_json_local(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') { i += 1; }
+    if i >= bytes.len() { return false; }
+    matches!(bytes[i], b'{' | b'[')
+}
+
+fn decode_manifest_bytes_local(bytes: &[u8]) -> Result<Manifest, serde_json::Error> {
+    if is_likely_json_local(bytes) {
+        return serde_json::from_slice::<Manifest>(bytes);
+    }
+    // Try LZ4; on failure, fall back to JSON attempt
+    if let Ok(mut dec) = Lz4Decoder::new(Cursor::new(bytes)) {
+        let mut out = Vec::new();
+        if dec.read_to_end(&mut out).is_ok() {
+            if let Ok(m) = serde_json::from_slice::<Manifest>(&out) {
+                return Ok(m);
+            }
+        }
+    }
+    // Fallback to JSON parse of original bytes
+    serde_json::from_slice::<Manifest>(bytes)
+}
 
 #[derive(Clone, Debug)]
 struct PkgCand {
@@ -44,7 +73,11 @@ enum VersionSetKind {
 
 struct IpsProvider<'a> {
     image: &'a Image,
-    catalog: CatalogProvider<'a>,
+    // Persistent database handles and read transactions for catalog/obsoleted
+    _catalog_db: redb::Database,
+    catalog_tx: redb::ReadTransaction,
+    _obsoleted_db: redb::Database,
+    _obsoleted_tx: redb::ReadTransaction,
     // interner storages
     names: Mapping<NameId, String>,
     name_by_str: BTreeMap<String, NameId>,
@@ -59,13 +92,28 @@ struct IpsProvider<'a> {
     publisher_prefs: RefCell<HashMap<NameId, Vec<String>>>, 
 }
 use crate::fmri::Fmri;
-use crate::image::{catalog::PackageInfo, Image};
+use crate::image::Image;
 
 impl<'a> IpsProvider<'a> {
     fn new(image: &'a Image) -> Result<Self, SolverError> {
+        // Open databases and keep read transactions alive for the provider lifetime
+        let catalog_db = redb::Database::open(image.catalog_db_path())
+            .map_err(|e| SolverError::new(format!("open catalog db: {}", e)))?;
+        let catalog_tx = catalog_db
+            .begin_read()
+            .map_err(|e| SolverError::new(format!("begin read catalog db: {}", e)))?;
+        let obsoleted_db = redb::Database::open(image.obsoleted_db_path())
+            .map_err(|e| SolverError::new(format!("open obsoleted db: {}", e)))?;
+        let obsoleted_tx = obsoleted_db
+            .begin_read()
+            .map_err(|e| SolverError::new(format!("begin read obsoleted db: {}", e)))?;
+
         let mut prov = IpsProvider {
             image,
-            catalog: CatalogProvider::new(image)?,
+            _catalog_db: catalog_db,
+            catalog_tx,
+            _obsoleted_db: obsoleted_db,
+            _obsoleted_tx: obsoleted_tx,
             names: Mapping::default(),
             name_by_str: BTreeMap::new(),
             strings: Mapping::default(),
@@ -76,39 +124,100 @@ impl<'a> IpsProvider<'a> {
             unions: RefCell::new(Mapping::default()),
             publisher_prefs: RefCell::new(HashMap::new()),
         };
-        prov.build_index();
+        prov.build_index()?;
         Ok(prov)
     }
 
-    fn build_index(&mut self) {
-        // Move the catalog cache out temporarily to avoid borrow conflicts and expensive cloning
-        let cache = std::mem::take(&mut self.catalog.cache);
-        for (stem, list) in cache.iter() {
-            let name_id = self.intern_name(stem);
-            let mut ids: Vec<SolvableId> = Vec::with_capacity(list.len());
-            for pkg in list {
-                // allocate next solvable id based on current len
+    fn build_index(&mut self) -> Result<(), SolverError> {
+        use crate::image::catalog::CATALOG_TABLE;
+        // Iterate catalog table and build in-memory index of non-obsolete candidates
+        let table = self
+            .catalog_tx
+            .open_table(CATALOG_TABLE)
+            .map_err(|e| SolverError::new(format!("open catalog table: {}", e)))?;
+
+        // Temporary map: stem string -> Vec<Fmri>
+        let mut by_stem: BTreeMap<String, Vec<Fmri>> = BTreeMap::new();
+        for entry in table
+            .iter()
+            .map_err(|e| SolverError::new(format!("iterate catalog table: {}", e)))?
+        {
+            let (k, v) = entry.map_err(|e| SolverError::new(format!("read catalog entry: {}", e)))?;
+            let key = k.value(); // stem@version
+
+            // Try to decode manifest and extract full FMRI (including publisher)
+            let mut pushed = false;
+            if let Ok(manifest) = decode_manifest_bytes_local(v.value()) {
+                if let Some(attr) = manifest
+                    .attributes
+                    .iter()
+                    .find(|a| a.key == "pkg.fmri")
+                {
+                    if let Some(fmri_str) = attr.values.get(0) {
+                        if let Ok(mut fmri) = Fmri::parse(fmri_str) {
+                            // Ensure publisher is present; if missing/empty, use image default publisher
+                            let missing_pub = fmri.publisher.as_deref().map(|s| s.is_empty()).unwrap_or(true);
+                            if missing_pub {
+                                if let Ok(defp) = self.image.default_publisher() {
+                                    fmri.publisher = Some(defp.name.clone());
+                                }
+                            }
+                            by_stem.entry(fmri.stem().to_string()).or_default().push(fmri);
+                            pushed = true;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: derive FMRI from catalog key if we couldn't push from manifest
+            if !pushed {
+                if let Some((stem, ver_str)) = key.split_once('@') {
+                    let ver_obj = crate::fmri::Version::parse(ver_str).ok();
+                    // Prefer default publisher if configured; else leave None by constructing and then setting publisher
+                    let mut fmri = if let Some(v) = ver_obj.clone() {
+                        if let Ok(defp) = self.image.default_publisher() {
+                            Fmri::with_publisher(&defp.name, stem, Some(v))
+                        } else {
+                            Fmri::with_version(stem, v)
+                        }
+                    } else {
+                        // No parsable version; still record a minimal FMRI without version
+                        if let Ok(defp) = self.image.default_publisher() {
+                            Fmri::with_publisher(&defp.name, stem, None)
+                        } else {
+                            Fmri::with_publisher("", stem, None)
+                        }
+                    };
+                    // Normalize: empty publisher string -> None
+                    if fmri.publisher.as_deref() == Some("") {
+                        fmri.publisher = None;
+                    }
+                    by_stem.entry(stem.to_string()).or_default().push(fmri);
+                }
+            }
+        }
+
+        // Intern and populate solvables per stem
+        for (stem, mut fmris) in by_stem {
+            let name_id = self.intern_name(&stem);
+            // Sort fmris newest-first using IPS ordering
+            fmris.sort_by(|a, b| version_order_desc(a, b));
+            let mut ids: Vec<SolvableId> = Vec::with_capacity(fmris.len());
+            for fmri in fmris {
                 let sid = SolvableId(self.solvables.len() as u32);
                 self.solvables.insert(
                     sid,
                     PkgCand {
                         id: sid,
                         name_id,
-                        fmri: pkg.fmri.clone(),
+                        fmri,
                     },
                 );
                 ids.push(sid);
             }
-            // Ensure deterministic initial order: newest first by IPS ordering
-            ids.sort_by(|a, b| {
-                let fa = &self.solvables.get(*a).unwrap().fmri;
-                let fb = &self.solvables.get(*b).unwrap().fmri;
-                version_order_desc(fa, fb)
-            });
             self.cands_by_name.insert(name_id, ids);
         }
-        // Restore the cache
-        self.catalog.cache = cache;
+        Ok(())
     }
 
     fn intern_name(&mut self, name: &str) -> NameId {
@@ -126,6 +235,25 @@ impl<'a> IpsProvider<'a> {
         self.version_sets.borrow_mut().insert(vs_id, kind);
         self.vs_name.borrow_mut().insert(vs_id, name);
         vs_id
+    }
+
+    fn lookup_incorporated_release(&self, stem: &str) -> Option<String> {
+        if let Ok(table) = self.catalog_tx.open_table(INCORPORATE_TABLE) {
+            if let Ok(Some(rel)) = table.get(stem) {
+                return Some(String::from_utf8_lossy(rel.value()).to_string());
+            }
+        }
+        None
+    }
+
+    fn read_manifest_from_catalog(&self, fmri: &Fmri) -> Option<Manifest> {
+        let key = format!("{}@{}", fmri.stem(), fmri.version());
+        if let Ok(table) = self.catalog_tx.open_table(CATALOG_TABLE) {
+            if let Ok(Some(bytes)) = table.get(key.as_str()) {
+                return decode_manifest_bytes_local(bytes.value()).ok();
+            }
+        }
+        None
     }
 }
 
@@ -254,7 +382,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
         // returned by get_candidates is already restricted to the locked version(s).
         let name = self.version_set_name(version_set);
         let stem = self.display_name(name).to_string();
-        if let Ok(Some(_locked_ver)) = self.image.get_incorporated_release(&stem) {
+        if self.lookup_incorporated_release(&stem).is_some() {
             // Treat all candidates as matching the requirement; the solver's inverse
             // queries should see an empty set to avoid excluding the locked candidate.
             return if inverse { vec![] } else { candidates.to_vec() };
@@ -281,8 +409,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
         let list = self.cands_by_name.get(&name)?;
         // Check if an incorporation lock exists for this stem; if so, restrict candidates
         let stem = self.display_name(name).to_string();
-        if let Ok(Some(locked_ver)) = self.image.get_incorporated_release(&stem) {
-            // Parse the locked version; if parsed, match by release/branch/build and optionally timestamp.
+        if let Some(locked_ver) = self.lookup_incorporated_release(&stem) {
             let parsed_lock = crate::fmri::Version::parse(&locked_ver).ok();
             let locked_cands: Vec<SolvableId> = list
                 .iter()
@@ -291,7 +418,6 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
                     let fmri = &self.solvables.get(*sid).unwrap().fmri;
                     if let Some(cv) = fmri.version.as_ref() {
                         if let Some(lv) = parsed_lock.as_ref() {
-                            // Match release/branch/build exactly; timestamp must match only if lock includes it
                             if cv.release != lv.release { return false; }
                             if cv.branch != lv.branch { return false; }
                             if cv.build != lv.build { return false; }
@@ -300,7 +426,6 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
                             }
                             true
                         } else {
-                            // Fallback: compare stringified version
                             fmri.version() == locked_ver
                         }
                     } else {
@@ -366,7 +491,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
     async fn get_dependencies(&self, solvable: SolvableId) -> RDependencies {
         let pkg = self.solvables.get(solvable).unwrap();
         let fmri = &pkg.fmri;
-        let manifest_opt = self.image.get_manifest_from_catalog(fmri).unwrap_or_else(|_| None);
+        let manifest_opt = self.read_manifest_from_catalog(fmri);
         let Some(manifest) = manifest_opt else {
             return RDependencies::Known(KnownDependencies::default());
         };
@@ -456,43 +581,8 @@ pub struct Constraint {
     pub branch: Option<String>,
 }
 
-/// Catalog-backed provider for candidates. Filters out obsolete packages.
-struct CatalogProvider<'a> {
-    image: &'a Image,
-    // cache: stem -> list of non-obsolete PackageInfo
-    cache: BTreeMap<String, Vec<PackageInfo>>, 
-}
-
-impl<'a> CatalogProvider<'a> {
-    fn new(image: &'a Image) -> Result<Self, SolverError> {
-        let mut prov = Self { image, cache: BTreeMap::new() };
-        prov.rebuild_cache()?;
-        Ok(prov)
-    }
-
-    fn rebuild_cache(&mut self) -> Result<(), SolverError> {
-        let pkgs = self.image
-            .query_catalog(None)
-            .map_err(|e| SolverError::new(format!("catalog query failed: {e}")))?;
-        let mut m: BTreeMap<String, Vec<PackageInfo>> = BTreeMap::new();
-        for p in pkgs.into_iter().filter(|p| !p.obsolete) {
-            m.entry(p.fmri.stem().to_string()).or_default().push(p);
-        }
-        // Sort each stem's candidates by version descending (highest first)
-        for v in m.values_mut() {
-            v.sort_by(|a, b| cmp_version_desc(&a.fmri, &b.fmri));
-        }
-        self.cache = m;
-        Ok(())
-    }
-
-}
 
 
-fn cmp_version_desc(a: &Fmri, b: &Fmri) -> std::cmp::Ordering {
-    // Basic descending order by stringified version as a fallback for cache sorting.
-    a.version().cmp(&b.version()).reverse()
-}
 
 /// IPS-specific comparison: newest release first; if equal, newest timestamp.
 fn cmp_release_desc(a: &Fmri, b: &Fmri) -> std::cmp::Ordering {
@@ -639,6 +729,18 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
         }
         name_to_fmris.insert(*name_id, v);
     }
+    // Snapshot: Catalog manifest cache keyed by stem@version for all candidates
+    let mut key_to_manifest: HashMap<String, Manifest> = HashMap::new();
+    for fmris in name_to_fmris.values() {
+        for fmri in fmris {
+            let key = format!("{}@{}", fmri.stem(), fmri.version());
+            if !key_to_manifest.contains_key(&key) {
+                if let Some(man) = provider.read_manifest_from_catalog(fmri) {
+                    key_to_manifest.insert(key, man);
+                }
+            }
+        }
+    }
 
     // Run the solver
     let mut solver = RSolver::new(provider);
@@ -658,14 +760,18 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     let mut plan = InstallPlan::default();
     for sid in solution_ids {
         if let Some(fmri) = sid_to_fmri.get(&sid).cloned() {
-            // Fetch full manifest from repository; fallback to catalog if repo fetch fails (useful for tests/offline)
+            // Prefer repository manifest; fallback to preloaded catalog snapshot, then image catalog
+            let key = format!("{}@{}", fmri.stem(), fmri.version());
             let manifest = match image_ref.get_manifest_from_repository(&fmri) {
                 Ok(m) => m,
                 Err(repo_err) => {
-                    // Try catalog as a fallback
-                    match image_ref.get_manifest_from_catalog(&fmri) {
-                        Ok(Some(m)) => m,
-                        _ => return Err(SolverError::new(format!("failed to obtain manifest for {}: {}", fmri, repo_err))),
+                    if let Some(m) = key_to_manifest.get(&key).cloned() {
+                        m
+                    } else {
+                        match image_ref.get_manifest_from_catalog(&fmri) {
+                            Ok(Some(m)) => m,
+                            _ => return Err(SolverError::new(format!("failed to obtain manifest for {}: {}", fmri, repo_err))),
+                        }
                     }
                 }
             };

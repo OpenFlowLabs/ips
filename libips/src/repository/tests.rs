@@ -452,14 +452,14 @@ mod tests {
     #[test]
     fn test_transaction_pub_p5i_creation() {
         // Run the setup script to prepare the test environment
-        let (prototype_dir, manifest_dir) = run_setup_script();
+        let (_prototype_dir, manifest_dir) = run_setup_script();
 
         // Create a test directory
         let test_dir = create_test_dir("transaction_pub_p5i");
         let repo_path = test_dir.join("repo");
 
         // Create a repository
-        let mut repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
+        let repo = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
 
         // Create a new publisher through a transaction
         let publisher = "transaction_test";
