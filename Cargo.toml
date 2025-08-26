@@ -9,6 +9,7 @@ members = [
   "specfile",
   "ports",
   "pkg6",
+  "pkgtree",
   "xtask",
 ]
 resolver = "2"
