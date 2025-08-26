@@ -609,8 +609,51 @@ fn main() -> Result<()> {
             let plan = match libips::solver::resolve_install(&image, &constraints) {
                 Ok(p) => p,
                 Err(e) => {
-                    error!("Failed to resolve install plan: {}", e);
-                    return Err(e.into());
+                    let mut printed_advice = false;
+                    if !*quiet {
+                        // Attempt to provide user-focused advice on how to resolve dependency issues
+                        let opts = libips::solver::advice::AdviceOptions { max_depth: 3, dependency_cap: 400 };
+                        match libips::solver::advice::advise_from_error(&image, &e, opts) {
+                            Ok(report) => {
+                                if !report.issues.is_empty() {
+                                    printed_advice = true;
+                                    eprintln!("\nAdvice: detected {} issue(s) preventing installation:", report.issues.len());
+                                    for (i, iss) in report.issues.iter().enumerate() {
+                                        let constraint_str = {
+                                            let mut s = String::new();
+                                            if let Some(r) = &iss.constraint_release { s.push_str(&format!("release={} ", r)); }
+                                            if let Some(b) = &iss.constraint_branch { s.push_str(&format!("branch={}", b)); }
+                                            s.trim().to_string()
+                                        };
+                                        eprintln!(
+                                            "  {}. Missing viable candidates for '{}'\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
+                                            i + 1,
+                                            iss.stem,
+                                            if iss.path.is_empty() { iss.stem.clone() } else { iss.path.join(" -> ") },
+                                            if constraint_str.is_empty() { "<none>".to_string() } else { constraint_str },
+                                            iss.details
+                                        );
+                                    }
+                                    eprintln!("\nWhat you can try as a user:");
+                                    eprintln!("  • Ensure your catalogs are up to date: 'pkg6 refresh'.");
+                                    eprintln!("  • Verify that the required publishers are configured: 'pkg6 publisher'.");
+                                    eprintln!("  • Some versions may be constrained by image incorporations; updating the image or selecting a compatible package set may help.");
+                                    eprintln!("  • If the problem persists, report this to the repository maintainers with the above details.");
+                                }
+                            }
+                            Err(advice_err) => {
+                                eprintln!("(Note) Unable to compute advice: {}", advice_err);
+                            }
+                        }
+                    }
+                    if printed_advice {
+                        // We've printed actionable advice; exit with a non-zero code without printing further errors.
+                        std::process::exit(1);
+                    } else {
+                        // No advice printed; fall back to standard error reporting
+                        error!("Failed to resolve install plan: {}", e);
+                        return Err(e.into());
+                    }
                 }
             };
 

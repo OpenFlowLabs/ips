@@ -30,6 +30,9 @@ use std::io::{Cursor, Read};
 use crate::actions::Manifest;
 use crate::image::catalog::{CATALOG_TABLE, INCORPORATE_TABLE};
 
+// Public advice API lives in a sibling module
+pub mod advice;
+
 // Local helpers to decode manifest bytes stored in catalog DB (JSON or LZ4-compressed JSON)
 fn is_likely_json_local(bytes: &[u8]) -> bool {
     let mut i = 0;
@@ -539,6 +542,18 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SolverProblemKind {
+    NoCandidates { stem: String, release: Option<String>, branch: Option<String> },
+    Unsolvable,
+}
+
+#[derive(Debug, Clone)]
+pub struct SolverFailure {
+    pub kind: SolverProblemKind,
+    pub roots: Vec<Constraint>,
+}
+
 #[derive(Debug, Error, Diagnostic)]
 #[error("Solver error: {message}")]
 #[diagnostic(
@@ -547,10 +562,13 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
 )]
 pub struct SolverError {
     pub message: String,
+    pub problem: Option<SolverFailure>,
 }
 
 impl SolverError {
-    fn new(msg: impl Into<String>) -> Self { Self { message: msg.into() } }
+    fn new(msg: impl Into<String>) -> Self { Self { message: msg.into(), problem: None } }
+    pub fn with_details(msg: impl Into<String>, problem: SolverFailure) -> Self { Self { message: msg.into(), problem: Some(problem) } }
+    pub fn problem(&self) -> Option<&SolverFailure> { self.problem.as_ref() }
 }
 
 #[derive(Debug, Clone)]
@@ -693,11 +711,36 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     }
     if !missing.is_empty() {
         let pubs: Vec<String> = image.publishers().iter().map(|p| p.name.clone()).collect();
-        return Err(SolverError::new(format!(
-            "No candidates found for requested package(s): {}.\nChecked publishers: {}.\nRun 'pkg6 refresh' to update catalogs or verify the package names.",
-            missing.join(", "),
-            pubs.join(", ")
-        )));
+        // Pick the first missing root and its constraint for structured problem
+        let mut first_missing: Option<Constraint> = None;
+        for (name_id, c) in &root_names {
+            let has = provider
+                .cands_by_name
+                .get(name_id)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            if !has {
+                first_missing = Some(c.clone());
+                break;
+            }
+        }
+        let roots: Vec<Constraint> = root_names.iter().map(|(_, c)| c.clone()).collect();
+        let problem = if let Some(c) = first_missing {
+            SolverFailure {
+                kind: SolverProblemKind::NoCandidates { stem: c.stem.clone(), release: c.version_req.clone(), branch: c.branch.clone() },
+                roots,
+            }
+        } else {
+            SolverFailure { kind: SolverProblemKind::Unsolvable, roots }
+        };
+        return Err(SolverError::with_details(
+            format!(
+                "No candidates found for requested package(s): {}.\nChecked publishers: {}.\nRun 'pkg6 refresh' to update catalogs or verify the package names.",
+                missing.join(", "),
+                pubs.join(", ")
+            ),
+            problem,
+        ));
     }
 
     // Before moving provider into the solver, capture useful snapshots for diagnostics
@@ -743,14 +786,22 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     }
 
     // Run the solver
+    let roots_for_err: Vec<Constraint> = root_names.iter().map(|(_, c)| c.clone()).collect();
     let mut solver = RSolver::new(provider);
     let solution_ids = solver.solve(problem).map_err(|conflict_or_cancelled| {
         match conflict_or_cancelled {
             UnsolvableOrCancelled::Unsolvable(u) => {
-                SolverError::new(u.display_user_friendly(&solver).to_string())
+                let msg = u.display_user_friendly(&solver).to_string();
+                SolverError::with_details(
+                    msg,
+                    SolverFailure { kind: SolverProblemKind::Unsolvable, roots: roots_for_err.clone() },
+                )
             }
             UnsolvableOrCancelled::Cancelled(_) => {
-                SolverError::new("dependency resolution cancelled".to_string())
+                SolverError::with_details(
+                    "dependency resolution cancelled".to_string(),
+                    SolverFailure { kind: SolverProblemKind::Unsolvable, roots: roots_for_err.clone() },
+                )
             }
         }
     })?;

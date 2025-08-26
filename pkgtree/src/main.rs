@@ -40,6 +40,10 @@ struct Cli {
     #[arg(short = 's', long = "suggest", action = ArgAction::SetTrue)]
     suggest: bool,
 
+    /// Find packages whose dependencies reference missing stems (dangling)
+    #[arg(long = "find-dangling", action = ArgAction::SetTrue)]
+    find_dangling: bool,
+
     /// Advise on an install for the given package stem (advisor mode)
     #[arg(long = "advise-install")]
     advise_install: Option<String>,
@@ -136,6 +140,12 @@ fn main() -> Result<()> {
     if let Some(root) = &cli.advise_install {
         let mut ctx = AdviceContext::new(cli.publisher.clone(), cli.advice_cap);
         run_advisor(&image, &mut ctx, root, cli.advice_depth)?;
+        return Ok(());
+    }
+
+    // Dangling dependency scan has priority over graph mode
+    if cli.find_dangling {
+        run_dangling_scan(&image, cli.publisher.as_deref(), cli.package.as_deref(), cli.format)?;
         return Ok(());
     }
 
@@ -767,6 +777,153 @@ mod tests {
     }
 }
 
+
+// ---------- Dangling dependency scan ----------
+fn run_dangling_scan(
+    image: &Image,
+    publisher: Option<&str>,
+    package_filter: Option<&str>,
+    format: OutputFormat,
+) -> Result<()> {
+    // Query full catalog once
+    let mut pkgs = image
+        .query_catalog(None)
+        .map_err(|e| PkgTreeError { message: format!("Failed to query catalog: {}", e) })?;
+
+    // Build set of available non-obsolete stems AND an index of available (release, branch) pairs per stem,
+    // honoring publisher filter
+    let mut available_stems: HashSet<String> = HashSet::new();
+    let mut available_index: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
+    for p in &pkgs {
+        if let Some(pubf) = publisher {
+            if p.publisher != pubf { continue; }
+        }
+        if p.obsolete { continue; }
+        let stem = p.fmri.stem().to_string();
+        available_stems.insert(stem.clone());
+        let ver = p.fmri.version();
+        if !ver.is_empty() {
+            if let Some(rel) = version_release(&ver) {
+                let br = version_branch(&ver);
+                available_index.entry(stem).or_default().push((rel, br));
+            }
+        }
+    }
+
+    // Filter the list of requiring packages we'll scan
+    if let Some(pubf) = publisher {
+        pkgs.retain(|p| p.publisher == pubf);
+    }
+    pkgs.retain(|p| !p.obsolete);
+    if let Some(needle) = package_filter {
+        pkgs.retain(|p| p.fmri.stem().contains(needle) || p.fmri.to_string().contains(needle));
+    }
+
+    // Map of requiring package fmri string -> Vec<missing_stems>
+    let mut dangling: HashMap<String, Vec<String>> = HashMap::new();
+
+    for p in &pkgs {
+        let fmri = &p.fmri;
+        match image.get_manifest_from_catalog(fmri) {
+            Ok(Some(man)) => {
+                let mut missing_for_pkg: Vec<String> = Vec::new();
+                for dep in man.dependencies {
+                    if dep.dependency_type != "require" && dep.dependency_type != "incorporate" { continue; }
+                    let Some(df) = dep.fmri else { continue; };
+                    let stem = df.stem().to_string();
+
+                    // Extract version/branch constraints if any (from optional properties)
+                    let mut c = extract_constraint(&dep.optional);
+                    // Also merge constraints from the dependency FMRI's version string if not provided in optional
+                    let df_ver_str = df.version();
+                    if !df_ver_str.is_empty() {
+                        if c.release.is_none() {
+                            c.release = version_release(&df_ver_str);
+                        }
+                        if c.branch.is_none() {
+                            c.branch = version_branch(&df_ver_str);
+                        }
+                    }
+
+                    // Helper to check availability against constraints
+                    let satisfies = |stem: &str, rel: Option<&str>, br: Option<&str>| -> bool {
+                        if let Some(list) = available_index.get(stem) {
+                            if let (Some(rreq), Some(breq)) = (rel, br) {
+                                return list.iter().any(|(r, b)| r == rreq && b.as_deref() == Some(breq));
+                            } else if let Some(rreq) = rel {
+                                return list.iter().any(|(r, _)| r == rreq);
+                            } else if let Some(breq) = br {
+                                return list.iter().any(|(_, b)| b.as_deref() == Some(breq));
+                            } else {
+                                return true; // no constraint: stem existing already confirmed elsewhere
+                            }
+                        }
+                        false
+                    };
+
+                    let mut mark_missing: Option<String> = None;
+                    if !available_stems.contains(&stem) {
+                        mark_missing = Some(stem.clone());
+                    } else if c.release.is_some() || c.branch.is_some() {
+                        if !satisfies(&stem, c.release.as_deref(), c.branch.as_deref()) {
+                            // Include constraint context in output for maintainers
+                            let mut ctx = String::new();
+                            if let Some(r) = &c.release { ctx.push_str(&format!("release={} ", r)); }
+                            if let Some(b) = &c.branch { ctx.push_str(&format!("branch={}", b)); }
+                            let ctx = ctx.trim().to_string();
+                            if ctx.is_empty() { mark_missing = Some(stem.clone()); } else { mark_missing = Some(format!("{} [required {}]", stem, ctx)); }
+                        }
+                    }
+
+                    if let Some(m) = mark_missing { missing_for_pkg.push(m); }
+                }
+                if !missing_for_pkg.is_empty() {
+                    missing_for_pkg.sort();
+                    missing_for_pkg.dedup();
+                    dangling.insert(fmri.to_string(), missing_for_pkg);
+                }
+            }
+            Ok(None) => {
+                warn!(pkg=%fmri.to_string(), "Manifest not found in catalog while scanning dangling deps");
+            }
+            Err(e) => {
+                warn!(pkg=%fmri.to_string(), error=%format!("{}", e), "Failed to read manifest while scanning dangling deps");
+            }
+        }
+    }
+
+    // Output
+    match format {
+        OutputFormat::Tree => {
+            if dangling.is_empty() {
+                println!("No dangling dependencies detected.");
+            } else {
+                println!("Found {} package(s) with dangling dependencies:", dangling.len());
+                let mut keys: Vec<String> = dangling.keys().cloned().collect();
+                keys.sort();
+                for k in keys {
+                    println!("- {}:", k);
+                    if let Some(list) = dangling.get(&k) {
+                        for m in list { println!("   • {}", m); }
+                    }
+                }
+            }
+        }
+        OutputFormat::Json => {
+            use serde::Serialize;
+            #[derive(Serialize)]
+            struct DanglingJson { package_fmri: String, missing_stems: Vec<String> }
+            let mut out: Vec<DanglingJson> = Vec::new();
+            for (pkg, miss) in dangling.into_iter() {
+                out.push(DanglingJson { package_fmri: pkg, missing_stems: miss });
+            }
+            out.sort_by(|a, b| a.package_fmri.cmp(&b.package_fmri));
+            println!("{}", serde_json::to_string_pretty(&out).into_diagnostic()?);
+        }
+    }
+
+    Ok(())
+}
 
 // ---------- Targeted analysis: parse pkg6 solver error text ----------
 fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathBuf) -> Result<()> {
