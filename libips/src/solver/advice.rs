@@ -121,7 +121,21 @@ fn advise_recursive(
     for dep in manifest.dependencies.iter().filter(|d| d.dependency_type == "require" || d.dependency_type == "incorporate") {
         let Some(df) = &dep.fmri else { continue; };
         let dep_stem = df.stem().to_string();
-        let (rel, br) = extract_constraint(&dep.optional);
+        // Extract constraints from optional properties and, if absent, from the dependency FMRI version string
+        let (mut rel, mut br) = extract_constraint(&dep.optional);
+        let df_ver_str = df.version();
+        if !df_ver_str.is_empty() {
+            if rel.is_none() { rel = version_release(&df_ver_str); }
+            if br.is_none() { br = version_branch(&df_ver_str); }
+        }
+        // Mirror solver behavior: lock child to parent's branch when not explicitly constrained
+        if br.is_none() {
+            let parent_branch = fmri
+                .version
+                .as_ref()
+                .and_then(|v| v.branch.clone());
+            if let Some(pb) = parent_branch { br = Some(pb); }
+        }
 
         if ctx.cap != 0 && processed >= ctx.cap { break; }
         processed += 1;
