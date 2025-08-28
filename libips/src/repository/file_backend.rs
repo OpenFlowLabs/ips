@@ -565,12 +565,17 @@ impl Transaction {
         }
 
         // Construct the manifest path using the helper method
-        let pkg_manifest_path = FileBackend::construct_manifest_path(
-            &self.repo,
-            &publisher,
-            &package_stem,
-            &package_version,
-        );
+        let pkg_manifest_path = if package_version.is_empty() {
+            // If no version was provided, store as a default manifest file
+            FileBackend::construct_package_dir(&self.repo, &publisher, &package_stem).join("manifest")
+        } else {
+            FileBackend::construct_manifest_path(
+                &self.repo,
+                &publisher,
+                &package_stem,
+                &package_version,
+            )
+        };
         debug!("Manifest path: {}", pkg_manifest_path.display());
 
         // Create parent directories if they don't exist

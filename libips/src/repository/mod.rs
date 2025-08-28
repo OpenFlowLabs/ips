@@ -204,7 +204,7 @@ impl From<bincode::error::EncodeError> for RepositoryError {
     }
 }
 pub mod catalog;
-mod file_backend;
+pub(crate) mod file_backend;
 mod obsoleted;
 pub mod progress;
 mod rest_backend;
