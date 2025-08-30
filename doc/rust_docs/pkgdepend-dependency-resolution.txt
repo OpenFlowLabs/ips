@@ -1,0 +1,254 @@
+pkgdepend dependency resolution overview (ELF, Python, JAR)
+
+This document describes how pkgdepend analyzes files to infer package
+dependencies, based on the current source code in the pkg(5) repository.
+It is intended to guide a reimplementation of equivalent checks in Rust.
+
+High-level flow
+- File classification: src/modules/portable/os_sunos.py:get_file_type() reads
+  the first bytes of each payload and classifies as one of:
+  - ELF for ELF objects (magic 0x7F 'ELF').
+  - EXEC for text files starting with a shebang (#!).
+  - SMF_MANIFEST for XML files recognized as SMF manifests.
+  - UNFOUND or unknown for other cases. There is no specific JAR type.
+- Dispatch: src/modules/publish/dependencies.py:list_implicit_deps_for_manifest()
+  maps file types to analyzers:
+  - ELF -> pkg.flavor.elf.process_elf_dependencies
+  - EXEC -> pkg.flavor.script.process_script_deps
+  - SMF_MANIFEST -> pkg.flavor.smf_manifest.process_smf_manifest_deps
+  Unknown types are recorded in a "missing" map but not analyzed.
+- The analyzers return a list of PublishingDependency objects (see
+  src/modules/flavor/base.py) and a list of analysis errors. These are later
+  resolved to package-level DependencyAction objects.
+- Bypass rules: If pkg.depend.bypass-generate is set (manifest or action),
+  dependency generation can be skipped or filtered (details below).
+- Internal pruning: After file-level dependencies are generated, pkgdepend can
+  drop dependencies that are satisfied by files delivered by the same package.
+- Resolution to packages: Finally, dependencies on files are mapped to package
+  FMRIs by locating which packages (delivered or already installed) provide
+  the target files, following links where necessary.
+
+Controlling run paths and bypass
+- pkg.depend.runpath (portable.PD_RUN_PATH): A colon-separated string.
+  - May be set at manifest level (applies to all actions) and/or per action.
+  - Verified by __verify_run_path(): must be a single string and not empty.
+  - Per-action value overrides manifest-level value for that action.
+  - For ELF analysis, the provided runpath interacts with defaults via the
+    PD_DEFAULT_RUNPATH token (see below).
+- pkg.depend.bypass-generate (portable.PD_BYPASS_GENERATE): a string or list of
+  strings controlling path patterns to ignore when generating dependencies.
+  - In list_implicit_deps_for_manifest():
+    - If bypass contains a match-all pattern ".*" or "^.*$", analysis for that
+      action is skipped entirely. A debug attribute is recorded:
+      pkg.debug.depend.bypassed="<action path>:.*".
+    - Otherwise, __bypass_deps() filters out any matching file paths from the
+      generated dependencies. Patterns are treated as regex; bare filenames
+      are expanded to ".*/<name>" and patterns are anchored with ^...$.
+      Matching paths are recorded in pkg.debug.depend.bypassed; dependencies are
+      updated to only contain the remaining full paths.
+
+ELF analysis (pkg.flavor.elf)
+Reference: src/modules/flavor/elf.py
+
+Inputs
+- Action (file) with attributes:
+  - path: installed path (no leading slash in manifests; code often prepends "/").
+  - portable.PD_LOCAL_PATH: proto/build file to read.
+  - portable.PD_PROTO_DIR: base dir of the proto area.
+- pkg_vars: package variant template (propagated to dependencies).
+- dyn_tok_conv: map of dynamic tokens to expansion lists (e.g. $PLATFORM).
+- run_paths: optional run path list from pkg.depend.runpath (colon-split).
+
+Steps
+1) Verify file exists and is an ELF object (pkg.elf.is_elf_object). If not,
+   return no deps.
+2) Parse headers and dynamic info:
+   - elf.get_info(proto_file) -> bits (32/64), arch (i386/sparc).
+   - elf.get_dynamic(proto_file) ->
+     - deps: list of DT_NEEDED entries; code uses [d[0] for d in deps].
+     - runpath: DT_RUNPATH string (may be empty).
+3) Build default search path rp:
+   - Start with DT_RUNPATH split by ":". Empty string becomes [].
+   - dyn_tok_conv["$ORIGIN"] is set to ["/" + dirname(installed_path)] so
+     $ORIGIN can be expanded in paths.
+   - Kernel modules (installed_path under kernel/, usr/kernel, or
+     platform/<platform>/kernel):
+     - If runpath is set to anything except the specific /usr/gcc/<n>/lib case,
+       raise RuntimeError. Otherwise runpath for kernel modules is derived as:
+       - For platform paths, append /platform/<platform>/kernel; otherwise for
+         each $PLATFORM in dyn_tok_conv append /platform/<plat>/kernel.
+       - Append default kernel paths: /kernel and /usr/kernel.
+       - If 64-bit, a kernel64 subdir is used to assemble candidate paths when
+         constructing dependencies: arch -> i386 => amd64; sparc => sparcv9.
+   - Non-kernel ELF:
+     - Ensure /lib and /usr/lib are present; for 64-bit also add /lib/64 and
+       /usr/lib/64.
+4) Merge caller-provided run_paths:
+   - If run_paths is provided, base.insert_default_runpath(rp, run_paths) is
+     used. This replaces any PD_DEFAULT_RUNPATH token in run_paths with the
+     default rp. If the token is absent, the provided run_paths fully override
+     rp. Multiple PD_DEFAULT_RUNPATH tokens raise an error.
+5) Expand dynamic tokens in rp:
+   - expand_variables() recursively replaces $TOKENS using dyn_tok_conv.
+   - Unknown tokens produce UnsupportedDynamicToken errors (non-fatal) which
+     are returned in the error list.
+6) For each DT_NEEDED library name d:
+   - For each expanded run path p, form a candidate directory by joining p and
+     d; for kernel64 cases, insert amd64/sparcv9 as appropriate; drop the final
+     filename to retain only directories (run_paths for this dependency).
+   - Create an ElfDependency(action, base_name=basename(d), run_paths=dirs,
+     pkg_vars, proto_dir).
+
+Semantics of ElfDependency
+- Inherits PublishingDependency (see below). It resolves against delivered files
+  by joining each run_path with base_name to form candidates.
+- resolve_internal() is overridden to treat the case where no path resolves but
+  a file with the same base name is delivered by this package as a WARNING
+  instead of an ERROR (assumes external runpath will make it available).
+  That sets pkg.debug.depend.*.severity=warning and marks variants accordingly.
+
+Python/script analysis (pkg.flavor.script + pkg.flavor.python)
+References:
+- src/modules/flavor/script.py
+- src/modules/flavor/python.py
+
+Shebang handling (script.py)
+- For any file with a shebang (#!) and the executable bit set:
+  - Extract interpreter path (first token after #!). If not absolute, record
+    ScriptNonAbsPath error.
+  - Normalize /bin/... to /usr/bin/... and add a ScriptDependency on that
+    interpreter path (base_name = last component; run_paths = directory).
+- If the shebang line contains the substring "python" (e.g. #!/usr/bin/python3.9),
+  python-specific analysis is triggered by calling
+  python.process_python_dependencies(action, pkg_vars, script_path, run_paths),
+  where script_path is the full shebang line and run_paths is the effective
+  pkg.depend.runpath for the action.
+
+Python dependency discovery (python.py)
+- Version inference:
+  - Installed path starting with usr/lib/python<MAJOR>.<MINOR>/ implies a
+    version (dir_major/dir_minor).
+  - Shebang matching ^#!/usr/bin/(<subdir>/)?python<MAJOR>.<MINOR> implies a
+    version (file_major/file_minor).
+  - If the file is executable and both imply versions that disagree, record a
+    PythonMismatchedVersion error and use the directory version for analysis.
+  - Analysis version selection:
+    - If installed path implies version, use that.
+    - Else if shebang implies version, use that.
+    - Else if executable but no specific version (e.g. #!/usr/bin/python),
+      record PythonUnspecifiedVersion and skip analysis.
+    - Else if not executable but installed under usr/lib/pythonX.Y, analyze
+      with that version.
+- Performing analysis:
+  - If the selected version equals the currently running interpreter
+    (sys.version_info), use in-process analysis:
+    - Construct DepthLimitedModuleFinder with the install directory as the
+      base and pass through run_paths (pkg.depend.runpath). The finder executes
+      the local proto file (action.attrs[PD_LOCAL_PATH]) to discover imports.
+    - For each loaded module, obtain the list of file names (basenames of the
+      modules) and the directories searched (m.dirs). Create
+      PythonDependency(action, base_names=module file names, run_paths=dirs,...).
+    - Any missing imports are reported as PythonModuleMissingPath errors.
+    - Syntax errors are reported as PythonSyntaxError.
+  - If the selected version differs from the running interpreter:
+    - Spawn a subprocess: "python<MAJOR>.<MINOR> depthlimitedmf.py <install_dir>
+      <local_file> [run_paths ...]".
+    - Parse stdout lines:
+      - "DEP <repr((names, dirs))>" -> add PythonDependency for those.
+      - "ERR <module_name>" -> record PythonModuleMissingPath.
+      - Anything else -> PythonSubprocessBadLine.
+    - Nonzero exit -> PythonSubprocessError with return code and stderr.
+
+About JAR archives
+- There is no special handling of JAR files in the current implementation.
+  - get_file_type() does not classify JARs and there is no flavor/jar module.
+  - The historical doc/elf-jar-handling.txt mentions the idea of tasting JARs,
+    but this has not been implemented in pkgdepend.
+- Consequently, pkgdepend does not extract dependencies from .jar manifests or
+  classpaths. Any Java/JAR dependency tracking must be handled out-of-band
+  (e.g., manual packaging dependencies or future tooling).
+
+PublishingDependency mechanics (flavor/base.py)
+- A PublishingDependency represents a dependency on one or more files located
+  via a list of run_paths and base_names, or via an explicit full_paths list.
+- It stores debug attributes under the pkg.debug.depend.* namespace:
+  - .file (base names), .path (run paths) or .fullpath (explicit paths)
+  - .type (elf/python/script/smf/link), .reason, .via-links, .bypassed, etc.
+- possibly_delivered():
+  - For each candidate path (join of run_path and base_name, or each full_path),
+    calls resolve_links() to account for symlinks and hardlinks and to find
+    real provided paths.
+  - If a path resolves and the resulting path is among delivered files, the
+    dependency is considered satisfied under the relevant variant combination.
+- resolve_internal():
+  - Checks if another file delivered by the same package satisfies the
+    dependency (via possibly_delivered against the package’s own files/links).
+  - If so, the dependency is pruned. Otherwise, the error is recorded, subject
+    to ELF’s special warning downgrade noted above.
+
+Resolving dependencies to packages (dependencies.py)
+- add_fmri_path_mapping(): builds maps from paths to (PFMRI, variant
+  combinations) for both the currently delivered manifests and the installed
+  image (if used).
+- resolve_links(path, files_dict, links, path_vars, attrs):
+  - Recursively follows link chains to real paths, accumulating variant
+    constraints along the way and generating conditional dependencies when a
+    link from one package points to a file delivered by another.
+- find_package_using_delivered_files():
+  - For each dependency, computes all candidate paths (make_paths()), resolves
+    them through links (resolve_links), groups results by variant combinations,
+    and then constructs either:
+    - type=require if exactly one provider package resolves the dependency, or
+    - type=require-any if multiple packages could satisfy it.
+  - Debug attributes include:
+    - pkg.debug.depend.file/path/fullpath
+    - pkg.debug.depend.via-links (colon-separated link chain per resolution)
+    - pkg.debug.depend.path-id (a stable id grouping related path attempts)
+  - Link-derived conditional dependencies (type=conditional) are emitted to
+    encode that a dependency is only needed when a particular link provider is
+    present.
+- find_package(): tries delivered files first; if not fully satisfied and
+  allowed, tries files installed in the current image.
+- combine(), __collapse_conditionals(), __remove_unneeded_require_and_require_any():
+  - Perform simplification and deduplication of the emitted dependencies and
+    collapse conditional groups where possible.
+
+Variants and conversion to actions
+- Each dependency carries variant constraints (VariantCombinations). After
+  generation and internal pruning, convert_to_standard_dep_actions() splits
+  dependencies by unsatisfied variant combinations, producing standard
+  actions.depend.DependencyAction instances ready for output.
+
+Run path insertion rule (PD_DEFAULT_RUNPATH)
+- base.insert_default_runpath(default_runpath, run_paths) merges default
+  analyzer-detected search paths with user-provided run_paths:
+  - If run_paths includes the PD_DEFAULT_RUNPATH token, the default_runpath is
+    spliced at that position.
+  - If the token is absent, run_paths replaces the default entirely.
+  - Multiple tokens raise MultipleDefaultRunpaths.
+
+Notes for Rust implementation
+- ELF:
+  - Parse DT_NEEDED and DT_RUNPATH. Handle $ORIGIN (directory of installed
+    path) and $PLATFORM expansion. Implement kernel module path rules and
+    64-bit subdir logic. Merge user run paths via PD_DEFAULT_RUNPATH rules.
+  - Build dependencies keyed by base name with a directory search list.
+  - When pruning internal deps, downgrade to warning if base name is delivered
+    by the same package but no path matches.
+- Python:
+  - Determine Python version from installed path or shebang. Flag mismatches.
+  - Execute import discovery with a depth-limited module finder; if the target
+    version differs, spawn the matching interpreter to run a helper script and
+    parse outputs. Include run_paths in module search.
+- JAR:
+  - No current implementation. Decide whether to add support or retain current
+    behavior (no automatic JAR dependency extraction).
+- General:
+  - Implement bypass rules and debug attributes to aid diagnostics.
+  - Implement link resolution and conditional dependency emission.
+  - Respect variant tracking and final conversion to concrete dependency
+    actions.
+
+Cross-reference
+- Historical note in doc/elf-jar-handling.txt discusses possible JAR handling,
+  but the current codebase does not implement JAR dependency analysis.

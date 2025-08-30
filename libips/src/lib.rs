@@ -13,6 +13,7 @@ pub mod repository;
 pub mod publisher;
 pub mod transformer;
 pub mod solver;
+pub mod depend;
 mod test_json_manifest;
 
 #[cfg(test)]
