@@ -490,7 +490,7 @@ fn normalize_bin_path(path: &str) -> String {
     }
 }
 
-fn split_dir_base<'a>(path: &'a str) -> (Option<&'a str>, &'a str) {
+fn split_dir_base(path: &str) -> (Option<&str>, &str) {
     if let Some(idx) = path.rfind('/') {
         if idx == 0 {
             return (Some("/"), &path[1..]);
@@ -539,7 +539,7 @@ fn infer_python_version_from_paths(installed_path: &str, shebang_path: Option<&s
 fn compute_python_runpaths(version: (u8, u8), opts: &GenerateOptions) -> Vec<String> {
     let (maj, min) = version;
     let base = format!("/usr/lib/python{}.{}", maj, min);
-    let mut defaults = vec![
+    let defaults = vec![
         base.clone(),
         format!("{}/vendor-packages", base),
         format!("{}/site-packages", base),
@@ -547,10 +547,7 @@ fn compute_python_runpaths(version: (u8, u8), opts: &GenerateOptions) -> Vec<Str
     ];
     if let Some(ref rp) = opts.runpath {
         let provided: Vec<String> = rp.split(':').map(|s| s.to_string()).collect();
-        match insert_default_runpath(&defaults, &provided) {
-            Ok(v) => v,
-            Err(_) => provided,
-        }
+        insert_default_runpath(&defaults, &provided).unwrap_or_else(|_| provided)
     } else {
         defaults
     }
