@@ -3,7 +3,6 @@
 members = [
   "libips",
   "pkg6depotd",
-  "pkg6dev",
   "pkg6repo",
   "userland",
   "specfile",

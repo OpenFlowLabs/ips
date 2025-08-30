@@ -1574,20 +1574,6 @@ name = "pkg6depotd"
 version = "0.5.1"
 
 [[package]]
-name = "pkg6dev"
-version = "0.5.1"
-dependencies = [
- "anyhow",
- "clap",
- "libips",
- "miette",
- "thiserror 2.0.15",
- "tracing",
- "tracing-subscriber",
- "userland",
-]
-
-[[package]]
 name = "pkg6repo"
 version = "0.5.1"
 dependencies = [
