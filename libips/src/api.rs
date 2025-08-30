@@ -58,9 +58,9 @@ use walkdir::WalkDir;
 
 pub use crate::actions::Manifest;
 // Core typed manifest
-use crate::actions::{Attr, File as FileAction};
-pub use crate::fmri::Fmri;
+use crate::actions::{Attr, Dependency as DependAction, File as FileAction, License as LicenseAction, Link as LinkAction, Property};
 pub use crate::depend::{FileDep, GenerateOptions as DependGenerateOptions};
+pub use crate::fmri::Fmri;
 // For BaseMeta
 use crate::repository::file_backend::{FileBackend, Transaction};
 use crate::repository::{ReadableRepository, RepositoryError, RepositoryVersion, WritableRepository};
@@ -123,6 +123,31 @@ pub struct BaseMeta {
 /// Example (no_run):
 /// ```no_run
 /// use libips::api as ips;
+/// let mut builder = ips::ManifestBuilder::new();
+/// let fmri = ips::Fmri::parse("pkg://pub/name@1.0").unwrap();
+/// let summary = String::from("A summary");
+/// let classification = "Applications/Other";
+/// let project_url = String::from("https://example.com");
+/// let source_url = String::from("https://example.com/src.tar.gz");
+/// let license_file_name = "license.txt";
+/// let license_name = "MIT";
+/// builder.add_set("pkg.fmri", &fmri.to_string());
+/// builder.add_set("pkg.summary", &summary);
+/// builder.add_set(
+///     "info.classification",
+///     &format!("org.opensolaris.category.2008:{}", classification),
+/// );
+/// builder.add_set("info.upstream-url", &project_url);
+/// builder.add_set("info.source-url", &source_url);
+/// builder.add_license(&license_file_name, &license_name);
+/// let manifest = builder.build();
+/// # Ok::<(), ips::IpsError>(())
+/// ```
+///
+/// Another style using with_base_metadata:
+/// Example (no_run):
+/// ```no_run
+/// use libips::api as ips;
 /// use std::path::Path;
 /// let proto = Path::new("/proto");
 /// let mut manifest = ips::ManifestBuilder::new()
@@ -142,6 +167,48 @@ pub struct ManifestBuilder {
 }
 
 impl ManifestBuilder {
+    /// Add a simple set (attribute) action: set name=<key> value=<value>
+    /// Returns self for chaining.
+    pub fn add_set<K: Into<String>, V: ToString>(&mut self, key: K, value: V) -> &mut Self {
+        self.manifest.attributes.push(Attr {
+            key: key.into(),
+            values: vec![value.to_string()],
+            properties: Default::default(),
+        });
+        self
+    }
+
+    /// Add a license action, equivalent to: license path=<path> license=<license_name>
+    pub fn add_license(&mut self, path: &str, license_name: &str) -> &mut Self {
+        let mut props = std::collections::HashMap::new();
+        props.insert(
+            "path".to_string(),
+            Property { key: "path".to_string(), value: path.to_string() },
+        );
+        props.insert(
+            "license".to_string(),
+            Property { key: "license".to_string(), value: license_name.to_string() },
+        );
+        self.manifest.licenses.push(LicenseAction { payload: String::new(), properties: props });
+        self
+    }
+
+    /// Add a link action
+    pub fn add_link(&mut self, path: &str, target: &str) -> &mut Self {
+        self.manifest.links.push(LinkAction { path: path.to_string(), target: target.to_string(), properties: Default::default() });
+        self
+    }
+
+    /// Add a dependency action with a type and an FMRI string (name or full FMRI).
+    /// If FMRI parsing fails, the dependency is added without an fmri (will be flagged by lint).
+    pub fn add_depend(&mut self, dep_type: &str, fmri_str: &str) -> &mut Self {
+        let fmri = Fmri::parse(fmri_str).ok();
+        let mut d = DependAction::default();
+        d.dependency_type = dep_type.to_string();
+        d.fmri = fmri;
+        self.manifest.dependencies.push(d);
+        self
+    }
     /// Start a new empty builder
     pub fn new() -> Self {
         Self { manifest: Manifest::new() }
@@ -560,7 +627,6 @@ pub struct LintConfig {
 pub mod lint {
     use super::*;
     use miette::Diagnostic;
-    use std::collections::HashSet;
     use thiserror::Error;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -619,7 +685,7 @@ pub mod lint {
             if fmri_attr_count > 1 { diags.push(miette::Report::new(LintIssue::DuplicateFmri)); }
             match (fmri_attr_count, fmri_text) {
                 (0, _) => diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)),
-                (_, Some(txt)) => { if Fmri::parse(&txt).is_err() { diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)); } },
+                (_, Some(txt)) => { if crate::fmri::Fmri::parse(&txt).is_err() { diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)); } },
                 (_, None) => diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)),
             }
             diags
@@ -666,10 +732,10 @@ pub mod lint {
 
     fn rule_enabled(rule_id: &str, cfg: &LintConfig) -> bool {
         if let Some(only) = &cfg.enabled_only {
-            let set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
+            let set: std::collections::HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
             return set.contains(rule_id);
         }
-        let disabled: HashSet<&str> = cfg.disabled_rules.iter().map(|s| s.as_str()).collect();
+        let disabled: std::collections::HashSet<&str> = cfg.disabled_rules.iter().map(|s| s.as_str()).collect();
         !disabled.contains(rule_id)
     }
 
@@ -807,5 +873,43 @@ mod tests {
         let diags = lint::lint_manifest(&m, &cfg).unwrap();
         // fmri is valid, dependencies empty, summary rule disabled => no diags
         assert!(diags.is_empty(), "expected no diagnostics when summary rule disabled, got: {:?}", diags);
+    }
+
+    #[test]
+    fn builder_add_set_license_link_depend() {
+        // add_set with Fmri and strings
+        let fmri = Fmri::parse("pkg://pub/example@1.0").unwrap();
+        let mut b = ManifestBuilder::new();
+        b.add_set("pkg.fmri", &fmri);
+        b.add_set("pkg.summary", "Summary");
+        b.add_set("info.upstream-url", "https://example.com");
+        b.add_license("LICENSE", "MIT");
+        b.add_link("usr/bin/foo", "../libexec/foo");
+        b.add_depend("require", "pkg://pub/dep@1.2");
+        let m = b.build();
+
+        // Validate attributes include fmri and summary
+        assert!(m.attributes.iter().any(|a| a.key == "pkg.fmri" && a.values.get(0).map(|v| v == &fmri.to_string()).unwrap_or(false)));
+        assert!(m.attributes.iter().any(|a| a.key == "pkg.summary" && a.values.get(0).map(|v| v == "Summary").unwrap_or(false)));
+
+        // Validate license
+        assert_eq!(m.licenses.len(), 1);
+        let lic = &m.licenses[0];
+        assert_eq!(lic.properties.get("path").map(|p| p.value.as_str()), Some("LICENSE"));
+        assert_eq!(lic.properties.get("license").map(|p| p.value.as_str()), Some("MIT"));
+
+        // Validate link
+        assert_eq!(m.links.len(), 1);
+        let ln = &m.links[0];
+        assert_eq!(ln.path, "usr/bin/foo");
+        assert_eq!(ln.target, "../libexec/foo");
+
+        // Validate dependency
+        assert_eq!(m.dependencies.len(), 1);
+        let dep = &m.dependencies[0];
+        assert_eq!(dep.dependency_type, "require");
+        let df = dep.fmri.as_ref().expect("dep fmri parsed");
+        assert_eq!(df.publisher.as_deref(), Some("pub"));
+        assert_eq!(df.version.as_ref().unwrap().to_string(), "1.2");
     }
 }
