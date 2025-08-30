@@ -14,6 +14,7 @@ pub mod publisher;
 pub mod transformer;
 pub mod solver;
 pub mod depend;
+pub mod api;
 mod test_json_manifest;
 
 #[cfg(test)]
