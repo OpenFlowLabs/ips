@@ -917,14 +917,14 @@ impl RestBackend {
             .map_err(|e| {
                 // Report failure
                 progress.finish(&progress_info);
-                RepositoryError::FileWriteError(format!("Failed to create file: {}", e))
+                RepositoryError::FileWriteError { path: file_path.clone(), source: e }
             })?;
 
         file.write_all(&content)
             .map_err(|e| {
                 // Report failure
                 progress.finish(&progress_info);
-                RepositoryError::FileWriteError(format!("Failed to write file: {}", e))
+                RepositoryError::FileWriteError { path: file_path.clone(), source: e }
             })?;
 
         debug!("Stored catalog file: {}", file_path.display());
@@ -981,7 +981,7 @@ impl RestBackend {
         let attrs_content = fs::read_to_string(&attrs_path)
             .map_err(|e| {
                 progress_reporter.finish(&overall_progress);
-                RepositoryError::FileReadError(format!("Failed to read catalog.attrs: {}", e))
+                RepositoryError::FileReadError { path: attrs_path.clone(), source: e }
             })?;
         
         let attrs: Value = serde_json::from_str(&attrs_content)

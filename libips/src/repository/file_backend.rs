@@ -342,20 +342,19 @@ impl Transaction {
         if temp_file_path.exists() {
             // If it exists, remove it to avoid any issues with existing content
             fs::remove_file(&temp_file_path).map_err(|e| {
-                RepositoryError::FileWriteError(format!(
-                    "Failed to remove existing temp file: {}",
-                    e
-                ))
+                RepositoryError::FileWriteError {
+                    path: temp_file_path.clone(),
+                    source: e,
+                }
             })?;
         }
 
         // Read the file content
         let file_content = fs::read(file_path).map_err(|e| {
-            RepositoryError::FileReadError(format!(
-                "Failed to read file {}: {}",
-                file_path.display(),
-                e
-            ))
+            RepositoryError::FileReadError {
+                path: file_path.to_path_buf(),
+                source: e,
+            }
         })?;
 
         // Create a payload with the hash information if it doesn't exist
@@ -383,10 +382,10 @@ impl Transaction {
 
                 // Write the compressed data to the temp file
                 fs::write(&temp_file_path, &compressed_data).map_err(|e| {
-                    RepositoryError::FileWriteError(format!(
-                        "Failed to write compressed data to temp file: {}",
-                        e
-                    ))
+                    RepositoryError::FileWriteError {
+                        path: temp_file_path.clone(),
+                        source: e,
+                    }
                 })?;
 
                 // Calculate hash of the compressed data
@@ -410,10 +409,10 @@ impl Transaction {
 
                 // Write the compressed data to the temp file
                 fs::write(&temp_file_path, &compressed_data).map_err(|e| {
-                    RepositoryError::FileWriteError(format!(
-                        "Failed to write LZ4 compressed data to temp file: {}",
-                        e
-                    ))
+                    RepositoryError::FileWriteError {
+                        path: temp_file_path.clone(),
+                        source: e,
+                    }
                 })?;
 
                 // Calculate hash of the compressed data
@@ -663,7 +662,7 @@ impl ReadableRepository for FileBackend {
 
         // Load the repository configuration
         let config_path = path.join(REPOSITORY_CONFIG_FILENAME);
-        let config_data = fs::read_to_string(config_path)?;
+        let config_data = fs::read_to_string(&config_path).map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config_path.display(), e)))?;
         let config: RepositoryConfig = serde_json::from_str(&config_data)?;
 
         Ok(FileBackend {
@@ -1280,7 +1279,7 @@ impl ReadableRepository for FileBackend {
 
         // If destination already exists and matches digest, do nothing
         if dest.exists() {
-            let bytes = fs::read(dest)?;
+            let bytes = fs::read(dest).map_err(|e| RepositoryError::FileReadError { path: dest.to_path_buf(), source: e })?;
             match crate::digest::Digest::from_bytes(&bytes, algo.clone(), crate::digest::DigestSource::PrimaryPayloadHash) {
                 Ok(comp) if comp.hash == hash => return Ok(()),
                 _ => { /* fall through to overwrite */ }
@@ -1288,7 +1287,7 @@ impl ReadableRepository for FileBackend {
         }
 
         // Read source content and verify digest
-        let bytes = fs::read(&source_path)?;
+        let bytes = fs::read(&source_path).map_err(|e| RepositoryError::FileReadError { path: source_path.clone(), source: e })?;
         match crate::digest::Digest::from_bytes(&bytes, algo, crate::digest::DigestSource::PrimaryPayloadHash) {
             Ok(comp) => {
                 if comp.hash != hash {
@@ -1674,14 +1673,14 @@ impl FileBackend {
         // Preferred path: publisher-scoped manifest path
         let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
         if path.exists() {
-            return std::fs::read_to_string(&path).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+            return std::fs::read_to_string(&path).map_err(|e| RepositoryError::FileReadError { path, source: e });
         }
         // Fallbacks: global pkg layout without publisher
         let encoded_stem = Self::url_encode(fmri.stem());
         let encoded_version = Self::url_encode(&version);
         let alt1 = self.path.join("pkg").join(&encoded_stem).join(&encoded_version);
         if alt1.exists() {
-            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError { path: alt1, source: e });
         }
         let alt2 = self
             .path
@@ -1691,7 +1690,7 @@ impl FileBackend {
             .join(&encoded_stem)
             .join(&encoded_version);
         if alt2.exists() {
-            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError(format!("{}", e)));
+            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError { path: alt2, source: e });
         }
         Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
     }
@@ -2079,7 +2078,7 @@ impl FileBackend {
             }
 
             // Read the manifest content for hash calculation
-            let manifest_content = fs::read_to_string(&manifest_path)?;
+            let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::FileReadError { path: manifest_path.clone(), source: e })?;
 
             // Parse the manifest using parse_file which handles JSON correctly
             let manifest = Manifest::parse_file(&manifest_path)?;

@@ -81,7 +81,7 @@ mod tests {
         // Check if the manifest file exists
         if !manifest_path.exists() {
             println!("Error: Manifest file does not exist");
-            return Err(RepositoryError::FileReadError(format!(
+            return Err(RepositoryError::NotFound(format!(
                 "Manifest file does not exist: {}",
                 manifest_path.display()
             )));

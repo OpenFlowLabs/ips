@@ -6,7 +6,7 @@
 use miette::Diagnostic;
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, StripPrefixError};
+use std::path::{Path, PathBuf, StripPrefixError};
 use thiserror::Error;
 
 /// Result type for repository operations
@@ -57,26 +57,38 @@ pub enum RepositoryError {
     )]
     ConfigWriteError(String),
 
-    #[error("failed to create directory: {0}")]
+    #[error("failed to create directory {path}: {source}")]
     #[diagnostic(
         code(ips::repository_error::directory_create),
         help("Check that the parent directory exists and is writable")
     )]
-    DirectoryCreateError(String),
+    DirectoryCreateError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 
-    #[error("failed to read file: {0}")]
+    #[error("failed to read file {path}: {source}")]
     #[diagnostic(
         code(ips::repository_error::file_read),
         help("Check that the file exists and is readable")
     )]
-    FileReadError(String),
+    FileReadError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 
-    #[error("failed to write file: {0}")]
+    #[error("failed to write file {path}: {source}")]
     #[diagnostic(
         code(ips::repository_error::file_write),
         help("Check that the directory is writable")
     )]
-    FileWriteError(String),
+    FileWriteError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 
     #[error("failed to parse JSON: {0}")]
     #[diagnostic(
