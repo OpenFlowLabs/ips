@@ -72,3 +72,311 @@ SEARCH
        the indexes from are a consistent set (have identical version 
        numbers). consistent_open in search_storage takes care of this
        functionality.
+
+   3.2 Implementation overview (how the index is built and updated)
+
+       The implementation of the search index lives primarily in
+       src/modules/indexer.py and src/modules/search_storage.py.
+
+       At a high level, updates are handled by Indexer._generic_update_index(),
+       which performs these steps:
+
+         1) Obtain an exclusive lock on $ROOT/index/lock to serialize writers.
+         2) Read the existing index files using a version-checked, consistent
+            open (see search_storage.consistent_open()) so readers always see a
+            matched set of files with the same VERSION number.
+         3) Build new index artifacts in a temporary directory
+            $ROOT/index/TMP/ without disturbing the live files.
+         4) Write out all helper dictionaries; then migrate (rename/move)
+            files from TMP into $ROOT/index, updating the version number.
+            This migration is not atomic across multiple files, so readers use
+            version checks and retry to ensure consistency.
+         5) Release the lock and remove the temporary directory.
+
+       Two update paths are used depending on what changed:
+
+         - Fast update (incremental): For client-side installs/removals below a
+           small threshold (see MAX_FAST_INDEXED_PKGS in indexer.py), the
+           update only appends to the fast_add and fast_remove logs and updates
+           the set of full fmris. The large main dictionary files are not
+           rewritten or moved during this path.
+
+         - Full rebuild: When indexing on a repository (server side), or when
+           the number of changes exceeds the fast-update threshold, or when
+           an inconsistency/error is detected, the index is rebuilt by parsing
+           manifests and regenerating all dictionaries. The new files are then
+           migrated into place.
+
+       Temporary files and migration:
+
+         - All new/updated files are written under $ROOT/index/TMP/ with the
+           target VERSION header already set. After successful creation, the
+           files are moved into $ROOT/index. Legacy auxiliary directories are
+           cleaned up as needed during migration.
+
+   3.3 When indexing is triggered (client and server)
+
+       Server side (repository):
+
+         - The depot hooks indexing into the publish operation. Each time a
+           package is published to the repository, the indexer is invoked with
+           Indexer.server_update_index(). If another indexing run is already
+           in progress, new fmris are queued and a subsequent run processes
+           them. The helper function Indexer.check_for_updates(index_root, cat)
+           can be used to discover catalog entries that have not yet been
+           indexed (e.g., across restarts).
+
+       Client side (images):
+
+         - The client integrates indexing with image modification operations:
+           install, update/image-update, uninstall, and any execution of an
+           image plan that changes packages. After successful execution of an
+           image plan (see src/modules/client/imageplan.py), the code calls
+           Indexer.client_update_index() to record the changes. On a brand-new
+           image (empty index directory), Indexer.setup() seeds empty stubs.
+
+         - If a fast incremental update is possible (few package changes), the
+           operation only updates the fast logs. If not (too many changes), the
+           client releases the lock and triggers a full rebuild via
+           Indexer.rebuild_index_from_scratch(image.gen_installed_pkgs()).
+
+         - If an inconsistency or unexpected error occurs during incremental
+           update, the client falls back to a full rebuild to restore a clean
+           and consistent index.
+
+   3.4 Fast vs. full rebuild criteria
+
+       - Fast updates are used when the number of packages added/removed since
+         the last rebuild is small. The current threshold is defined by
+         MAX_FAST_INDEXED_PKGS (20 at the time of writing) in indexer.py.
+         During a fast update, only these files are changed/migrated:
+           * fast_add.v1
+           * fast_remove.v1
+           * full_fmri_list (and its hash)
+         The large main dictionary and token offset files are left untouched.
+
+       - A full rebuild is performed when:
+           * The change count exceeds the threshold, or
+           * The index on disk is missing or inconsistent, or
+           * An error occurs during fast update, or
+           * On server-side bulk operations (e.g., first-time indexing).
+
+   3.5 Files and on-disk layout
+
+       All files reside under $ROOT/index. Important files include
+       (see src/modules/search_storage.py for authoritative names):
+
+         - main_dict.ascii.v2
+             The main inverted index mapping search tokens to postings. It is
+             written in sorted token blocks and may be split/merged during
+             rebuild; very large and thus avoided in fast updates.
+
+         - token_byte_offset.v1
+             A map of token to byte offsets into main_dict for efficient
+             random access by the query engine.
+
+         - fast_add.v1 / fast_remove.v1
+             Incremental logs holding fmris added/removed since the last full
+             rebuild. Used to answer queries without rebuilding immediately.
+
+         - full_fmri_list and full_fmri_list.hash
+             A list (and content hash) of all fmris currently represented in
+             the index. Used to detect divergence and for consistency checks.
+
+         - fmri_offsets.v1
+             An auxiliary mapping between fmri identifiers and positions used
+             when assembling postings; replaces legacy per-pkg files.
+
+         - manf_list.v1
+             A mapping table of internal manifest IDs to their fmri strings.
+
+         - lock
+             The writer lock file used to serialize index modifications.
+
+       During indexing, new versions of the above are created in
+       $ROOT/index/TMP with a new VERSION header and then moved into
+       $ROOT/index. Readers always verify that all open files have identical
+       VERSION headers and will reopen/retry if a migration is in progress.
+       
+   3.6 On-disk file formats (authoritative specification)
+
+       This section describes the exact line formats, encodings, and
+       invariants for the files under $ROOT/index as implemented by
+       src/modules/search_storage.py and used by src/modules/indexer.py.
+
+       Unless otherwise noted, every index file begins with a first line of
+       the form:
+
+           VERSION: <integer>\n
+       All subsequent lines are specific to each file’s purpose, and may be
+       in arbitrary order unless ordering is explicitly stated. Readers always
+       validate that all opened files share the same VERSION number.
+
+       Conventions used below:
+         - “token” means a search term after tokenization.
+         - “fmri” means a package FMRI string; for storage the scheme is
+           omitted (include_scheme=False) and anarchy=True to avoid
+           normalization changes.
+         - “byte offset” means an integer offset used by the query engine to
+           seek quickly within a larger file or posting list.
+
+       3.6.1 main_dict.ascii.v2 — main inverted index
+
+         Purpose
+           Maps each token to its postings grouped by action type, key subtype,
+           and full value. Very large; written during full rebuilds only.
+
+         Encoding
+           One line per token. Each line has five kinds of separators in the
+           following precedence: space, '!', '@', '#', ','. The token itself is
+           URL-quoted (urllib.parse.quote) to ensure line safety.
+
+           Grammar (informal):
+
+             <line> := <token_q> <space> <AT_LIST> '\n'
+             <AT_LIST> := <AT_ENTRY> | <AT_ENTRY> <space> <AT_LIST>
+             <AT_ENTRY> := <action_type> '!' <ST_LIST>
+             <ST_LIST> := <ST_ENTRY> | <ST_ENTRY> '@' <ST_LIST>
+             <ST_ENTRY> := <subtype> '#' <FV_LIST>
+             <FV_LIST> := <FV_ENTRY> | <FV_ENTRY> '#' <FV_LIST>
+             <FV_ENTRY> := <full_value_q> <PF_LIST>
+             <PF_LIST> := <PF_PAIR> | <PF_PAIR> '#' <PF_LIST>
+             <PF_PAIR> := <pfmri_index> ',' <offset> [',' <offset>]*
+
+           Where <token_q> and <full_value_q> are URL-quoted; numeric fields are
+           base-10 integers. The first number after '#' in a PF pair is the
+           integer id of the FMRI (line number in manf_list.v1), followed by
+           one or more manifest byte offsets where the token matched.
+
+         Example
+
+           %25gconf.xml file!basename@basename#579,13249,13692,77391,77628
+
+           Meaning: the token "%gconf.xml" (quoted to %25gconf.xml) appears in
+           action type "file", key subtype "basename", with full_value
+           "basename" in manifest id 579 at offsets 13249, 13692, 77391, 77628.
+
+       3.6.2 token_byte_offset.v1 — token → byte offset map
+
+         Purpose
+           Provides random access into large posting structures for a token.
+           Written during full rebuilds; unchanged during fast updates.
+
+         Encoding
+           After the VERSION line, each subsequent line maps a token to a
+           byte offset:
+
+             <tok_marker><tok> ' ' <offset> '\n'
+
+           Where <tok_marker> is one of:
+             - '0' + tok        when tok contains no spaces
+             - '1' + quote(tok) when tok contains spaces (URL-quoted)
+
+           On read, '1' indicates the token must be URL-unquoted. Offsets are
+           base-10 integers. Example:
+
+             0libc 123456
+             1hello%20world 98765
+
+       3.6.3 fast_add.v1 and fast_remove.v1 — incremental update logs
+
+         Purpose
+           Record installed/uninstalled package FMRIs since the last full
+           rebuild. Used to answer queries incrementally without rewriting the
+           main dictionaries. Updated by fast client updates only.
+
+         Encoding
+           After the VERSION line, each non-empty line contains a single FMRI
+           string (anarchy=True, include_scheme=False). Lines may repeat across
+           files (e.g., install vs remove) but individual sets are managed to
+           avoid duplicates by the indexer logic.
+
+       3.6.4 full_fmri_list and full_fmri_list.hash — membership and checksum
+
+         Purpose
+           `full_fmri_list` holds the complete set of FMRIs represented by the
+           index at a given VERSION. `full_fmri_list.hash` stores a SHA-1 of
+           the sorted `full_fmri_list` contents for quick integrity checking
+           and to support old clients.
+
+         Encoding
+           - full_fmri_list: one FMRI per line after VERSION.
+           - full_fmri_list.hash: after VERSION, exactly one line containing a
+             lowercase hexadecimal SHA-1 digest of the sorted FMRI list.
+
+       3.6.5 manf_list.v1 — manifest id ↔ fmri mapping
+
+         Purpose
+           Provides a compact bidirectional mapping for manifest ids used in
+           `main_dict.ascii.v2` postings (pfmri_index) and other structures.
+
+         Encoding
+           After VERSION, each line corresponds to a numeric id equal to its
+           zero-based line number (excluding the VERSION line). A blank line
+           represents an empty/removed slot that can be reused later.
+
+           Examples (line numbers shown at left for clarity; not stored):
+
+             0: library/libc@1.0-0.0.0.0.0
+             1: driver/storage@2.3-1
+             2: \n                ← id 2 available for reuse
+
+       3.6.6 fmri_offsets.v1 — fmri groups → delta-compressed offsets
+
+         Purpose
+           Associates groups of FMRIs with sets of manifest offsets using
+           delta compression and deduplication. Used during rebuild to avoid
+           storing duplicate offset lists per FMRI.
+
+         Encoding
+           After VERSION, each line encodes a set of space-separated FMRIs,
+           then '!', then a space-separated list of delta-encoded offsets:
+
+             <fmri_1> ' ' <fmri_2> ... '!' <d0> ' ' <d1> ... '\n'
+
+           The offsets after '!' are not absolute; they are deltas. To recover
+           absolute offsets, start from 0 and cumulatively add each value:
+
+             abs[0] = d0
+             abs[i] = abs[i-1] + di
+
+           Example
+
+             lib/libc@1.0-0 lib/libm@1.0-0!10 5 7
+
+           This expands to absolute offsets [10, 15, 22].
+
+       3.6.7 Auxiliary __at_* and __st_* files (legacy per-type caches)
+
+         Purpose
+           During full rebuilds the indexer may generate per-action-type and
+           per-subtype auxiliary files named "__at_<action>" and "__st_<sub>".
+           These are migration artifacts moved from TMP into the index root by
+           the _migrate() step for compatibility with older query paths. Their
+           exact internal format is not intended as a public contract and may
+           change; they are managed entirely by the indexer.
+
+       3.6.8 lock — writer lock
+
+         Purpose
+           A lock file used to serialize writers. The file’s content is
+           controlled by the generic lock mechanism in pkg.lockfile. There is
+           no VERSION header; readers ignore this file.
+
+       3.6.9 Invariants and validation
+
+         - All non-auxiliary files (except lock) MUST begin with identical
+           VERSION lines within a consistent snapshot.
+         - URL-quoting is used for tokens and any full values that may contain
+           spaces or reserved separators; conversely, readers must unquote
+           where indicated by the format (see token_byte_offset.v1 and
+           main_dict.ascii.v2).
+         - `full_fmri_list.hash` is computed as the SHA-1 of the sorted
+           `full_fmri_list` contents encoded as bytes; it is used for quick
+           integrity checks and interop with older clients.
+         - `manf_list.v1` may contain blank lines indicating reusable ids; ids
+           are the zero-based line numbers (excluding the VERSION line).
+         - `fmri_offsets.v1` stores delta-encoded offsets; readers must
+           convert to absolute offsets before use.
+         - Fast updates only modify: fast_add.v1, fast_remove.v1, and
+           full_fmri_list (+ hash). Full rebuilds rewrite all structures.
