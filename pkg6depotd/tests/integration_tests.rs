@@ -100,7 +100,7 @@ async fn test_depot_server() {
     let resp = client.get(format!("{}/versions/0/", base_url)).send().await.unwrap();
     assert!(resp.status().is_success());
     let text = resp.text().await.unwrap();
-    assert!(text.contains("pkg-server pkg6depotd-0.1"));
+    assert!(text.contains("pkg-server pkg6depotd-0.5.1"));
     assert!(text.contains("catalog 0 1"));
     assert!(text.contains("manifest 0 1"));
 
