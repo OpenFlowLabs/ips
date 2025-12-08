@@ -1695,6 +1695,11 @@ impl FileBackend {
         }
         Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
     }
+    /// Fetch legacy catalog content (stub)
+    pub fn fetch_legacy_catalog(&self, _publisher: &str) -> Result<String> {
+        todo!("Implement legacy catalog format for REST API");
+    }
+
     /// Save the legacy pkg5.repository INI file for backward compatibility
     pub fn save_legacy_config(&self) -> Result<()> {
         let legacy_config_path = self.path.join("pkg5.repository");

@@ -7,9 +7,10 @@ pub async fn get_versions() -> impl IntoResponse {
                        info 0\n\
                        search 0\n\
                        versions 0\n\
-                       catalog 0\n\
-                       manifest 0\n\
-                       file 0\n";
+                       catalog 0 1\n\
+                       manifest 0 1\n\
+                       file 0 1\n\
+                       publisher 0 1\n";
     
     version_str.to_string()
 }

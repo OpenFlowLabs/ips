@@ -18,7 +18,10 @@ pub async fn get_info(
     
     let content = repo.get_manifest_text(&publisher, &fmri)?;
     
-    let manifest = Manifest::parse_string(content).map_err(|e| DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string())))?;
+    let manifest = match serde_json::from_str::<Manifest>(&content) {
+        Ok(m) => m,
+        Err(_) => Manifest::parse_string(content).map_err(|e| DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string())))?,
+    };
     
     let mut out = String::new();
     out.push_str(&format!("Name: {}\n", fmri.name));
