@@ -65,29 +65,27 @@ fn test_catalog_methods() {
     
     // Create a simple base catalog part
     let base_content = r#"{
-        "packages": {
-            "test": {
-                "example/package": [
-                    {
-                        "version": "1.0",
-                        "actions": [
-                            "set name=pkg.fmri value=pkg://test/example/package@1.0",
-                            "set name=pkg.summary value=\"Example package\"",
-                            "set name=pkg.description value=\"An example package for testing\""
-                        ]
-                    }
-                ],
-                "example/obsolete": [
-                    {
-                        "version": "1.0",
-                        "actions": [
-                            "set name=pkg.fmri value=pkg://test/example/obsolete@1.0",
-                            "set name=pkg.summary value=\"Obsolete package\"",
-                            "set name=pkg.obsolete value=true"
-                        ]
-                    }
-                ]
-            }
+        "test": {
+            "example/package": [
+                {
+                    "version": "1.0",
+                    "actions": [
+                        "set name=pkg.fmri value=pkg://test/example/package@1.0",
+                        "set name=pkg.summary value=\"Example package\"",
+                        "set name=pkg.description value=\"An example package for testing\""
+                    ]
+                }
+            ],
+            "example/obsolete": [
+                {
+                    "version": "1.0",
+                    "actions": [
+                        "set name=pkg.fmri value=pkg://test/example/obsolete@1.0",
+                        "set name=pkg.summary value=\"Obsolete package\"",
+                        "set name=pkg.obsolete value=true"
+                    ]
+                }
+            ]
         }
     }"#;
     println!("Writing base catalog part to {:?}", publisher_dir.join("base"));
