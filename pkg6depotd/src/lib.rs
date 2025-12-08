@@ -20,30 +20,27 @@ pub async fn run() -> Result<()> {
     // For M1, let's just create a dummy default if not found/failed for testing purposes
     // In a real scenario we'd want to be more specific about errors.
     
-    let config = match Config::load(args.config.clone()) {
-        Ok(c) => c,
-        Err(e) => {
-             eprintln!("Failed to load config: {}. Using default.", e);
-             Config {
-                server: config::ServerConfig {
-                    bind: vec!["0.0.0.0:8080".to_string()],
-                    workers: None,
-                    max_connections: None,
-                    reuseport: None,
-                    tls_cert: None,
-                    tls_key: None,
-                },
-                repository: config::RepositoryConfig {
-                    root: std::path::PathBuf::from("/tmp/pkg_repo"),
-                    mode: Some("readonly".to_string()),
-                },
-                telemetry: None,
-                publishers: None,
-                admin: None,
-                oauth2: None,
-            }
+    let config = Config::load(args.config.clone()).unwrap_or_else(|e| {
+        eprintln!("Failed to load config: {}. Using default.", e);
+        Config {
+            server: config::ServerConfig {
+                bind: vec!["0.0.0.0:8080".to_string()],
+                workers: None,
+                max_connections: None,
+                reuseport: None,
+                tls_cert: None,
+                tls_key: None,
+            },
+            repository: config::RepositoryConfig {
+                root: std::path::PathBuf::from("/tmp/pkg_repo"),
+                mode: Some("readonly".to_string()),
+            },
+            telemetry: None,
+            publishers: None,
+            admin: None,
+            oauth2: None,
         }
-    };
+    });
 
     // Init telemetry
     telemetry::init(&config);
