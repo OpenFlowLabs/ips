@@ -1696,7 +1696,7 @@ impl FileBackend {
         Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
     }
     /// Fetch legacy catalog content (stub)
-    pub fn fetch_legacy_catalog(&self, _publisher: &str) -> Result<String> {
+    pub fn fetch_legacy_catalog(&self, _publisher: &str, _filename: &str) -> Result<PathBuf> {
         todo!("Implement legacy catalog format for REST API");
     }
 

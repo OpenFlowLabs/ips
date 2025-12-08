@@ -9,7 +9,6 @@ use crate::http::handlers::{versions, catalog, manifest, file, info, publisher};
 pub fn app_router(state: Arc<DepotRepo>) -> Router {
     Router::new()
         .route("/versions/0/", get(versions::get_versions))
-        .route("/{publisher}/catalog/0/", get(catalog::get_catalog))
         .route("/{publisher}/catalog/1/{filename}", get(catalog::get_catalog_v1))
         .route("/{publisher}/manifest/0/{fmri}", get(manifest::get_manifest))
         .route("/{publisher}/manifest/1/{fmri}", get(manifest::get_manifest))

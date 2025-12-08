@@ -36,9 +36,9 @@ impl DepotRepo {
         backend.fetch_manifest_text(publisher, fmri).map_err(DepotError::Repo)
     }
 
-    pub fn get_legacy_catalog(&self, publisher: &str) -> Result<String> {
+    pub fn get_legacy_catalog(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
         let backend = self.backend.lock().map_err(|e| DepotError::Server(format!("Lock poisoned: {}", e)))?;
-        backend.fetch_legacy_catalog(publisher).map_err(DepotError::Repo)
+        backend.fetch_legacy_catalog(publisher, filename).map_err(DepotError::Repo)
     }
 
     pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Option<PathBuf> {

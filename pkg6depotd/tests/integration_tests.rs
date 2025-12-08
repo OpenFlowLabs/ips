@@ -101,16 +101,10 @@ async fn test_depot_server() {
     assert!(resp.status().is_success());
     let text = resp.text().await.unwrap();
     assert!(text.contains("pkg-server pkg6depotd-0.5.1"));
-    assert!(text.contains("catalog 0 1"));
+    assert!(text.contains("catalog 1"));
     assert!(text.contains("manifest 0 1"));
 
     // 2. Test Catalog
-    // Catalog v0 stub check
-    /*
-    let catalog_url = format!("{}/test/catalog/0/", base_url);
-    let resp = client.get(&catalog_url).send().await.unwrap();
-    assert!(resp.status().is_success());
-    */
     
     // Test Catalog v1
     let catalog_v1_url = format!("{}/test/catalog/1/catalog.attrs", base_url);
