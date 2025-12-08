@@ -1,0 +1,14 @@
+server {
+    bind "0.0.0.0:8080"
+    workers 4
+}
+
+repository {
+    root "/tmp/pkg_repo"
+    mode "readonly"
+}
+
+telemetry {
+    service-name "pkg6depotd"
+    log-format "json"
+}

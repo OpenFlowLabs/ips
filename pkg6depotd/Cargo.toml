@@ -9,6 +9,45 @@ repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+# Async Runtime & Web Framework
+tokio = { version = "1.47", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+hyper = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util", "timeout", "limit", "load-shed"] }
+tower-http = { version = "0.6", features = ["trace", "fs", "cors", "compression-full", "timeout", "request-id", "util"] }
+rustls = "0.23"
+tokio-rustls = "0.26"
+axum-server = { version = "0.8", features = ["tls-rustls"] } # Simplifies TLS with Axum
+socket2 = "0.6"
+bytes = "1"
+http-body-util = "0.1"
+
+# CLI & Config
+clap = { version = "4.5", features = ["derive", "env"] }
+knuffel = "3.2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs = "6"
+nix = { version = "0.30", features = ["signal", "process", "user", "fs"] }
+
+# Telemetry
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] } # Check compatibility with otel 0.22
+tracing-opentelemetry = "0.32"
+
+# Error Handling
+thiserror = "2"
+miette = { version = "7.6.0", features = ["fancy"] }
+
+# Project Dependencies
+libips = { path = "../libips" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
