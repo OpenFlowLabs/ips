@@ -1695,9 +1695,23 @@ impl FileBackend {
         }
         Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
     }
-    /// Fetch legacy catalog content (stub)
-    pub fn fetch_legacy_catalog(&self, _publisher: &str, _filename: &str) -> Result<PathBuf> {
-        todo!("Implement legacy catalog format for REST API");
+    /// Fetch catalog file path
+    pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
+        if filename.contains('/') || filename.contains('\\') {
+            return Err(RepositoryError::PathPrefixError(filename.to_string()));
+        }
+
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        let path = catalog_dir.join(filename);
+
+        if path.exists() {
+            Ok(path)
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Catalog file {} for publisher {} not found",
+                filename, publisher
+            )))
+        }
     }
 
     /// Save the legacy pkg5.repository INI file for backward compatibility

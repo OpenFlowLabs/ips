@@ -36,23 +36,11 @@ impl DepotRepo {
         backend.fetch_manifest_text(publisher, fmri).map_err(DepotError::Repo)
     }
 
-    pub fn get_legacy_catalog(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
+    pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
         let backend = self.backend.lock().map_err(|e| DepotError::Server(format!("Lock poisoned: {}", e)))?;
-        backend.fetch_legacy_catalog(publisher, filename).map_err(DepotError::Repo)
+        backend.get_catalog_file_path(publisher, filename).map_err(DepotError::Repo)
     }
 
-    pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Option<PathBuf> {
-        if filename.contains('/') || filename.contains('\\') {
-            return None;
-        }
-        let catalog_dir = self.get_catalog_path(publisher);
-        let path = catalog_dir.join(filename);
-        if path.exists() {
-            Some(path)
-        } else {
-            None
-        }
-    }
 
     pub fn get_info(&self) -> Result<libips::repository::RepositoryInfo> {
         let backend = self.backend.lock().map_err(|e| DepotError::Server(format!("Lock poisoned: {}", e)))?;

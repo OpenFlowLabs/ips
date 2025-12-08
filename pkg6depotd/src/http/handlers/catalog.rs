@@ -13,7 +13,7 @@ pub async fn get_catalog_v1(
     Path((publisher, filename)): Path<(String, String)>,
     req: Request,
 ) -> Result<Response, DepotError> {
-    let path = repo.get_legacy_catalog(&publisher, &filename)?;
+    let path = repo.get_catalog_file_path(&publisher, &filename)?;
 
     let service = ServeFile::new(path);
     let result = service.oneshot(req).await;
