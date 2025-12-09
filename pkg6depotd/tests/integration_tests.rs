@@ -230,4 +230,21 @@ async fn test_ini_only_repo_serving_catalog() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("package-count"));
     assert!(body.contains("parts"));
+
+    // Also fetch individual catalog parts
+    for part in ["catalog.base.C", "catalog.dependency.C", "catalog.summary.C"].iter() {
+        let url = format!("{}/{}/catalog/1/{}", base_url, publisher, part);
+        let resp = client.get(&url).send().await.unwrap();
+        assert!(resp.status().is_success(), "{} status: {:?}", part, resp.status());
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        assert!(ct.contains("application/json"), "content-type for {} was {}", part, ct);
+        let txt = resp.text().await.unwrap();
+        assert!(!txt.is_empty(), "{} should not be empty", part);
+        if *part == "catalog.base.C" {
+            assert!(txt.contains(&publisher) && txt.contains("version"), "base part should contain publisher and version");
+        } else {
+            // dependency/summary may be empty for this test package; at least ensure signature is present
+            assert!(txt.contains("_SIGNATURE"), "{} should contain a signature field", part);
+        }
+    }
 }
