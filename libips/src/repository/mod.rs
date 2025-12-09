@@ -237,6 +237,21 @@ pub use rest_backend::RestBackend;
 /// Repository configuration filename
 pub const REPOSITORY_CONFIG_FILENAME: &str = "pkg6.repository";
 
+/// Options to control batched catalog rebuild behavior
+#[derive(Debug, Clone, Copy)]
+pub struct BatchOptions {
+    /// Number of packages processed before flushing catalog parts to disk
+    pub batch_size: usize,
+    /// How many batches between fsync/flush points (reserved for future use)
+    pub flush_every_n: usize,
+}
+
+impl Default for BatchOptions {
+    fn default() -> Self {
+        BatchOptions { batch_size: 2000, flush_every_n: 1 }
+    }
+}
+
 /// Information about a publisher in a repository
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PublisherInfo {

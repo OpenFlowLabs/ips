@@ -2167,12 +2167,25 @@ impl FileBackend {
         Ok(())
     }
 
-    /// Rebuild catalog for a publisher
-    ///
-    /// This method generates catalog files for a publisher and stores them in the publisher's
-    /// catalog directory.
+    /// Rebuild catalog for a publisher (delegates to the batched implementation with defaults)
     pub fn rebuild_catalog(&self, publisher: &str, create_update_log: bool) -> Result<()> {
-        info!("Rebuilding catalog for publisher: {}", publisher);
+        let opts = crate::repository::BatchOptions::default();
+        self.rebuild_catalog_batched(publisher, create_update_log, opts)
+    }
+
+    /// Rebuild catalog for a publisher using a batched algorithm.
+    ///
+    /// Batching currently streams package processing while accumulating in-memory
+    /// structures for the three catalog parts and optional update log, and emits
+    /// progress spans per batch. Future work may flush partial structures to
+    /// disk, but the public API is stable.
+    pub fn rebuild_catalog_batched(
+        &self,
+        publisher: &str,
+        create_update_log: bool,
+        opts: crate::repository::BatchOptions,
+    ) -> Result<()> {
+        info!("Rebuilding catalog (batched) for publisher: {}", publisher);
         
         // Create the catalog directory for the publisher if it doesn't exist
         let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
@@ -2193,7 +2206,13 @@ impl FileBackend {
         let mut package_count = 0;
         let mut package_version_count = 0;
 
-        // Process each package
+        // Process each package in deterministic order (by FMRI string)
+        let mut packages = packages;
+        packages.sort_by(|a, b| a.fmri.to_string().cmp(&b.fmri.to_string()));
+
+        let mut processed_in_batch = 0usize;
+        let mut batch_no = 0usize;
+
         for package in packages {
             let fmri = &package.fmri;
             let stem = fmri.stem();
@@ -2311,6 +2330,13 @@ impl FileBackend {
             // Update counts
             package_count += 1;
             package_version_count += 1;
+
+            processed_in_batch += 1;
+            if processed_in_batch >= opts.batch_size {
+                batch_no += 1;
+                tracing::debug!(publisher, batch_no, processed_in_batch, "catalog rebuild batch processed");
+                processed_in_batch = 0;
+            }
         }
 
         // Create and save catalog parts
