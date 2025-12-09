@@ -142,6 +142,8 @@ async fn test_depot_server() {
     let info_text = resp.text().await.unwrap();
     assert!(info_text.contains("Name: example"));
     assert!(info_text.contains("Summary: Test Package"));
+    // Ensure FMRI format is correct: pkg://<publisher>/<name>@<version>
+    assert!(info_text.contains("FMRI: pkg://test/example@1.0.0"), "Info FMRI was: {}", info_text);
     
     // 5. Test Publisher v1
     let pub_url = format!("{}/test/publisher/1", base_url);
