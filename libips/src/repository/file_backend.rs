@@ -661,9 +661,52 @@ impl ReadableRepository for FileBackend {
         }
 
         // Load the repository configuration
-        let config_path = path.join(REPOSITORY_CONFIG_FILENAME);
-        let config_data = fs::read_to_string(&config_path).map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config_path.display(), e)))?;
-        let config: RepositoryConfig = serde_json::from_str(&config_data)?;
+        // Prefer pkg6.repository (JSON). If absent, try legacy pkg5.repository (INI)
+        let config6_path = path.join(REPOSITORY_CONFIG_FILENAME);
+        let config5_path = path.join("pkg5.repository");
+
+        let config: RepositoryConfig = if config6_path.exists() {
+            let config_data = fs::read_to_string(&config6_path)
+                .map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config6_path.display(), e)))?;
+            serde_json::from_str(&config_data)?
+        } else if config5_path.exists() {
+            // Minimal mapping for legacy INI: take publishers only from INI; do not scan disk.
+            let ini = Ini::load_from_file(&config5_path)
+                .map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config5_path.display(), e)))?;
+
+            // Default repository version for legacy format is v4
+            let mut cfg = RepositoryConfig::default();
+
+            // Try to read default publisher from [publisher] section (key: prefix)
+            if let Some(section) = ini.section(Some("publisher")) {
+                if let Some(prefix) = section.get("prefix") {
+                    cfg.default_publisher = Some(prefix.to_string());
+                    cfg.publishers.push(prefix.to_string());
+                }
+            }
+
+            // If INI enumerates publishers in an optional [publishers] section as comma-separated list
+            if let Some(section) = ini.section(Some("publishers")) {
+                if let Some(list) = section.get("list") {
+                    // replace list strictly by INI contents per requirements
+                    cfg.publishers.clear();
+                    for p in list.split(',') {
+                        let name = p.trim();
+                        if !name.is_empty() {
+                            cfg.publishers.push(name.to_string());
+                        }
+                    }
+                }
+            }
+
+            cfg
+        } else {
+            return Err(RepositoryError::ConfigReadError(format!(
+                "No repository config found: expected {} or {}",
+                config6_path.display(),
+                config5_path.display()
+            )));
+        };
 
         Ok(FileBackend {
             path: path.to_path_buf(),
@@ -2083,10 +2126,11 @@ impl FileBackend {
             // Parse the manifest using parse_file which handles JSON correctly
             let manifest = Manifest::parse_file(&manifest_path)?;
 
-            // Calculate SHA-256 hash of the manifest (as a substitute for SHA-1)
-            let mut hasher = sha2::Sha256::new();
+            // Calculate SHA-1 hash of the manifest for legacy catalog signature compatibility
+            let mut hasher = sha1::Sha1::new();
             hasher.update(manifest_content.as_bytes());
-            let signature = format!("{:x}", hasher.finalize());
+            let signature = hasher.finalize();
+            let signature = format!("{:x}", signature);
 
             // Add to base entries
             base_entries.push((fmri.clone(), None, signature.clone()));
@@ -2296,6 +2340,45 @@ impl FileBackend {
         }
 
         info!("Catalog rebuilt for publisher: {}", publisher);
+        Ok(())
+    }
+
+    /// Save an update log file to the publisher's catalog directory.
+    ///
+    /// The file name must follow the legacy pattern: `update.<logdate>.<locale>`
+    /// for example: `update.20090524T042841Z.C`.
+    pub fn save_update_log(
+        &self,
+        publisher: &str,
+        log_filename: &str,
+        log: &crate::repository::catalog::UpdateLog,
+    ) -> Result<()> {
+        if log_filename.contains('/') || log_filename.contains('\\') {
+            return Err(RepositoryError::PathPrefixError(log_filename.to_string()));
+        }
+
+        // Ensure catalog dir exists
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        std::fs::create_dir_all(&catalog_dir).map_err(|e| RepositoryError::DirectoryCreateError { path: catalog_dir.clone(), source: e })?;
+
+        // Serialize JSON
+        let json = serde_json::to_vec_pretty(log)
+            .map_err(|e| RepositoryError::JsonSerializeError(format!("Update log serialize error: {}", e)))?;
+
+        // Write atomically
+        let target = catalog_dir.join(log_filename);
+        let tmp = target.with_extension("tmp");
+        {
+            let mut f = std::fs::File::create(&tmp)
+                .map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
+            use std::io::Write as _;
+            f.write_all(&json)
+                .map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
+            f.flush().map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
+        }
+        std::fs::rename(&tmp, &target)
+            .map_err(|e| RepositoryError::FileWriteError { path: target.clone(), source: e })?;
+
         Ok(())
     }
     

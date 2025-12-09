@@ -24,6 +24,8 @@ maplit = "1"
 object = "0.37"
 goblin = "0.8"
 sha2 = "0.10"
+# For SHA-1 signatures required by legacy catalog format
+sha1 = "0.10"
 sha3 = "0.10"
 pest = "2.1.3"
 pest_derive = "2.1.0"
