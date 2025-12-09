@@ -68,6 +68,7 @@ async fn test_depot_server() {
             workers: None,
             max_connections: None,
             reuseport: None,
+            cache_max_age: Some(3600),
             tls_cert: None,
             tls_key: None,
         },
@@ -210,7 +211,7 @@ async fn test_ini_only_repo_serving_catalog() {
 
     // Start depot server
     let config = Config {
-        server: ServerConfig { bind: vec!["127.0.0.1:0".to_string()], workers: None, max_connections: None, reuseport: None, tls_cert: None, tls_key: None },
+        server: ServerConfig { bind: vec!["127.0.0.1:0".to_string()], workers: None, max_connections: None, reuseport: None, cache_max_age: Some(3600), tls_cert: None, tls_key: None },
         repository: RepositoryConfig { root: repo_path.clone(), mode: Some("readonly".to_string()) },
         telemetry: None, publishers: None, admin: None, oauth2: None,
     };

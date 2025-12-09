@@ -28,6 +28,9 @@ pub struct ServerConfig {
     pub max_connections: Option<usize>,
     #[knuffel(child, unwrap(argument))]
     pub reuseport: Option<bool>,
+    /// Default max-age for Cache-Control headers (seconds)
+    #[knuffel(child, unwrap(argument))]
+    pub cache_max_age: Option<u64>,
     #[knuffel(child, unwrap(argument))]
     pub tls_cert: Option<PathBuf>,
     #[knuffel(child, unwrap(argument))]
@@ -62,6 +65,9 @@ pub struct PublishersConfig {
 pub struct AdminConfig {
     #[knuffel(child, unwrap(argument))]
     pub unix_socket: Option<PathBuf>,
+    /// If true, require Authorization on /admin/health as well
+    #[knuffel(child, unwrap(argument))]
+    pub require_auth_for_health: Option<bool>,
 }
 
 #[derive(Debug, knuffel::Decode, Clone)]

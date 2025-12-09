@@ -2109,6 +2109,7 @@ dependencies = [
  "dirs",
  "flate2",
  "http-body-util",
+ "httpdate",
  "hyper",
  "knuffel",
  "libips",

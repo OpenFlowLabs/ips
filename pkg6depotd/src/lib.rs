@@ -28,6 +28,7 @@ pub async fn run() -> Result<()> {
                 workers: None,
                 max_connections: None,
                 reuseport: None,
+                cache_max_age: Some(3600),
                 tls_cert: None,
                 tls_key: None,
             },
