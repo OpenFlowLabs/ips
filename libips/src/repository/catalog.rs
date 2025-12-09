@@ -175,7 +175,7 @@ impl CatalogAttrs {
 
     /// Save catalog attributes to a file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
+        let json = serde_json::to_string(self)?;
         fs::write(path, json)?;
         Ok(())
     }
@@ -370,7 +370,7 @@ impl UpdateLog {
 
     /// Save update log to a file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
+        let json = serde_json::to_string(self)?;
         fs::write(path, json)?;
         Ok(())
     }

@@ -29,6 +29,7 @@ use super::{
     PackageContents, PackageInfo, PublisherInfo, ReadableRepository, RepositoryConfig,
     RepositoryInfo, RepositoryVersion, WritableRepository, REPOSITORY_CONFIG_FILENAME,
 };
+use super::catalog_writer;
 use ini::Ini;
 
 // Define a struct to hold the content vectors for each package
@@ -1707,6 +1708,110 @@ impl WritableRepository for FileBackend {
 }
 
 impl FileBackend {
+    /// Save catalog.attrs for a publisher using atomic write and SHA-1 signature
+    pub fn save_catalog_attrs(
+        &self,
+        publisher: &str,
+        attrs: &mut crate::repository::catalog::CatalogAttrs,
+    ) -> Result<String> {
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        std::fs::create_dir_all(&catalog_dir)?;
+        let attrs_path = catalog_dir.join("catalog.attrs");
+        super::catalog_writer::write_catalog_attrs(&attrs_path, attrs)
+    }
+
+    /// Save a catalog part for a publisher using atomic write and SHA-1 signature
+    pub fn save_catalog_part(
+        &self,
+        publisher: &str,
+        part_name: &str,
+        part: &mut crate::repository::catalog::CatalogPart,
+    ) -> Result<String> {
+        if part_name.contains('/') || part_name.contains('\\') {
+            return Err(RepositoryError::PathPrefixError(part_name.to_string()));
+        }
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        std::fs::create_dir_all(&catalog_dir)?;
+        let part_path = catalog_dir.join(part_name);
+        super::catalog_writer::write_catalog_part(&part_path, part)
+    }
+
+    /// Append a single update entry to the current update log file for a publisher and locale.
+    /// If no current log exists, creates one using current timestamp.
+    pub fn append_update(
+        &self,
+        publisher: &str,
+        locale: &str,
+        fmri: &crate::fmri::Fmri,
+        op_type: crate::repository::catalog::CatalogOperationType,
+        catalog_parts: std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+        signature_sha1: Option<String>,
+    ) -> Result<()> {
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        std::fs::create_dir_all(&catalog_dir)?;
+
+        // Locate latest update file for locale
+        let mut latest: Option<PathBuf> = None;
+        if let Ok(read_dir) = std::fs::read_dir(&catalog_dir) {
+            for e in read_dir.flatten() {
+                let p = e.path();
+                if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                    if name.starts_with("update.") && name.ends_with(&format!(".{}", locale)) {
+                        if latest.as_ref().map(|lp| p > *lp).unwrap_or(true) {
+                            latest = Some(p);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If none, create a new filename using current timestamp in basic format
+        let update_path = match latest {
+            Some(p) => p,
+            None => {
+                let now = std::time::SystemTime::now();
+                let ts = format_iso8601_timestamp(&now); // e.g., 20090508T161025.686485Z
+                let stem = ts.split('.').next().unwrap_or(&ts); // take up to seconds
+                catalog_dir.join(format!("update.{}.{}", stem, locale))
+            }
+        };
+
+        // Load or create log
+        let mut log = if update_path.exists() {
+            crate::repository::catalog::UpdateLog::load(&update_path)?
+        } else {
+            crate::repository::catalog::UpdateLog::new()
+        };
+
+        // Append entry
+        log.add_update(publisher, fmri, op_type, catalog_parts, signature_sha1);
+        let _ = super::catalog_writer::write_update_log(&update_path, &mut log)?;
+        Ok(())
+    }
+
+    /// Rotate the update log file by creating a new empty file with the provided timestamp (basic format).
+    /// If `timestamp_basic` is None, the current time is used. Timestamp should match catalog v1 naming: YYYYMMDDThhmmssZ
+    pub fn rotate_update_file(
+        &self,
+        publisher: &str,
+        locale: &str,
+        timestamp_basic: Option<String>,
+    ) -> Result<PathBuf> {
+        let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
+        std::fs::create_dir_all(&catalog_dir)?;
+        let ts_basic = match timestamp_basic {
+            Some(s) => s,
+            None => {
+                let now = std::time::SystemTime::now();
+                let ts = format_iso8601_timestamp(&now);
+                ts.split('.').next().unwrap_or(&ts).to_string()
+            }
+        };
+        let path = catalog_dir.join(format!("update.{}.{}", ts_basic, locale));
+        let mut log = crate::repository::catalog::UpdateLog::new();
+        let _ = super::catalog_writer::write_update_log(&path, &mut log)?;
+        Ok(path)
+    }
     pub fn fetch_manifest_text(&self, publisher: &str, fmri: &Fmri) -> Result<String> {
         // Require a concrete version
         let version = fmri.version();
@@ -2254,13 +2359,6 @@ impl FileBackend {
             },
         );
 
-        // Save the catalog.attrs file
-        let attrs_path = catalog_dir.join("catalog.attrs");
-        debug!("Writing catalog.attrs to: {}", attrs_path.display());
-        let attrs_json = serde_json::to_string_pretty(&attrs)?;
-        fs::write(&attrs_path, attrs_json)?;
-        debug!("Wrote catalog.attrs file");
-
         // Create and save catalog parts
 
         // Base part
@@ -2270,8 +2368,7 @@ impl FileBackend {
         for (fmri, actions, signature) in base_entries {
             base_part.add_package(publisher, &fmri, actions, Some(signature));
         }
-        let base_part_json = serde_json::to_string_pretty(&base_part)?;
-        fs::write(&base_part_path, base_part_json)?;
+        let base_sig = catalog_writer::write_catalog_part(&base_part_path, &mut base_part)?;
         debug!("Wrote base part file");
 
         // Dependency part
@@ -2284,8 +2381,7 @@ impl FileBackend {
         for (fmri, actions, signature) in dependency_entries {
             dependency_part.add_package(publisher, &fmri, actions, Some(signature));
         }
-        let dependency_part_json = serde_json::to_string_pretty(&dependency_part)?;
-        fs::write(&dependency_part_path, dependency_part_json)?;
+        let dependency_sig = catalog_writer::write_catalog_part(&dependency_part_path, &mut dependency_part)?;
         debug!("Wrote dependency part file");
 
         // Summary part
@@ -2295,9 +2391,25 @@ impl FileBackend {
         for (fmri, actions, signature) in summary_entries {
             summary_part.add_package(publisher, &fmri, actions, Some(signature));
         }
-        let summary_part_json = serde_json::to_string_pretty(&summary_part)?;
-        fs::write(&summary_part_path, summary_part_json)?;
+        let summary_sig = catalog_writer::write_catalog_part(&summary_part_path, &mut summary_part)?;
         debug!("Wrote summary part file");
+
+        // Update part signatures in attrs (written after parts)
+        if let Some(info) = attrs.parts.get_mut(base_part_name) {
+            info.signature_sha1 = Some(base_sig);
+        }
+        if let Some(info) = attrs.parts.get_mut(dependency_part_name) {
+            info.signature_sha1 = Some(dependency_sig);
+        }
+        if let Some(info) = attrs.parts.get_mut(summary_part_name) {
+            info.signature_sha1 = Some(summary_sig);
+        }
+
+        // Save the catalog.attrs file (after parts so signatures are present)
+        let attrs_path = catalog_dir.join("catalog.attrs");
+        debug!("Writing catalog.attrs to: {}", attrs_path.display());
+        let _attrs_sig = catalog_writer::write_catalog_attrs(&attrs_path, &mut attrs)?;
+        debug!("Wrote catalog.attrs file");
 
         // Create and save the update log if needed
         if create_update_log {
@@ -2318,8 +2430,7 @@ impl FileBackend {
                 );
             }
 
-            let update_log_json = serde_json::to_string_pretty(&update_log)?;
-            fs::write(&update_log_path, update_log_json)?;
+            let _ = catalog_writer::write_update_log(&update_log_path, &mut update_log)?;
             debug!("Wrote update log file");
 
             // Add an update log to catalog.attrs
@@ -2334,8 +2445,7 @@ impl FileBackend {
 
             // Update the catalog.attrs file with the new update log
             debug!("Updating catalog.attrs file with new update log");
-            let attrs_json = serde_json::to_string_pretty(&attrs)?;
-            fs::write(catalog_dir.join("catalog.attrs"), attrs_json)?;
+            let _ = catalog_writer::write_catalog_attrs(&attrs_path, &mut attrs)?;
             debug!("Updated catalog.attrs file");
         }
 
