@@ -3,17 +3,22 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "openindiana/hipster"
 
+  config.vm.synced_folder ".", "/vagrant", type: "rsync",
+    rsync__exclude: [".git/", "target/"]
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "8192"
+  end
+
+  config.vm.provider "libvirt" do |lv|
+    lv.memory = "8192"
+  end
+
   config.vm.provision "shell", inline: <<-SHELL
     set -ex
-    pkg install -v system/library/gcc-4-runtime build-essential system/library/g++-4-runtime jq
+    pkg install -v developer/lang/rustc build-essential jq
     mkdir /ws
     chown vagrant:vagrant /ws
     zfs create -o mountpoint=/zones rpool/zones
-  SHELL
-
-  config.vm.provision "shell", privileged: false, inline: <<-SHELL
-    set -ex
-    chmod 664 $HOME/.bashrc
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- --profile complete -y
   SHELL
 end
