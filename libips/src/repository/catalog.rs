@@ -125,10 +125,6 @@ pub struct UpdateLogInfo {
 /// Catalog attributes
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogAttrs {
-    /// Optional signature information
-    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<HashMap<String, String>>,
-
     /// Creation timestamp in ISO-8601 'basic format' date in UTC
     pub created: String,
 
@@ -153,6 +149,10 @@ pub struct CatalogAttrs {
 
     /// Catalog version
     pub version: u32,
+
+    /// Optional signature information
+    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
+    pub signature: Option<HashMap<String, String>>,
 }
 
 impl CatalogAttrs {
@@ -206,13 +206,13 @@ pub struct PackageVersionEntry {
 /// Catalog part (base, dependency, summary)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogPart {
-    /// Optional signature information
-    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<HashMap<String, String>>,
-
     /// Packages by publisher and stem
     #[serde(flatten)]
     pub packages: HashMap<String, HashMap<String, Vec<PackageVersionEntry>>>,
+
+    /// Optional signature information
+    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
+    pub signature: Option<HashMap<String, String>>,
 }
 
 impl CatalogPart {
@@ -276,13 +276,11 @@ impl CatalogPart {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path_ref = path.as_ref();
         let json = fs::File::open(path_ref)?;
-        
+
         // Try to parse the JSON directly
         match serde_json::from_reader(json) {
             Ok(part) => Ok(part),
-            Err(e) => {
-                Err(CatalogError::JsonSerializationError(e))
-            }
+            Err(e) => Err(CatalogError::JsonSerializationError(e)),
         }
     }
 }
@@ -322,12 +320,12 @@ pub struct PackageUpdateEntry {
 /// Update log
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateLog {
+    /// Updates by publisher and stem
+    pub updates: HashMap<String, HashMap<String, Vec<PackageUpdateEntry>>>,
+
     /// Optional signature information
     #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
     pub signature: Option<HashMap<String, String>>,
-
-    /// Updates by publisher and stem
-    pub updates: HashMap<String, HashMap<String, Vec<PackageUpdateEntry>>>,
 }
 
 impl UpdateLog {
@@ -387,7 +385,7 @@ impl UpdateLog {
 pub struct CatalogManager {
     /// Path to the catalog directory
     catalog_dir: PathBuf,
-    
+
     /// Publisher name
     publisher: String,
 
@@ -596,27 +594,35 @@ mod tests {
     #[test]
     fn test_load_sample_catalog() {
         // Path is relative to the crate root (libips)
-        let path = PathBuf::from("../sample_data/sample-repo/publisher/openindiana.org/catalog/catalog.base.C");
-        
+        let path = PathBuf::from(
+            "../sample_data/sample-repo/publisher/openindiana.org/catalog/catalog.base.C",
+        );
+
         // Only run this test if the sample data exists
         if path.exists() {
             println!("Testing with sample catalog at {:?}", path);
             match CatalogPart::load(&path) {
                 Ok(part) => {
                     println!("Successfully loaded catalog part");
-                    
+
                     // Verify we loaded the correct data structure
                     // The sample file has "openindiana.org" as a key
-                    assert!(part.packages.contains_key("openindiana.org"), "Catalog should contain openindiana.org publisher");
-                    
+                    assert!(
+                        part.packages.contains_key("openindiana.org"),
+                        "Catalog should contain openindiana.org publisher"
+                    );
+
                     let packages = part.packages.get("openindiana.org").unwrap();
                     println!("Found {} packages for openindiana.org", packages.len());
                     assert!(packages.len() > 0, "Should have loaded packages");
-                },
+                }
                 Err(e) => panic!("Failed to load catalog part: {}", e),
             }
         } else {
-            println!("Sample data not found at {:?}, skipping test. This is expected in some CI environments.", path);
+            println!(
+                "Sample data not found at {:?}, skipping test. This is expected in some CI environments.",
+                path
+            );
         }
     }
 }
