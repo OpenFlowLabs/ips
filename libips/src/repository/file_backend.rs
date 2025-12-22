@@ -10,7 +10,7 @@ use lz4::EncoderBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as Sha2Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -228,28 +228,6 @@ pub struct FileBackend {
         Option<std::cell::RefCell<crate::repository::obsoleted::ObsoletedPackageManager>>,
 }
 
-/// Format a SystemTime as an ISO 8601 timestamp string
-fn format_iso8601_timestamp(time: &SystemTime) -> String {
-    let duration = time
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0));
-
-    let secs = duration.as_secs();
-    let micros = duration.subsec_micros();
-
-    // Format as ISO 8601 with microsecond precision
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
-        // Convert seconds to date and time components
-        1970 + secs / 31536000,          // year (approximate)
-        (secs % 31536000) / 2592000 + 1, // month (approximate)
-        (secs % 2592000) / 86400 + 1,    // day (approximate)
-        (secs % 86400) / 3600,           // hour
-        (secs % 3600) / 60,              // minute
-        secs % 60,                       // second
-        micros                           // microseconds
-    )
-}
 
 /// Transaction for publishing packages
 pub struct Transaction {
@@ -759,9 +737,9 @@ impl ReadableRepository for FileBackend {
             let updated = if latest_timestamp == SystemTime::UNIX_EPOCH {
                 // If no files were found, use the current time
                 let now = SystemTime::now();
-                format_iso8601_timestamp(&now)
+                crate::repository::catalog::format_iso8601_basic(&now)
             } else {
-                format_iso8601_timestamp(&latest_timestamp)
+                crate::repository::catalog::format_iso8601_basic(&latest_timestamp)
             };
 
             // Create a PublisherInfo struct and add it to the list
@@ -1801,9 +1779,9 @@ impl FileBackend {
         locale: &str,
         fmri: &crate::fmri::Fmri,
         op_type: crate::repository::catalog::CatalogOperationType,
-        catalog_parts: std::collections::HashMap<
+        catalog_parts: std::collections::BTreeMap<
             String,
-            std::collections::HashMap<String, Vec<String>>,
+            std::collections::BTreeMap<String, Vec<String>>,
         >,
         signature_sha1: Option<String>,
     ) -> Result<()> {
@@ -1830,7 +1808,7 @@ impl FileBackend {
             Some(p) => p,
             None => {
                 let now = std::time::SystemTime::now();
-                let ts = format_iso8601_timestamp(&now); // e.g., 20090508T161025.686485Z
+                let ts = crate::repository::catalog::format_iso8601_basic(&now); // e.g., 20090508T161025.686485Z
                 let stem = ts.split('.').next().unwrap_or(&ts); // take up to seconds
                 catalog_dir.join(format!("update.{}.{}", stem, locale))
             }
@@ -1863,7 +1841,7 @@ impl FileBackend {
             Some(s) => s,
             None => {
                 let now = std::time::SystemTime::now();
-                let ts = format_iso8601_timestamp(&now);
+                let ts = crate::repository::catalog::format_iso8601_basic(&now);
                 ts.split('.').next().unwrap_or(&ts).to_string()
             }
         };
@@ -2386,18 +2364,18 @@ impl FileBackend {
 
             // Prepare update entry if needed
             if create_update_log {
-                let mut catalog_parts = HashMap::new();
+                let mut catalog_parts = BTreeMap::new();
 
                 // Add dependency actions to update entry
                 if !dependency_actions.is_empty() {
-                    let mut actions = HashMap::new();
+                    let mut actions = BTreeMap::new();
                     actions.insert("actions".to_string(), dependency_actions);
                     catalog_parts.insert("catalog.dependency.C".to_string(), actions);
                 }
 
                 // Add summary actions to update entry
                 if !summary_actions.is_empty() {
-                    let mut actions = HashMap::new();
+                    let mut actions = BTreeMap::new();
                     actions.insert("actions".to_string(), summary_actions);
                     catalog_parts.insert("catalog.summary.C".to_string(), actions);
                 }
@@ -2427,7 +2405,7 @@ impl FileBackend {
 
         // Create a catalog.attrs file
         let now = SystemTime::now();
-        let timestamp = format_iso8601_timestamp(&now);
+        let timestamp = crate::repository::catalog::format_iso8601_basic(&now);
 
         // Get the CatalogAttrs struct definition to see what fields it has
         let mut attrs = crate::repository::catalog::CatalogAttrs {
@@ -2435,10 +2413,10 @@ impl FileBackend {
             last_modified: timestamp.clone(),
             package_count,
             package_version_count,
-            parts: HashMap::new(),
+            parts: BTreeMap::new(),
             version: 1, // CatalogVersion::V1 is 1
             signature: None,
-            updates: HashMap::new(),
+            updates: BTreeMap::new(),
         };
 
         // Add part information

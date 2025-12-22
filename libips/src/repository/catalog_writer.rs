@@ -7,10 +7,46 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+use serde_json::ser::{Formatter, Serializer};
 use tracing::{debug, instrument};
 
 use super::catalog::{CatalogAttrs, CatalogPart, UpdateLog};
 use super::{RepositoryError, Result};
+
+// Python-compatible JSON formatter to ensure (', ', ': ') separators
+struct PythonFormatter;
+
+impl Formatter for PythonFormatter {
+    fn begin_object_key<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
+        if !first {
+            writer.write_all(b", ")?;
+        }
+        Ok(())
+    }
+
+    fn begin_object_value<W: ?Sized + Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(b": ")
+    }
+
+    fn begin_array_value<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
+        if !first {
+            writer.write_all(b", ")?;
+        }
+        Ok(())
+    }
+}
+
+fn serialize_python_style<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let formatter = PythonFormatter;
+    let mut ser = Serializer::with_formatter(&mut bytes, formatter);
+    value.serialize(&mut ser).map_err(|e| {
+        RepositoryError::JsonSerializeError(format!("Python-style serialize error: {}", e))
+    })?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
 
 fn sha1_hex(bytes: &[u8]) -> String {
     use sha1::Digest as _;
@@ -53,17 +89,13 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 pub(crate) fn write_catalog_attrs(path: &Path, attrs: &mut CatalogAttrs) -> Result<String> {
     // Compute signature over content without _SIGNATURE
     attrs.signature = None;
-    let bytes_without_sig = serde_json::to_vec(&attrs).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Catalog attrs serialize error: {}", e))
-    })?;
+    let bytes_without_sig = serialize_python_style(&attrs)?;
     let sig = sha1_hex(&bytes_without_sig);
-    let mut sig_map = std::collections::HashMap::new();
+    let mut sig_map = std::collections::BTreeMap::new();
     sig_map.insert("sha-1".to_string(), sig);
     attrs.signature = Some(sig_map);
 
-    let final_bytes = serde_json::to_vec(&attrs).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Catalog attrs serialize error: {}", e))
-    })?;
+    let final_bytes = serialize_python_style(&attrs)?;
     debug!(path = %path.display(), bytes = final_bytes.len(), "writing catalog.attrs");
     atomic_write_bytes(path, &final_bytes)?;
     // safe to unwrap as signature was just inserted
@@ -78,17 +110,13 @@ pub(crate) fn write_catalog_attrs(path: &Path, attrs: &mut CatalogAttrs) -> Resu
 pub(crate) fn write_catalog_part(path: &Path, part: &mut CatalogPart) -> Result<String> {
     // Compute signature over content without _SIGNATURE
     part.signature = None;
-    let bytes_without_sig = serde_json::to_vec(&part).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Catalog part serialize error: {}", e))
-    })?;
+    let bytes_without_sig = serialize_python_style(&part)?;
     let sig = sha1_hex(&bytes_without_sig);
-    let mut sig_map = std::collections::HashMap::new();
+    let mut sig_map = std::collections::BTreeMap::new();
     sig_map.insert("sha-1".to_string(), sig);
     part.signature = Some(sig_map);
 
-    let final_bytes = serde_json::to_vec(&part).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Catalog part serialize error: {}", e))
-    })?;
+    let final_bytes = serialize_python_style(&part)?;
     debug!(path = %path.display(), bytes = final_bytes.len(), "writing catalog part");
     atomic_write_bytes(path, &final_bytes)?;
     Ok(part
@@ -102,17 +130,13 @@ pub(crate) fn write_catalog_part(path: &Path, part: &mut CatalogPart) -> Result<
 pub(crate) fn write_update_log(path: &Path, log: &mut UpdateLog) -> Result<String> {
     // Compute signature over content without _SIGNATURE
     log.signature = None;
-    let bytes_without_sig = serde_json::to_vec(&log).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Update log serialize error: {}", e))
-    })?;
+    let bytes_without_sig = serialize_python_style(&log)?;
     let sig = sha1_hex(&bytes_without_sig);
-    let mut sig_map = std::collections::HashMap::new();
+    let mut sig_map = std::collections::BTreeMap::new();
     sig_map.insert("sha-1".to_string(), sig);
     log.signature = Some(sig_map);
 
-    let final_bytes = serde_json::to_vec(&log).map_err(|e| {
-        RepositoryError::JsonSerializeError(format!("Update log serialize error: {}", e))
-    })?;
+    let final_bytes = serialize_python_style(&log)?;
     debug!(path = %path.display(), bytes = final_bytes.len(), "writing update log");
     atomic_write_bytes(path, &final_bytes)?;
     Ok(log

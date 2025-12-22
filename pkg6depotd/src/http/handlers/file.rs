@@ -17,6 +17,23 @@ pub async fn get_file(
     Path((publisher, _algo, digest)): Path<(String, String, String)>,
     req: Request,
 ) -> Result<Response, DepotError> {
+    get_file_impl(repo, publisher, digest, req).await
+}
+
+pub async fn get_file_no_algo(
+    State(repo): State<Arc<DepotRepo>>,
+    Path((publisher, digest)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, DepotError> {
+    get_file_impl(repo, publisher, digest, req).await
+}
+
+async fn get_file_impl(
+    repo: Arc<DepotRepo>,
+    publisher: String,
+    digest: String,
+    req: Request,
+) -> Result<Response, DepotError> {
     let path = repo.get_file_path(&publisher, &digest).ok_or_else(|| {
         DepotError::Repo(libips::repository::RepositoryError::NotFound(
             digest.clone(),

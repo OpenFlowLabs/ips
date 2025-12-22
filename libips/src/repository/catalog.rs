@@ -5,7 +5,7 @@
 
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -64,7 +64,7 @@ pub enum CatalogError {
 pub type Result<T> = std::result::Result<T, CatalogError>;
 
 /// Format a SystemTime as an ISO-8601 'basic format' date in UTC
-fn format_iso8601_basic(time: &SystemTime) -> String {
+pub fn format_iso8601_basic(time: &SystemTime) -> String {
     let datetime = convert_system_time_to_datetime(time);
     format!("{}Z", datetime.format("%Y%m%dT%H%M%S.%f"))
 }
@@ -141,18 +141,18 @@ pub struct CatalogAttrs {
     pub package_version_count: usize,
 
     /// Available catalog parts
-    pub parts: HashMap<String, CatalogPartInfo>,
+    pub parts: BTreeMap<String, CatalogPartInfo>,
 
     /// Available update logs
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub updates: HashMap<String, UpdateLogInfo>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub updates: BTreeMap<String, UpdateLogInfo>,
 
     /// Catalog version
     pub version: u32,
 
     /// Optional signature information
     #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<HashMap<String, String>>,
+    pub signature: Option<BTreeMap<String, String>>,
 }
 
 impl CatalogAttrs {
@@ -167,8 +167,8 @@ impl CatalogAttrs {
             last_modified: timestamp,
             package_count: 0,
             package_version_count: 0,
-            parts: HashMap::new(),
-            updates: HashMap::new(),
+            parts: BTreeMap::new(),
+            updates: BTreeMap::new(),
             version: CatalogVersion::V1 as u32,
         }
     }
@@ -208,11 +208,11 @@ pub struct PackageVersionEntry {
 pub struct CatalogPart {
     /// Packages by publisher and stem
     #[serde(flatten)]
-    pub packages: HashMap<String, HashMap<String, Vec<PackageVersionEntry>>>,
+    pub packages: BTreeMap<String, BTreeMap<String, Vec<PackageVersionEntry>>>,
 
     /// Optional signature information
     #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<HashMap<String, String>>,
+    pub signature: Option<BTreeMap<String, String>>,
 }
 
 impl CatalogPart {
@@ -220,7 +220,7 @@ impl CatalogPart {
     pub fn new() -> Self {
         CatalogPart {
             signature: None,
-            packages: HashMap::new(),
+            packages: BTreeMap::new(),
         }
     }
 
@@ -235,7 +235,7 @@ impl CatalogPart {
         let publisher_packages = self
             .packages
             .entry(publisher.to_string())
-            .or_insert_with(HashMap::new);
+            .or_insert_with(BTreeMap::new);
         let stem_versions = publisher_packages
             .entry(fmri.stem().to_string())
             .or_insert_with(Vec::new);
@@ -310,7 +310,7 @@ pub struct PackageUpdateEntry {
 
     /// Catalog part entries
     #[serde(flatten)]
-    pub catalog_parts: HashMap<String, HashMap<String, Vec<String>>>,
+    pub catalog_parts: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 
     /// Optional SHA-1 signature of the package manifest
     #[serde(rename = "signature-sha-1", skip_serializing_if = "Option::is_none")]
@@ -321,11 +321,11 @@ pub struct PackageUpdateEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateLog {
     /// Updates by publisher and stem
-    pub updates: HashMap<String, HashMap<String, Vec<PackageUpdateEntry>>>,
+    pub updates: BTreeMap<String, BTreeMap<String, Vec<PackageUpdateEntry>>>,
 
     /// Optional signature information
     #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<HashMap<String, String>>,
+    pub signature: Option<BTreeMap<String, String>>,
 }
 
 impl UpdateLog {
@@ -333,7 +333,7 @@ impl UpdateLog {
     pub fn new() -> Self {
         UpdateLog {
             signature: None,
-            updates: HashMap::new(),
+            updates: BTreeMap::new(),
         }
     }
 
@@ -343,13 +343,13 @@ impl UpdateLog {
         publisher: &str,
         fmri: &Fmri,
         op_type: CatalogOperationType,
-        catalog_parts: HashMap<String, HashMap<String, Vec<String>>>,
+        catalog_parts: BTreeMap<String, BTreeMap<String, Vec<String>>>,
         signature: Option<String>,
     ) {
         let publisher_updates = self
             .updates
             .entry(publisher.to_string())
-            .or_insert_with(HashMap::new);
+            .or_insert_with(BTreeMap::new);
         let stem_updates = publisher_updates
             .entry(fmri.stem().to_string())
             .or_insert_with(Vec::new);
@@ -393,10 +393,10 @@ pub struct CatalogManager {
     attrs: CatalogAttrs,
 
     /// Catalog parts
-    parts: HashMap<String, CatalogPart>,
+    parts: BTreeMap<String, CatalogPart>,
 
     /// Update logs
-    update_logs: HashMap<String, UpdateLog>,
+    update_logs: BTreeMap<String, UpdateLog>,
 }
 
 impl CatalogManager {
@@ -421,8 +421,8 @@ impl CatalogManager {
             catalog_dir: publisher_catalog_dir,
             publisher: publisher.to_string(),
             attrs,
-            parts: HashMap::new(),
-            update_logs: HashMap::new(),
+            parts: BTreeMap::new(),
+            update_logs: BTreeMap::new(),
         })
     }
 
@@ -572,7 +572,7 @@ impl CatalogManager {
         log_name: &str,
         fmri: &Fmri,
         op_type: CatalogOperationType,
-        catalog_parts: HashMap<String, HashMap<String, Vec<String>>>,
+        catalog_parts: BTreeMap<String, BTreeMap<String, Vec<String>>>,
         signature: Option<String>,
     ) -> Result<()> {
         if let Some(log) = self.update_logs.get_mut(log_name) {

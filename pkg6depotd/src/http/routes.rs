@@ -31,6 +31,10 @@ pub fn app_router(state: Arc<DepotRepo>) -> Router {
             "/{publisher}/file/1/{algo}/{digest}",
             get(file::get_file).head(file::get_file),
         )
+        .route(
+            "/{publisher}/file/1/{digest}",
+            get(file::get_file_no_algo).head(file::get_file_no_algo),
+        )
         .route("/{publisher}/info/0/{fmri}", get(info::get_info))
         .route("/{publisher}/publisher/0", get(publisher::get_publisher_v0))
         .route("/{publisher}/publisher/1", get(publisher::get_publisher_v1))

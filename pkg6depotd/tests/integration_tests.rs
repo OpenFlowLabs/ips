@@ -326,3 +326,58 @@ async fn test_ini_only_repo_serving_catalog() {
         }
     }
 }
+
+#[tokio::test]
+async fn test_file_url_without_algo() {
+    // Setup
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = setup_repo(&temp_dir);
+
+    let config = Config {
+        server: ServerConfig {
+            bind: vec!["127.0.0.1:0".to_string()],
+            workers: None,
+            max_connections: None,
+            reuseport: None,
+            cache_max_age: Some(3600),
+            tls_cert: None,
+            tls_key: None,
+        },
+        repository: RepositoryConfig {
+            root: repo_path.clone(),
+            mode: Some("readonly".to_string()),
+        },
+        telemetry: None,
+        publishers: None,
+        admin: None,
+        oauth2: None,
+    };
+
+    let repo = DepotRepo::new(&config).unwrap();
+    let state = Arc::new(repo);
+    let router = http::routes::app_router(state);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    // Spawn server
+    tokio::spawn(async move {
+        http::server::run(router, listener).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{}", addr);
+
+    // Hash found in repo (SHA256 of compressed content likely)
+    let hash = "40dafd2319edb9b7c930958f7b8d2d59198f88c906d50811b21436008ef0746f";
+
+    // Test URL without algo
+    // Expected format: /{publisher}/file/1/{hash}
+    let url = format!("{}/test/file/1/{}", base_url, hash);
+    println!("Requesting: {}", url);
+    
+    let resp = client.get(&url).send().await.unwrap();
+    
+    assert_eq!(resp.status(), 200, "Should handle file URL without algorithm");
+    let _content = resp.text().await.unwrap();
+}
