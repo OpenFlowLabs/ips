@@ -23,7 +23,7 @@ mod tests {
         // Instead of using JSON, let's create a string format manifest
         // that the parser can handle
         let manifest_string = "set name=pkg.fmri value=pkg://test/example@1.0.0\n";
-        
+
         // Write the string to a file
         let mut file = File::create(&manifest_path).unwrap();
         file.write_all(manifest_string.as_bytes()).unwrap();
@@ -68,10 +68,10 @@ mod tests {
     #[test]
     fn test_parse_new_json_format() {
         use std::io::Read;
-        
+
         // Create a temporary directory for the test
         let temp_dir = tempdir().unwrap();
-        let manifest_path = temp_dir.path().join("test_manifest.p5m");  // Changed extension to .p5m
+        let manifest_path = temp_dir.path().join("test_manifest.p5m"); // Changed extension to .p5m
 
         // Create a JSON manifest in the new format
         let json_manifest = r#"{
@@ -120,7 +120,7 @@ mod tests {
             Ok(manifest) => {
                 println!("Manifest parsing succeeded");
                 manifest
-            },
+            }
             Err(e) => {
                 println!("Manifest parsing failed: {:?}", e);
                 panic!("Failed to parse manifest: {:?}", e);
@@ -129,22 +129,25 @@ mod tests {
 
         // Verify that the parsed manifest has the expected attributes
         assert_eq!(parsed_manifest.attributes.len(), 3);
-        
+
         // Check first attribute
         assert_eq!(parsed_manifest.attributes[0].key, "pkg.fmri");
         assert_eq!(
             parsed_manifest.attributes[0].values[0],
             "pkg://openindiana.org/library/perl-5/postgres-dbi-5100@2.19.3,5.11-2014.0.1.1:20250628T100651Z"
         );
-        
+
         // Check second attribute
         assert_eq!(parsed_manifest.attributes[1].key, "pkg.obsolete");
         assert_eq!(parsed_manifest.attributes[1].values[0], "true");
-        
+
         // Check third attribute
-        assert_eq!(parsed_manifest.attributes[2].key, "org.opensolaris.consolidation");
+        assert_eq!(
+            parsed_manifest.attributes[2].key,
+            "org.opensolaris.consolidation"
+        );
         assert_eq!(parsed_manifest.attributes[2].values[0], "userland");
-        
+
         // Verify that properties is empty but exists
         for attr in &parsed_manifest.attributes {
             assert!(attr.properties.is_empty());

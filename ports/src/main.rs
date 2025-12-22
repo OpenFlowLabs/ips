@@ -2,10 +2,10 @@ mod sources;
 #[allow(clippy::result_large_err)]
 mod workspace;
 
-use clap::ArgAction;
 use crate::workspace::Workspace;
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::anyhow;
+use clap::ArgAction;
 use clap::{Parser, Subcommand};
 use specfile::macros;
 use specfile::parse;

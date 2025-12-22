@@ -803,8 +803,8 @@ fn emit_action_into_manifest(manifest: &mut Manifest, action_line: &str) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use crate::actions::{Attr, File};
     use super::*;
+    use crate::actions::{Attr, File};
 
     #[test]
     fn add_default_set_attr() {

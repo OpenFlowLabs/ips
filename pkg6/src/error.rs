@@ -1,7 +1,7 @@
+use libips::actions::executors::InstallerError as LibInstallerError;
 use libips::fmri::FmriError;
 use libips::image::ImageError;
 use libips::solver::SolverError;
-use libips::actions::executors::InstallerError as LibInstallerError;
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -12,17 +12,11 @@ pub type Result<T> = std::result::Result<T, Pkg6Error>;
 #[derive(Debug, Error, Diagnostic)]
 pub enum Pkg6Error {
     #[error("I/O error: {0}")]
-    #[diagnostic(
-        code(pkg6::io_error),
-        help("Check system resources and permissions")
-    )]
+    #[diagnostic(code(pkg6::io_error), help("Check system resources and permissions"))]
     IoError(#[from] std::io::Error),
 
     #[error("JSON error: {0}")]
-    #[diagnostic(
-        code(pkg6::json_error),
-        help("Check the JSON format and try again")
-    )]
+    #[diagnostic(code(pkg6::json_error), help("Check the JSON format and try again"))]
     JsonError(#[from] serde_json::Error),
 
     #[error("FMRI error: {0}")]

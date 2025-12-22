@@ -216,8 +216,8 @@ impl From<bincode::error::EncodeError> for RepositoryError {
     }
 }
 pub mod catalog;
-pub(crate) mod file_backend;
 mod catalog_writer;
+pub(crate) mod file_backend;
 mod obsoleted;
 pub mod progress;
 mod rest_backend;
@@ -231,7 +231,7 @@ pub use catalog::{
 };
 pub use file_backend::FileBackend;
 pub use obsoleted::{ObsoletedPackageManager, ObsoletedPackageMetadata};
-pub use progress::{ProgressInfo, ProgressReporter, NoopProgressReporter};
+pub use progress::{NoopProgressReporter, ProgressInfo, ProgressReporter};
 pub use rest_backend::RestBackend;
 
 /// Repository configuration filename
@@ -248,7 +248,10 @@ pub struct BatchOptions {
 
 impl Default for BatchOptions {
     fn default() -> Self {
-        BatchOptions { batch_size: 2000, flush_every_n: 1 }
+        BatchOptions {
+            batch_size: 2000,
+            flush_every_n: 1,
+        }
     }
 }
 
@@ -367,12 +370,7 @@ pub trait ReadableRepository {
     /// Fetch a content payload identified by digest into the destination path.
     /// Implementations should download/copy the payload to a temporary path,
     /// verify integrity, and atomically move into `dest`.
-    fn fetch_payload(
-        &mut self,
-        publisher: &str,
-        digest: &str,
-        dest: &Path,
-    ) -> Result<()>;
+    fn fetch_payload(&mut self, publisher: &str, digest: &str, dest: &Path) -> Result<()>;
 
     /// Fetch a package manifest by FMRI from the repository.
     /// Implementations should retrieve and parse the manifest for the given

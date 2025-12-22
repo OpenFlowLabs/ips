@@ -173,8 +173,20 @@ mod e2e_tests {
 
         // Check that the publisher was added
         assert!(repo_path.join("publisher").join("example.com").exists());
-        assert!(repo_path.join("publisher").join("example.com").join("catalog").exists());
-        assert!(repo_path.join("publisher").join("example.com").join("pkg").exists());
+        assert!(
+            repo_path
+                .join("publisher")
+                .join("example.com")
+                .join("catalog")
+                .exists()
+        );
+        assert!(
+            repo_path
+                .join("publisher")
+                .join("example.com")
+                .join("pkg")
+                .exists()
+        );
 
         // Clean up
         cleanup_test_dir(&test_dir);
@@ -388,7 +400,7 @@ mod e2e_tests {
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     #[test]
     fn test_e2e_obsoleted_packages() {
         // Run the setup script to prepare the test environment
@@ -438,38 +450,47 @@ mod e2e_tests {
             "Failed to list packages: {:?}",
             result.err()
         );
-        
+
         let output = result.unwrap();
-        let packages: serde_json::Value = serde_json::from_str(&output).expect("Failed to parse JSON output");
-        
+        let packages: serde_json::Value =
+            serde_json::from_str(&output).expect("Failed to parse JSON output");
+
         // The FMRI in the JSON is an object with scheme, publisher, name, and version fields
         // We need to extract these fields and construct the FMRI string
         let fmri_obj = &packages["packages"][0]["fmri"];
         let scheme = fmri_obj["scheme"].as_str().expect("Failed to get scheme");
-        let publisher = fmri_obj["publisher"].as_str().expect("Failed to get publisher");
+        let publisher = fmri_obj["publisher"]
+            .as_str()
+            .expect("Failed to get publisher");
         let name = fmri_obj["name"].as_str().expect("Failed to get name");
         let version_obj = &fmri_obj["version"];
-        let release = version_obj["release"].as_str().expect("Failed to get release");
-        
+        let release = version_obj["release"]
+            .as_str()
+            .expect("Failed to get release");
+
         // Construct the FMRI string in the format "pkg://publisher/name@version"
         let fmri = format!("{}://{}/{}", scheme, publisher, name);
-        
+
         // Add version if available
         let fmri = if !release.is_empty() {
             format!("{}@{}", fmri, release)
         } else {
             fmri
         };
-        
+
         // Print the FMRI and repo path for debugging
         println!("FMRI: {}", fmri);
         println!("Repo path: {}", repo_path.display());
-        
+
         // Check if the package exists in the repository
-        let pkg_dir = repo_path.join("publisher").join("test").join("pkg").join("example");
+        let pkg_dir = repo_path
+            .join("publisher")
+            .join("test")
+            .join("pkg")
+            .join("example");
         println!("Package directory: {}", pkg_dir.display());
         println!("Package directory exists: {}", pkg_dir.exists());
-        
+
         // List files in the package directory if it exists
         if pkg_dir.exists() {
             println!("Files in package directory:");
@@ -478,26 +499,31 @@ mod e2e_tests {
                 println!("  {}", entry.path().display());
             }
         }
-        
+
         // Mark the package as obsoleted
         let result = run_pkg6repo(&[
-            "obsolete-package", 
-            "-s", repo_path.to_str().unwrap(), 
-            "-p", "test", 
-            "-f", &fmri,
-            "-m", "This package is obsoleted for testing purposes",
-            "-r", "pkg://test/example2@1.0"
+            "obsolete-package",
+            "-s",
+            repo_path.to_str().unwrap(),
+            "-p",
+            "test",
+            "-f",
+            &fmri,
+            "-m",
+            "This package is obsoleted for testing purposes",
+            "-r",
+            "pkg://test/example2@1.0",
         ]);
-        
+
         // Print the result for debugging
         println!("Result: {:?}", result);
-        
+
         assert!(
             result.is_ok(),
             "Failed to mark package as obsoleted: {:?}",
             result.err()
         );
-        
+
         // Verify the package is no longer in the main repository
         let result = run_pkg6repo(&["list", "-s", repo_path.to_str().unwrap()]);
         assert!(
@@ -505,40 +531,49 @@ mod e2e_tests {
             "Failed to list packages: {:?}",
             result.err()
         );
-        
+
         let output = result.unwrap();
         assert!(
             !output.contains("example"),
             "Package still found in repository after being marked as obsoleted"
         );
-        
+
         // List obsoleted packages
-        let result = run_pkg6repo(&["list-obsoleted", "-s", repo_path.to_str().unwrap(), "-p", "test"]);
+        let result = run_pkg6repo(&[
+            "list-obsoleted",
+            "-s",
+            repo_path.to_str().unwrap(),
+            "-p",
+            "test",
+        ]);
         assert!(
             result.is_ok(),
             "Failed to list obsoleted packages: {:?}",
             result.err()
         );
-        
+
         let output = result.unwrap();
         assert!(
             output.contains("example"),
             "Obsoleted package not found in obsoleted packages list"
         );
-        
+
         // Show details of the obsoleted package
         let result = run_pkg6repo(&[
-            "show-obsoleted", 
-            "-s", repo_path.to_str().unwrap(), 
-            "-p", "test", 
-            "-f", &fmri
+            "show-obsoleted",
+            "-s",
+            repo_path.to_str().unwrap(),
+            "-p",
+            "test",
+            "-f",
+            &fmri,
         ]);
         assert!(
             result.is_ok(),
             "Failed to show obsoleted package details: {:?}",
             result.err()
         );
-        
+
         let output = result.unwrap();
         assert!(
             output.contains("Status: obsolete"),
@@ -552,7 +587,7 @@ mod e2e_tests {
             output.contains("pkg://test/example2@1.0"),
             "Replacement package not found in details"
         );
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }

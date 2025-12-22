@@ -3,8 +3,8 @@ use error::{Pkg6Error, Result};
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use tracing_subscriber::filter::LevelFilter;
@@ -39,7 +39,7 @@ struct PublisherOutput {
 #[clap(propagate_version = true)]
 struct App {
     /// Path to the image to operate on
-    /// 
+    ///
     /// If not specified, the default image is determined as follows:
     /// - If $HOME/.pkg exists, that directory is used
     /// - Otherwise, the root directory (/) is used
@@ -428,7 +428,7 @@ enum Commands {
         #[clap(short = 't', long = "type", default_value = "full")]
         image_type: String,
     },
-    
+
     /// Debug database commands (hidden)
     ///
     /// These commands are for debugging purposes only and are not part of the public API.
@@ -448,11 +448,11 @@ enum Commands {
         /// Show database statistics
         #[clap(long)]
         stats: bool,
-        
+
         /// Dump all tables
         #[clap(long)]
         dump_all: bool,
-        
+
         /// Dump a specific table (catalog, obsoleted, installed)
         #[clap(long)]
         dump_table: Option<String>,
@@ -478,7 +478,7 @@ fn determine_image_path(image_path: Option<PathBuf>) -> PathBuf {
                 return PathBuf::from(home_pkg);
             }
         }
-        
+
         // Default to root directory
         debug!("Using root directory as image path");
         PathBuf::from("/")
@@ -507,18 +507,22 @@ fn main() -> Result<()> {
     let cli = App::parse();
 
     match &cli.command {
-        Commands::Refresh { full, quiet, publishers } => {
+        Commands::Refresh {
+            full,
+            quiet,
+            publishers,
+        } => {
             info!("Refreshing package catalog");
             debug!("Full refresh: {}", full);
             debug!("Quiet mode: {}", quiet);
             debug!("Publishers: {:?}", publishers);
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             if !quiet {
                 println!("Using image at: {}", image_path.display());
             }
-            
+
             // Try to load the image from the determined path
             let image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
@@ -526,12 +530,14 @@ fn main() -> Result<()> {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
                     if !quiet {
                         eprintln!("Failed to load image from {}: {}", image_path.display(), e);
-                        eprintln!("Make sure the path points to a valid image or use pkg6 image-create first");
+                        eprintln!(
+                            "Make sure the path points to a valid image or use pkg6 image-create first"
+                        );
                     }
                     return Err(e.into());
                 }
             };
-            
+
             // Refresh the catalogs
             if let Err(e) = image.refresh_catalogs(publishers, *full) {
                 error!("Failed to refresh catalog: {}", e);
@@ -540,14 +546,25 @@ fn main() -> Result<()> {
                 }
                 return Err(e.into());
             }
-            
+
             info!("Refresh completed successfully");
             if !quiet {
                 println!("Refresh completed successfully");
             }
             Ok(())
-        },
-        Commands::Install { dry_run, verbose, quiet, concurrency, repo, accept, licenses, no_index, no_refresh, pkg_fmri_patterns } => {
+        }
+        Commands::Install {
+            dry_run,
+            verbose,
+            quiet,
+            concurrency,
+            repo,
+            accept,
+            licenses,
+            no_index,
+            no_refresh,
+            pkg_fmri_patterns,
+        } => {
             info!("Installing packages: {:?}", pkg_fmri_patterns);
             debug!("Dry run: {}", dry_run);
             debug!("Verbose: {}", verbose);
@@ -561,7 +578,9 @@ fn main() -> Result<()> {
 
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
-            if !quiet { println!("Using image at: {}", image_path.display()); }
+            if !quiet {
+                println!("Using image at: {}", image_path.display());
+            }
 
             // Load the image
             let image = match libips::image::Image::load(&image_path) {
@@ -576,12 +595,16 @@ fn main() -> Result<()> {
             // a full import or refresh automatically. Run `pkg6 refresh` explicitly
             // to update catalogs before installing if needed.
             if !*quiet {
-                eprintln!("Install uses existing catalogs in redb; run 'pkg6 refresh' to update catalogs if needed.");
+                eprintln!(
+                    "Install uses existing catalogs in redb; run 'pkg6 refresh' to update catalogs if needed."
+                );
             }
 
             // Build solver constraints from the provided pkg specs
             if pkg_fmri_patterns.is_empty() {
-                if !quiet { eprintln!("No packages specified to install"); }
+                if !quiet {
+                    eprintln!("No packages specified to install");
+                }
                 return Err(Pkg6Error::Other("no packages specified".to_string()));
             }
             let mut constraints: Vec<libips::solver::Constraint> = Vec::new();
@@ -601,44 +624,77 @@ fn main() -> Result<()> {
                 } else {
                     (name_part.to_string(), None)
                 };
-                constraints.push(libips::solver::Constraint { stem, version_req, preferred_publishers, branch: None });
+                constraints.push(libips::solver::Constraint {
+                    stem,
+                    version_req,
+                    preferred_publishers,
+                    branch: None,
+                });
             }
 
             // Resolve install plan
-            if !quiet { println!("Resolving dependencies..."); }
+            if !quiet {
+                println!("Resolving dependencies...");
+            }
             let plan = match libips::solver::resolve_install(&image, &constraints) {
                 Ok(p) => p,
                 Err(e) => {
                     let mut printed_advice = false;
                     if !*quiet {
                         // Attempt to provide user-focused advice on how to resolve dependency issues
-                        let opts = libips::solver::advice::AdviceOptions { max_depth: 3, dependency_cap: 400 };
+                        let opts = libips::solver::advice::AdviceOptions {
+                            max_depth: 3,
+                            dependency_cap: 400,
+                        };
                         match libips::solver::advice::advise_from_error(&image, &e, opts) {
                             Ok(report) => {
                                 if !report.issues.is_empty() {
                                     printed_advice = true;
-                                    eprintln!("\nAdvice: detected {} issue(s) preventing installation:", report.issues.len());
+                                    eprintln!(
+                                        "\nAdvice: detected {} issue(s) preventing installation:",
+                                        report.issues.len()
+                                    );
                                     for (i, iss) in report.issues.iter().enumerate() {
                                         let constraint_str = {
                                             let mut s = String::new();
-                                            if let Some(r) = &iss.constraint_release { s.push_str(&format!("release={} ", r)); }
-                                            if let Some(b) = &iss.constraint_branch { s.push_str(&format!("branch={}", b)); }
+                                            if let Some(r) = &iss.constraint_release {
+                                                s.push_str(&format!("release={} ", r));
+                                            }
+                                            if let Some(b) = &iss.constraint_branch {
+                                                s.push_str(&format!("branch={}", b));
+                                            }
                                             s.trim().to_string()
                                         };
                                         eprintln!(
                                             "  {}. Missing viable candidates for '{}'\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
                                             i + 1,
                                             iss.stem,
-                                            if iss.path.is_empty() { iss.stem.clone() } else { iss.path.join(" -> ") },
-                                            if constraint_str.is_empty() { "<none>".to_string() } else { constraint_str },
+                                            if iss.path.is_empty() {
+                                                iss.stem.clone()
+                                            } else {
+                                                iss.path.join(" -> ")
+                                            },
+                                            if constraint_str.is_empty() {
+                                                "<none>".to_string()
+                                            } else {
+                                                constraint_str
+                                            },
                                             iss.details
                                         );
                                     }
                                     eprintln!("\nWhat you can try as a user:");
-                                    eprintln!("  • Ensure your catalogs are up to date: 'pkg6 refresh'.");
-                                    eprintln!("  • Verify that the required publishers are configured: 'pkg6 publisher'.");
-                                    eprintln!("  • Some versions may be constrained by image incorporations; updating the image or selecting a compatible package set may help.");
-                                    eprintln!("  • If the problem persists, report this to the repository maintainers with the above details.");
+                                    eprintln!(
+                                        "  • Ensure your catalogs are up to date: 'pkg6 refresh'."
+                                    );
+                                    eprintln!(
+                                        "  • Verify that the required publishers are configured: 'pkg6 publisher'."
+                                    );
+                                    eprintln!(
+                                        "  • Some versions may be constrained by image incorporations; updating the image or selecting a compatible package set may help."
+                                    );
+                                    eprintln!(
+                                        "  • If the problem persists, report this to the repository maintainers with the above details."
+                                    );
                                 }
                             }
                             Err(advice_err) => {
@@ -657,19 +713,29 @@ fn main() -> Result<()> {
                 }
             };
 
-            if !quiet { println!("Resolved {} package(s) to install", plan.add.len()); }
+            if !quiet {
+                println!("Resolved {} package(s) to install", plan.add.len());
+            }
 
             // Build and apply action plan
-            if !quiet { println!("Building action plan..."); }
+            if !quiet {
+                println!("Building action plan...");
+            }
             let ap = libips::image::action_plan::ActionPlan::from_install_plan(&plan);
             let quiet_mode = *quiet;
             let progress_cb: libips::actions::executors::ProgressCallback = Arc::new(move |evt| {
-                if quiet_mode { return; }
+                if quiet_mode {
+                    return;
+                }
                 match evt {
                     libips::actions::executors::ProgressEvent::StartingPhase { phase, total } => {
                         println!("Applying: {} (total {})...", phase, total);
                     }
-                    libips::actions::executors::ProgressEvent::Progress { phase, current, total } => {
+                    libips::actions::executors::ProgressEvent::Progress {
+                        phase,
+                        current,
+                        total,
+                    } => {
                         println!("Applying: {} {}/{}", phase, current, total);
                     }
                     libips::actions::executors::ProgressEvent::FinishedPhase { phase, total } => {
@@ -677,13 +743,21 @@ fn main() -> Result<()> {
                     }
                 }
             });
-            let apply_opts = libips::actions::executors::ApplyOptions { dry_run: *dry_run, progress: Some(progress_cb), progress_interval: 10 };
-            if !quiet { println!("Applying action plan (dry-run: {})", dry_run); }
+            let apply_opts = libips::actions::executors::ApplyOptions {
+                dry_run: *dry_run,
+                progress: Some(progress_cb),
+                progress_interval: 10,
+            };
+            if !quiet {
+                println!("Applying action plan (dry-run: {})", dry_run);
+            }
             ap.apply(image.path(), &apply_opts)?;
 
             // Update installed DB after success (skip on dry-run)
             if !*dry_run {
-                if !quiet { println!("Recording installation in image database..."); }
+                if !quiet {
+                    println!("Recording installation in image database...");
+                }
                 let total_pkgs = plan.add.len();
                 let mut idx = 0usize;
                 for rp in &plan.add {
@@ -705,21 +779,38 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-                if !quiet { println!("Installed {} package(s)", plan.add.len()); }
+                if !quiet {
+                    println!("Installed {} package(s)", plan.add.len());
+                }
 
                 // Dump installed database to make changes visible
-                let installed = libips::image::installed::InstalledPackages::new(image.installed_db_path());
+                let installed =
+                    libips::image::installed::InstalledPackages::new(image.installed_db_path());
                 if let Err(e) = installed.dump_installed_table() {
                     error!("Failed to dump installed database: {}", e);
                 }
             } else if !quiet {
-                println!("Dry-run completed: {} package(s) would be installed", plan.add.len());
+                println!(
+                    "Dry-run completed: {} package(s) would be installed",
+                    plan.add.len()
+                );
             }
 
             info!("Installation completed successfully");
             Ok(())
-        },
-        Commands::ExactInstall { dry_run, verbose, quiet, concurrency, repo, accept, licenses, no_index, no_refresh, pkg_fmri_patterns } => {
+        }
+        Commands::ExactInstall {
+            dry_run,
+            verbose,
+            quiet,
+            concurrency,
+            repo,
+            accept,
+            licenses,
+            no_index,
+            no_refresh,
+            pkg_fmri_patterns,
+        } => {
             info!("Exact-installing packages: {:?}", pkg_fmri_patterns);
             debug!("Dry run: {}", dry_run);
             debug!("Verbose: {}", verbose);
@@ -730,22 +821,38 @@ fn main() -> Result<()> {
             debug!("Show licenses: {}", licenses);
             debug!("No index update: {}", no_index);
             debug!("No refresh: {}", no_refresh);
-            
+
             // Stub implementation
             info!("Exact-installation completed successfully");
             Ok(())
-        },
-        Commands::Uninstall { dry_run, verbose, quiet, pkg_fmri_patterns } => {
+        }
+        Commands::Uninstall {
+            dry_run,
+            verbose,
+            quiet,
+            pkg_fmri_patterns,
+        } => {
             info!("Uninstalling packages: {:?}", pkg_fmri_patterns);
             debug!("Dry run: {}", dry_run);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
-            
+
             // Stub implementation
             info!("Uninstallation completed successfully");
             Ok(())
-        },
-        Commands::Update { dry_run, verbose, quiet, concurrency, repo, accept, licenses, no_index, no_refresh, pkg_fmri_patterns } => {
+        }
+        Commands::Update {
+            dry_run,
+            verbose,
+            quiet,
+            concurrency,
+            repo,
+            accept,
+            licenses,
+            no_index,
+            no_refresh,
+            pkg_fmri_patterns,
+        } => {
             info!("Updating packages: {:?}", pkg_fmri_patterns);
             debug!("Dry run: {}", dry_run);
             debug!("Verbose: {}", verbose);
@@ -756,32 +863,40 @@ fn main() -> Result<()> {
             debug!("Show licenses: {}", licenses);
             debug!("No index update: {}", no_index);
             debug!("No refresh: {}", no_refresh);
-            
+
             // Stub implementation
             info!("Update completed successfully");
             Ok(())
-        },
-        Commands::List { verbose, quiet, all, output_format, pkg_fmri_patterns } => {
+        }
+        Commands::List {
+            verbose,
+            quiet,
+            all,
+            output_format,
+            pkg_fmri_patterns,
+        } => {
             info!("Listing packages: {:?}", pkg_fmri_patterns);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
             debug!("All packages: {}", all);
             debug!("Output format: {:?}", output_format);
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             info!("Using image at: {}", image_path.display());
-            
+
             // Try to load the image from the determined path
             let image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
-                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    error!(
+                        "Make sure the path points to a valid image or use pkg6 image-create first"
+                    );
                     return Err(e.into());
                 }
             };
-            
+
             // Convert pkg_fmri_patterns to a single pattern if provided
             let pattern = if pkg_fmri_patterns.is_empty() {
                 None
@@ -790,35 +905,41 @@ fn main() -> Result<()> {
                 // In a more complete implementation, we would handle multiple patterns
                 Some(pkg_fmri_patterns[0].as_str())
             };
-            
+
             if *all {
                 // List all available packages
                 info!("Listing all available packages");
-                
+
                 // Build the catalog before querying it
                 info!("Building catalog...");
                 if let Err(e) = image.build_catalog() {
                     error!("Failed to build catalog: {}", e);
                     return Err(e.into());
                 }
-                
+
                 match image.query_catalog(pattern) {
                     Ok(packages) => {
-                        println!("PUBLISHER                                  NAME                                     VERSION                      STATE");
-                        println!("------------------------------------------------------------------------------------------------------------------------------------------------------");
+                        println!(
+                            "PUBLISHER                                  NAME                                     VERSION                      STATE"
+                        );
+                        println!(
+                            "------------------------------------------------------------------------------------------------------------------------------------------------------"
+                        );
                         for pkg in packages {
                             let state = if image.is_package_installed(&pkg.fmri).unwrap_or(false) {
                                 "installed"
                             } else {
                                 "known"
                             };
-                            println!("{:<40} {:<40} {:<30} {}", 
-                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"), 
-                                pkg.fmri.name, 
+                            println!(
+                                "{:<40} {:<40} {:<30} {}",
+                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"),
+                                pkg.fmri.name,
                                 pkg.fmri.version(),
-                                state);
+                                state
+                            );
                         }
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to query catalog: {}", e);
                         return Err(e.into());
@@ -829,116 +950,159 @@ fn main() -> Result<()> {
                 info!("Listing installed packages");
                 match image.query_installed_packages(pattern) {
                     Ok(packages) => {
-                        println!("PUBLISHER                                  NAME                                     VERSION                      STATE");
-                        println!("------------------------------------------------------------------------------------------------------------------------------------------------------");
+                        println!(
+                            "PUBLISHER                                  NAME                                     VERSION                      STATE"
+                        );
+                        println!(
+                            "------------------------------------------------------------------------------------------------------------------------------------------------------"
+                        );
                         for pkg in packages {
-                            println!("{:<40} {:<40} {:<30} {}", 
-                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"), 
-                                pkg.fmri.name, 
+                            println!(
+                                "{:<40} {:<40} {:<30} {}",
+                                pkg.fmri.publisher.as_deref().unwrap_or("unknown"),
+                                pkg.fmri.name,
                                 pkg.fmri.version(),
-                                "installed");
+                                "installed"
+                            );
                         }
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to query installed packages: {}", e);
                         return Err(e.into());
                     }
                 }
             }
-            
+
             info!("List completed successfully");
             Ok(())
-        },
-        Commands::Info { verbose, quiet, output_format, pkg_fmri_patterns } => {
+        }
+        Commands::Info {
+            verbose,
+            quiet,
+            output_format,
+            pkg_fmri_patterns,
+        } => {
             info!("Showing info for packages: {:?}", pkg_fmri_patterns);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
             debug!("Output format: {:?}", output_format);
-            
+
             // Stub implementation
             info!("Info completed successfully");
             Ok(())
-        },
-        Commands::Search { verbose, quiet, output_format, query } => {
+        }
+        Commands::Search {
+            verbose,
+            quiet,
+            output_format,
+            query,
+        } => {
             info!("Searching for packages matching: {}", query);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
             debug!("Output format: {:?}", output_format);
-            
+
             // Stub implementation
             info!("Search completed successfully");
             Ok(())
-        },
-        Commands::Verify { verbose, quiet, pkg_fmri_patterns } => {
+        }
+        Commands::Verify {
+            verbose,
+            quiet,
+            pkg_fmri_patterns,
+        } => {
             info!("Verifying packages: {:?}", pkg_fmri_patterns);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
-            
+
             // Stub implementation
             info!("Verification completed successfully");
             Ok(())
-        },
-        Commands::Fix { dry_run, verbose, quiet, pkg_fmri_patterns } => {
+        }
+        Commands::Fix {
+            dry_run,
+            verbose,
+            quiet,
+            pkg_fmri_patterns,
+        } => {
             info!("Fixing packages: {:?}", pkg_fmri_patterns);
             debug!("Dry run: {}", dry_run);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
-            
+
             // Stub implementation
             info!("Fix completed successfully");
             Ok(())
-        },
-        Commands::History { count, full, output_format } => {
+        }
+        Commands::History {
+            count,
+            full,
+            output_format,
+        } => {
             info!("Showing history");
             debug!("Count: {:?}", count);
             debug!("Full: {}", full);
             debug!("Output format: {:?}", output_format);
-            
+
             // Stub implementation
             info!("History completed successfully");
             Ok(())
-        },
-        Commands::Contents { verbose, quiet, output_format, pkg_fmri_patterns } => {
+        }
+        Commands::Contents {
+            verbose,
+            quiet,
+            output_format,
+            pkg_fmri_patterns,
+        } => {
             info!("Showing contents for packages: {:?}", pkg_fmri_patterns);
             debug!("Verbose: {}", verbose);
             debug!("Quiet: {}", quiet);
             debug!("Output format: {:?}", output_format);
-            
+
             // Stub implementation
             info!("Contents completed successfully");
             Ok(())
-        },
-        Commands::SetPublisher { publisher, origin, mirror } => {
+        }
+        Commands::SetPublisher {
+            publisher,
+            origin,
+            mirror,
+        } => {
             info!("Setting publisher: {}", publisher);
             debug!("Origin: {:?}", origin);
             debug!("Mirror: {:?}", mirror);
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             info!("Using image at: {}", image_path.display());
-            
+
             // Try to load the image from the determined path
             let mut image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
-                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    error!(
+                        "Make sure the path points to a valid image or use pkg6 image-create first"
+                    );
                     return Err(e.into());
                 }
             };
-            
+
             // Convert mirror to Vec<String> if provided
             let mirrors = match mirror {
                 Some(m) => m.clone(),
                 None => vec![],
             };
-            
+
             // If origin is provided, update the publisher
             if let Some(origin_url) = origin {
                 // Add or update the publisher
                 image.add_publisher(&publisher, &origin_url, mirrors, true)?;
-                info!("Publisher {} configured with origin: {}", publisher, origin_url);
-                
+                info!(
+                    "Publisher {} configured with origin: {}",
+                    publisher, origin_url
+                );
+
                 // Download the catalog
                 image.download_publisher_catalog(&publisher)?;
                 info!("Catalog downloaded from publisher: {}", publisher);
@@ -949,39 +1113,43 @@ fn main() -> Result<()> {
                     // Store the necessary information
                     let origin = pub_info.origin.clone();
                     let mirrors = pub_info.mirrors.clone();
-                    
+
                     // Add the publisher again with is_default=true to make it the default
                     image.add_publisher(&publisher, &origin, mirrors, true)?;
                     info!("Publisher {} set as default", publisher);
                 } else {
                     error!("Publisher {} not found and no origin provided", publisher);
-                    return Err(libips::image::ImageError::PublisherNotFound(publisher.clone()).into());
+                    return Err(
+                        libips::image::ImageError::PublisherNotFound(publisher.clone()).into(),
+                    );
                 }
             }
-            
+
             info!("Set-publisher completed successfully");
             Ok(())
-        },
+        }
         Commands::UnsetPublisher { publisher } => {
             info!("Unsetting publisher: {}", publisher);
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             info!("Using image at: {}", image_path.display());
-            
+
             // Try to load the image from the determined path
             let mut image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
-                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    error!(
+                        "Make sure the path points to a valid image or use pkg6 image-create first"
+                    );
                     return Err(e.into());
                 }
             };
-            
+
             // Remove the publisher
             image.remove_publisher(&publisher)?;
-            
+
             // Refresh the catalog to reflect the current state of all available packages
             if let Err(e) = image.download_catalogs() {
                 error!("Failed to refresh catalog after removing publisher: {}", e);
@@ -989,31 +1157,37 @@ fn main() -> Result<()> {
             } else {
                 info!("Catalog refreshed successfully");
             }
-            
+
             info!("Publisher {} removed successfully", publisher);
             info!("Unset-publisher completed successfully");
             Ok(())
-        },
-        Commands::Publisher { verbose, output_format, publishers } => {
+        }
+        Commands::Publisher {
+            verbose,
+            output_format,
+            publishers,
+        } => {
             info!("Showing publisher information");
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             info!("Using image at: {}", image_path.display());
-            
+
             // Try to load the image from the determined path
             let image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
-                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    error!(
+                        "Make sure the path points to a valid image or use pkg6 image-create first"
+                    );
                     return Err(e.into());
                 }
             };
-            
+
             // Get all publishers
             let all_publishers = image.publishers();
-            
+
             // Filter publishers if specified
             let filtered_publishers: Vec<_> = if publishers.is_empty() {
                 all_publishers.to_vec()
@@ -1024,7 +1198,7 @@ fn main() -> Result<()> {
                     .cloned()
                     .collect()
             };
-            
+
             // Handle case where no publishers are found
             if filtered_publishers.is_empty() {
                 if publishers.is_empty() {
@@ -1034,10 +1208,10 @@ fn main() -> Result<()> {
                 }
                 return Ok(());
             }
-            
+
             // Determine the output format, defaulting to "table" if not specified
             let output_format_str = output_format.as_deref().unwrap_or("table");
-            
+
             // Create a vector of PublisherOutput structs for serialization and display
             let publisher_outputs: Vec<PublisherOutput> = filtered_publishers
                 .iter()
@@ -1051,7 +1225,7 @@ fn main() -> Result<()> {
                     } else {
                         None
                     };
-                    
+
                     PublisherOutput {
                         name: p.name.clone(),
                         origin: p.origin.clone(),
@@ -1061,7 +1235,7 @@ fn main() -> Result<()> {
                     }
                 })
                 .collect();
-            
+
             // Display publisher information based on the output format
             match output_format_str {
                 "table" => {
@@ -1076,7 +1250,10 @@ fn main() -> Result<()> {
                                 println!("    {}", mirror);
                             }
                         }
-                        println!("  Default: {}", if publisher.is_default { "Yes" } else { "No" });
+                        println!(
+                            "  Default: {}",
+                            if publisher.is_default { "Yes" } else { "No" }
+                        );
                         if let Some(catalog_dir) = &publisher.catalog_dir {
                             println!("  Catalog directory: {}", catalog_dir);
                         }
@@ -1084,7 +1261,7 @@ fn main() -> Result<()> {
                         // Explicitly flush stdout after each publisher to ensure output is displayed
                         let _ = std::io::stdout().flush();
                     }
-                },
+                }
                 "json" => {
                     // Display in JSON format
                     // This format is useful for programmatic access to the publisher information
@@ -1095,44 +1272,48 @@ fn main() -> Result<()> {
                         .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e));
                     println!("{}", json);
                     let _ = std::io::stdout().flush();
-                },
+                }
                 "tsv" => {
                     // Display in TSV format (tab-separated values)
                     // This format is useful for importing into spreadsheets or other data processing tools
                     // Print header
                     println!("NAME\tORIGIN\tMIRRORS\tDEFAULT\tCATALOG_DIR");
-                    
+
                     // Print each publisher
                     for publisher in &publisher_outputs {
                         let mirrors = publisher.mirrors.join(",");
                         let default = if publisher.is_default { "Yes" } else { "No" };
                         let catalog_dir = publisher.catalog_dir.as_deref().unwrap_or("");
-                        
-                        println!("{}\t{}\t{}\t{}\t{}", 
-                            publisher.name, 
-                            publisher.origin, 
-                            mirrors, 
-                            default, 
-                            catalog_dir
+
+                        println!(
+                            "{}\t{}\t{}\t{}\t{}",
+                            publisher.name, publisher.origin, mirrors, default, catalog_dir
                         );
                         let _ = std::io::stdout().flush();
                     }
-                },
+                }
                 _ => {
                     // Unsupported format
-                    return Err(Pkg6Error::UnsupportedOutputFormat(output_format_str.to_string()));
+                    return Err(Pkg6Error::UnsupportedOutputFormat(
+                        output_format_str.to_string(),
+                    ));
                 }
             }
-            
+
             info!("Publisher completed successfully");
             Ok(())
-        },
-        Commands::ImageCreate { full_path, publisher, origin, image_type } => {
+        }
+        Commands::ImageCreate {
+            full_path,
+            publisher,
+            origin,
+            image_type,
+        } => {
             info!("Creating image at: {}", full_path.display());
             debug!("Publisher: {:?}", publisher);
             debug!("Origin: {:?}", origin);
             debug!("Image type: {}", image_type);
-            
+
             // Convert the image type string to the ImageType enum
             let image_type = match image_type.to_lowercase().as_str() {
                 "full" => libips::image::ImageType::Full,
@@ -1142,92 +1323,120 @@ fn main() -> Result<()> {
                     libips::image::ImageType::Full
                 }
             };
-            
+
             // Create the image (only creates the basic structure)
             let mut image = libips::image::Image::create_image(&full_path, image_type)?;
             info!("Image created successfully at: {}", full_path.display());
-            
+
             // If publisher and origin are provided, only add the publisher; do not download/open catalogs here.
-            if let (Some(publisher_name), Some(origin_url)) = (publisher.as_ref(), origin.as_ref()) {
-                info!("Adding publisher {} with origin {}", publisher_name, origin_url);
-                
+            if let (Some(publisher_name), Some(origin_url)) = (publisher.as_ref(), origin.as_ref())
+            {
+                info!(
+                    "Adding publisher {} with origin {}",
+                    publisher_name, origin_url
+                );
+
                 // Add the publisher
                 image.add_publisher(publisher_name, origin_url, vec![], true)?;
-                
-                info!("Publisher {} configured with origin: {}", publisher_name, origin_url);
-                info!("Catalogs are not downloaded during image creation. Use 'pkg6 -R {} refresh {}' to download and open catalogs.", full_path.display(), publisher_name);
+
+                info!(
+                    "Publisher {} configured with origin: {}",
+                    publisher_name, origin_url
+                );
+                info!(
+                    "Catalogs are not downloaded during image creation. Use 'pkg6 -R {} refresh {}' to download and open catalogs.",
+                    full_path.display(),
+                    publisher_name
+                );
             } else {
                 info!("No publisher configured. Use 'pkg6 set-publisher' to add a publisher.");
             }
-            
+
             Ok(())
-        },
-        Commands::DebugDb { stats, dump_all, dump_table } => {
+        }
+        Commands::DebugDb {
+            stats,
+            dump_all,
+            dump_table,
+        } => {
             info!("Debug database command");
             debug!("Stats: {}", stats);
             debug!("Dump all: {}", dump_all);
             debug!("Dump table: {:?}", dump_table);
-            
+
             // Determine the image path using the -R argument or default rules
             let image_path = determine_image_path(cli.image_path.clone());
             info!("Using image at: {}", image_path.display());
-            
+
             // Try to load the image from the determined path
             let image = match libips::image::Image::load(&image_path) {
                 Ok(img) => img,
                 Err(e) => {
                     error!("Failed to load image from {}: {}", image_path.display(), e);
-                    error!("Make sure the path points to a valid image or use pkg6 image-create first");
+                    error!(
+                        "Make sure the path points to a valid image or use pkg6 image-create first"
+                    );
                     return Err(e.into());
                 }
             };
-            
+
             // Create a catalog object for the catalog.redb database
             let catalog = libips::image::catalog::ImageCatalog::new(
                 image.catalog_dir(),
                 image.catalog_db_path(),
-                image.obsoleted_db_path()
+                image.obsoleted_db_path(),
             );
-            
+
             // Create an installed packages object for the installed.redb database
-            let installed = libips::image::installed::InstalledPackages::new(
-                image.installed_db_path()
-            );
-            
+            let installed =
+                libips::image::installed::InstalledPackages::new(image.installed_db_path());
+
             // Execute the requested debug command
             if *stats {
                 info!("Showing database statistics");
                 println!("=== CATALOG DATABASE ===");
                 if let Err(e) = catalog.get_db_stats() {
                     error!("Failed to get catalog database statistics: {}", e);
-                    return Err(Pkg6Error::Other(format!("Failed to get catalog database statistics: {}", e)));
+                    return Err(Pkg6Error::Other(format!(
+                        "Failed to get catalog database statistics: {}",
+                        e
+                    )));
                 }
-                
+
                 println!("\n=== INSTALLED DATABASE ===");
                 if let Err(e) = installed.get_db_stats() {
                     error!("Failed to get installed database statistics: {}", e);
-                    return Err(Pkg6Error::Other(format!("Failed to get installed database statistics: {}", e)));
+                    return Err(Pkg6Error::Other(format!(
+                        "Failed to get installed database statistics: {}",
+                        e
+                    )));
                 }
             }
-            
+
             if *dump_all {
                 info!("Dumping all tables");
                 println!("=== CATALOG DATABASE ===");
                 if let Err(e) = catalog.dump_all_tables() {
                     error!("Failed to dump catalog database tables: {}", e);
-                    return Err(Pkg6Error::Other(format!("Failed to dump catalog database tables: {}", e)));
+                    return Err(Pkg6Error::Other(format!(
+                        "Failed to dump catalog database tables: {}",
+                        e
+                    )));
                 }
-                
+
                 println!("\n=== INSTALLED DATABASE ===");
                 if let Err(e) = installed.dump_installed_table() {
                     error!("Failed to dump installed database table: {}", e);
-                    return Err(Pkg6Error::Other(format!("Failed to dump installed database table: {}", e)));
+                    return Err(Pkg6Error::Other(format!(
+                        "Failed to dump installed database table: {}",
+                        e
+                    )));
                 }
             }
-            
+
             if let Some(table_name) = dump_table {
                 info!("Dumping table: {}", table_name);
-                
+
                 // Determine which database to use based on the table name
                 match table_name.as_str() {
                     "installed" => {
@@ -1235,26 +1444,35 @@ fn main() -> Result<()> {
                         println!("=== INSTALLED DATABASE ===");
                         if let Err(e) = installed.dump_installed_table() {
                             error!("Failed to dump installed table: {}", e);
-                            return Err(Pkg6Error::Other(format!("Failed to dump installed table: {}", e)));
+                            return Err(Pkg6Error::Other(format!(
+                                "Failed to dump installed table: {}",
+                                e
+                            )));
                         }
-                    },
+                    }
                     "catalog" | "obsoleted" => {
                         // Use the catalog database
                         println!("=== CATALOG DATABASE ===");
                         if let Err(e) = catalog.dump_table(table_name) {
                             error!("Failed to dump table {}: {}", table_name, e);
-                            return Err(Pkg6Error::Other(format!("Failed to dump table {}: {}", table_name, e)));
+                            return Err(Pkg6Error::Other(format!(
+                                "Failed to dump table {}: {}",
+                                table_name, e
+                            )));
                         }
-                    },
+                    }
                     _ => {
                         error!("Unknown table: {}", table_name);
-                        return Err(Pkg6Error::Other(format!("Unknown table: {}. Available tables: catalog, obsoleted, installed", table_name)));
+                        return Err(Pkg6Error::Other(format!(
+                            "Unknown table: {}. Available tables: catalog, obsoleted, installed",
+                            table_name
+                        )));
                     }
                 }
             }
-            
+
             info!("Debug database command completed successfully");
             Ok(())
-        },
+        }
     }
 }

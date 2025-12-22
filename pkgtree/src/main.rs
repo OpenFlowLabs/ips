@@ -82,15 +82,18 @@ impl std::fmt::Display for OutputFormat {
 
 #[derive(Error, Debug, Diagnostic)]
 #[error("pkgtree error: {message}")]
-#[diagnostic(code(ips::pkgtree_error), help("See logs with RUST_LOG=pkgtree=debug for more details."))]
+#[diagnostic(
+    code(ips::pkgtree_error),
+    help("See logs with RUST_LOG=pkgtree=debug for more details.")
+)]
 struct PkgTreeError {
     message: String,
 }
 
 #[derive(Debug, Clone)]
 struct Edge {
-    to: String,         // target stem
-    dep_type: String,   // dependency type (e.g., require, incorporate, optional, etc.)
+    to: String,       // target stem
+    dep_type: String, // dependency type (e.g., require, incorporate, optional, etc.)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -101,7 +104,10 @@ struct Graph {
 
 impl Graph {
     fn add_edge(&mut self, from: String, to: String, dep_type: String) {
-        self.adj.entry(from).or_default().push(Edge { to, dep_type });
+        self.adj
+            .entry(from)
+            .or_default()
+            .push(Edge { to, dep_type });
     }
 
     fn stems(&self) -> impl Iterator<Item = &String> {
@@ -127,8 +133,9 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Load image
-    let image = Image::load(&cli.image_path)
-        .map_err(|e| PkgTreeError { message: format!("Failed to load image at {:?}: {}", cli.image_path, e) })?;
+    let image = Image::load(&cli.image_path).map_err(|e| PkgTreeError {
+        message: format!("Failed to load image at {:?}: {}", cli.image_path, e),
+    })?;
 
     // Targeted analysis of solver error file has top priority if provided
     if let Some(err_path) = &cli.solver_error_file {
@@ -145,16 +152,27 @@ fn main() -> Result<()> {
 
     // Dangling dependency scan has priority over graph mode
     if cli.find_dangling {
-        run_dangling_scan(&image, cli.publisher.as_deref(), cli.package.as_deref(), cli.format)?;
+        run_dangling_scan(
+            &image,
+            cli.publisher.as_deref(),
+            cli.package.as_deref(),
+            cli.format,
+        )?;
         return Ok(());
     }
 
     // Graph mode
     // Query catalog (filtered if --package provided)
     let mut pkgs = if let Some(ref needle) = cli.package {
-        image.query_catalog(Some(needle.as_str())).map_err(|e| PkgTreeError { message: format!("Failed to query catalog: {}", e) })?
+        image
+            .query_catalog(Some(needle.as_str()))
+            .map_err(|e| PkgTreeError {
+                message: format!("Failed to query catalog: {}", e),
+            })?
     } else {
-        image.query_catalog(None).map_err(|e| PkgTreeError { message: format!("Failed to query catalog: {}", e) })?
+        image.query_catalog(None).map_err(|e| PkgTreeError {
+            message: format!("Failed to query catalog: {}", e),
+        })?
     };
 
     // Filter by publisher if specified
@@ -203,13 +221,16 @@ fn main() -> Result<()> {
 
     // If no nodes were added (e.g., filter too narrow), try building graph for all packages to support cycle analysis
     if graph.adj.is_empty() && filter_substr.is_some() {
-        info!("No packages matched filter for dependency graph; analyzing full catalog for cycles/tree context.");
+        info!(
+            "No packages matched filter for dependency graph; analyzing full catalog for cycles/tree context."
+        );
         for p in &pkgs {
             match image.get_manifest_from_catalog(&p.fmri) {
                 Ok(Some(manifest)) => {
                     let from_stem = p.fmri.stem().to_string();
                     for dep in manifest.dependencies {
-                        if dep.dependency_type != "require" && dep.dependency_type != "incorporate" {
+                        if dep.dependency_type != "require" && dep.dependency_type != "incorporate"
+                        {
                             continue;
                         }
                         if let Some(dep_fmri) = dep.fmri {
@@ -227,7 +248,9 @@ fn main() -> Result<()> {
     let roots: Vec<String> = if let Some(ref needle) = filter_substr {
         let mut r = HashSet::new();
         for k in graph.adj.keys() {
-            if k.contains(needle) { r.insert(k.clone()); }
+            if k.contains(needle) {
+                r.insert(k.clone());
+            }
         }
         r.into_iter().collect()
     } else {
@@ -253,19 +276,47 @@ fn main() -> Result<()> {
         OutputFormat::Json => {
             use serde::Serialize;
             #[derive(Serialize)]
-            struct JsonEdge { from: String, to: String, dep_type: String }
+            struct JsonEdge {
+                from: String,
+                to: String,
+                dep_type: String,
+            }
             #[derive(Serialize)]
-            struct JsonCycle { nodes: Vec<String>, edges: Vec<String> }
+            struct JsonCycle {
+                nodes: Vec<String>,
+                edges: Vec<String>,
+            }
             #[derive(Serialize)]
-            struct Payload { edges: Vec<JsonEdge>, cycles: Vec<JsonCycle> }
+            struct Payload {
+                edges: Vec<JsonEdge>,
+                cycles: Vec<JsonCycle>,
+            }
 
             let mut edges = Vec::new();
             for (from, es) in &graph.adj {
-                for e in es { edges.push(JsonEdge{ from: from.clone(), to: e.to.clone(), dep_type: e.dep_type.clone() }); }
+                for e in es {
+                    edges.push(JsonEdge {
+                        from: from.clone(),
+                        to: e.to.clone(),
+                        dep_type: e.dep_type.clone(),
+                    });
+                }
             }
-            let cycles_json = cycles.iter().map(|c| JsonCycle { nodes: c.nodes.clone(), edges: c.edges.clone() }).collect();
-            let payload = Payload { edges, cycles: cycles_json };
-            println!("{}", serde_json::to_string_pretty(&payload).into_diagnostic()?);
+            let cycles_json = cycles
+                .iter()
+                .map(|c| JsonCycle {
+                    nodes: c.nodes.clone(),
+                    edges: c.edges.clone(),
+                })
+                .collect();
+            let payload = Payload {
+                edges,
+                cycles: cycles_json,
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&payload).into_diagnostic()?
+            );
         }
     }
 
@@ -285,7 +336,7 @@ struct AdviceIssue {
     path: Vec<String>, // path from root to the missing dependency stem
     stem: String,      // the missing stem
     constraint: DepConstraint,
-    details: String,   // human description
+    details: String, // human description
 }
 
 #[derive(Default)]
@@ -296,25 +347,42 @@ struct AdviceContext {
     catalog_cache: HashMap<String, Vec<(String, libips::fmri::Fmri)>>, // stem -> [(publisher, fmri)]
     manifest_cache: HashMap<String, libips::actions::Manifest>,        // fmri string -> manifest
     lock_cache: HashMap<String, Option<String>>,                       // stem -> release lock
-    candidate_cache: HashMap<(String, Option<String>, Option<String>, Option<String>), Option<libips::fmri::Fmri>>, // (stem, rel, branch, publisher)
+    candidate_cache: HashMap<
+        (String, Option<String>, Option<String>, Option<String>),
+        Option<libips::fmri::Fmri>,
+    >, // (stem, rel, branch, publisher)
 }
 
 impl AdviceContext {
     fn new(publisher: Option<String>, advice_cap: usize) -> Self {
-        AdviceContext { publisher, advice_cap, ..Default::default() }
+        AdviceContext {
+            publisher,
+            advice_cap,
+            ..Default::default()
+        }
     }
 }
 
-fn run_advisor(image: &Image, ctx: &mut AdviceContext, root_stem: &str, max_depth: usize) -> Result<()> {
+fn run_advisor(
+    image: &Image,
+    ctx: &mut AdviceContext,
+    root_stem: &str,
+    max_depth: usize,
+) -> Result<()> {
     info!("Advisor analyzing installability for root: {}", root_stem);
 
     // Find best candidate for root
     let root_fmri = match find_best_candidate(image, ctx, root_stem, None, None) {
         Ok(Some(fmri)) => fmri,
         Ok(None) => {
-            println!("No candidates found for root package '{}'.\n- Suggestion: run 'pkg6 refresh' to update catalogs.\n- Ensure publisher{} contains the package.",
-                     root_stem,
-                     ctx.publisher.as_ref().map(|p| format!(" '{}')", p)).unwrap_or_else(|| "".to_string()));
+            println!(
+                "No candidates found for root package '{}'.\n- Suggestion: run 'pkg6 refresh' to update catalogs.\n- Ensure publisher{} contains the package.",
+                root_stem,
+                ctx.publisher
+                    .as_ref()
+                    .map(|p| format!(" '{}')", p))
+                    .unwrap_or_else(|| "".to_string())
+            );
             return Ok(());
         }
         Err(e) => return Err(e),
@@ -326,36 +394,81 @@ fn run_advisor(image: &Image, ctx: &mut AdviceContext, root_stem: &str, max_dept
     let mut issues: Vec<AdviceIssue> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut path: Vec<String> = vec![root_stem.to_string()];
-    advise_recursive(image, ctx, &root_fmri, &mut path, 1, max_depth, &mut seen, &mut issues)?;
+    advise_recursive(
+        image,
+        ctx,
+        &root_fmri,
+        &mut path,
+        1,
+        max_depth,
+        &mut seen,
+        &mut issues,
+    )?;
 
     // Print summary
     if issues.is_empty() {
-        println!("No immediate missing dependencies detected up to depth {} for root '{}'.\nIf installs still fail, try running with higher --advice-depth or check solver logs.", max_depth, root_stem);
+        println!(
+            "No immediate missing dependencies detected up to depth {} for root '{}'.\nIf installs still fail, try running with higher --advice-depth or check solver logs.",
+            max_depth, root_stem
+        );
     } else {
         println!("Found {} installability issue(s):", issues.len());
         for (i, iss) in issues.iter().enumerate() {
             let constraint_str = format!(
                 "{}{}",
-                iss.constraint.release.as_ref().map(|r| format!("release={} ", r)).unwrap_or_default(),
-                iss.constraint.branch.as_ref().map(|b| format!("branch={}", b)).unwrap_or_default(),
-            ).trim().to_string();
-            println!("  {}. {}\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
+                iss.constraint
+                    .release
+                    .as_ref()
+                    .map(|r| format!("release={} ", r))
+                    .unwrap_or_default(),
+                iss.constraint
+                    .branch
+                    .as_ref()
+                    .map(|b| format!("branch={}", b))
+                    .unwrap_or_default(),
+            )
+            .trim()
+            .to_string();
+            println!(
+                "  {}. {}\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
                 i + 1,
                 format!("No viable candidates for '{}'", iss.stem),
                 iss.path.join(" -> "),
-                if constraint_str.is_empty() { "<none>".to_string() } else { constraint_str },
+                if constraint_str.is_empty() {
+                    "<none>".to_string()
+                } else {
+                    constraint_str
+                },
                 iss.details,
             );
 
             // Suggestions
             println!("     - Suggestions:");
-            println!("       • Add or publish a matching package for '{}'{}{}.",
+            println!(
+                "       • Add or publish a matching package for '{}'{}{}.",
                 iss.stem,
-                iss.constraint.release.as_ref().map(|r| format!(" (release={})", r)).unwrap_or_default(),
-                iss.constraint.branch.as_ref().map(|b| format!(" (branch={})", b)).unwrap_or_default());
-            println!("       • Alternatively, relax the dependency constraint in the requiring package to match available releases.");
-            if let Some(lock) = get_incorporated_release_cached(image, ctx, &iss.stem).ok().flatten() {
-                println!("       • Incorporation lock present for '{}': release={}. Consider updating the incorporation to allow the required release, or align the dependency.", iss.stem, lock);
+                iss.constraint
+                    .release
+                    .as_ref()
+                    .map(|r| format!(" (release={})", r))
+                    .unwrap_or_default(),
+                iss.constraint
+                    .branch
+                    .as_ref()
+                    .map(|b| format!(" (branch={})", b))
+                    .unwrap_or_default()
+            );
+            println!(
+                "       • Alternatively, relax the dependency constraint in the requiring package to match available releases."
+            );
+            if let Some(lock) = get_incorporated_release_cached(image, ctx, &iss.stem)
+                .ok()
+                .flatten()
+            {
+                println!(
+                    "       • Incorporation lock present for '{}': release={}. Consider updating the incorporation to allow the required release, or align the dependency.",
+                    iss.stem, lock
+                );
             }
             println!("       • Ensure catalogs are up to date: 'pkg6 refresh'.");
         }
@@ -374,7 +487,9 @@ fn advise_recursive(
     seen: &mut HashSet<String>,
     issues: &mut Vec<AdviceIssue>,
 ) -> Result<()> {
-    if max_depth != 0 && depth > max_depth { return Ok(()); }
+    if max_depth != 0 && depth > max_depth {
+        return Ok(());
+    }
 
     // Load manifest of the current FMRI (cached)
     let manifest = get_manifest_cached(image, ctx, fmri)?;
@@ -383,30 +498,61 @@ fn advise_recursive(
     let mut constrained = Vec::new();
     let mut unconstrained = Vec::new();
     for dep in manifest.dependencies {
-        if dep.dependency_type != "require" && dep.dependency_type != "incorporate" { continue; }
+        if dep.dependency_type != "require" && dep.dependency_type != "incorporate" {
+            continue;
+        }
         let has_fmri = dep.fmri.is_some();
-        if !has_fmri { continue; }
+        if !has_fmri {
+            continue;
+        }
         let c = extract_constraint(&dep.optional);
-        if c.release.is_some() || c.branch.is_some() { constrained.push((dep, c)); } else { unconstrained.push((dep, c)); }
+        if c.release.is_some() || c.branch.is_some() {
+            constrained.push((dep, c));
+        } else {
+            unconstrained.push((dep, c));
+        }
     }
     for (dep, constraint) in constrained.into_iter().chain(unconstrained.into_iter()) {
         if ctx.advice_cap != 0 && processed >= ctx.advice_cap {
-            debug!("Dependency processing for {} truncated at cap {}", fmri.stem(), ctx.advice_cap);
+            debug!(
+                "Dependency processing for {} truncated at cap {}",
+                fmri.stem(),
+                ctx.advice_cap
+            );
             break;
         }
         processed += 1;
 
         let dep_stem = dep.fmri.unwrap().stem().to_string();
 
-        debug!("Checking dependency to '{}' with constraint {:?}", dep_stem, (&constraint.release, &constraint.branch));
+        debug!(
+            "Checking dependency to '{}' with constraint {:?}",
+            dep_stem,
+            (&constraint.release, &constraint.branch)
+        );
 
-        match find_best_candidate(image, ctx, &dep_stem, constraint.release.as_deref(), constraint.branch.as_deref())? {
+        match find_best_candidate(
+            image,
+            ctx,
+            &dep_stem,
+            constraint.release.as_deref(),
+            constraint.branch.as_deref(),
+        )? {
             Some(next_fmri) => {
                 // Continue recursion if not seen and depth allows
                 if !seen.contains(&dep_stem) {
                     seen.insert(dep_stem.clone());
                     path.push(dep_stem.clone());
-                    advise_recursive(image, ctx, &next_fmri, path, depth + 1, max_depth, seen, issues)?;
+                    advise_recursive(
+                        image,
+                        ctx,
+                        &next_fmri,
+                        path,
+                        depth + 1,
+                        max_depth,
+                        seen,
+                        issues,
+                    )?;
                     path.pop();
                 }
             }
@@ -438,15 +584,28 @@ fn extract_constraint(optional: &[libips::actions::Property]) -> DepConstraint {
     DepConstraint { release, branch }
 }
 
-fn build_missing_detail(image: &Image, ctx: &mut AdviceContext, stem: &str, constraint: &DepConstraint) -> String {
+fn build_missing_detail(
+    image: &Image,
+    ctx: &mut AdviceContext,
+    stem: &str,
+    constraint: &DepConstraint,
+) -> String {
     // List available releases/branches for informational purposes
     let mut available: Vec<String> = Vec::new();
     if let Ok(list) = query_catalog_cached_mut(image, ctx, stem) {
         for (pubname, fmri) in list {
-            if let Some(ref pfilter) = ctx.publisher { if &pubname != pfilter { continue; } }
-            if fmri.stem() != stem { continue; }
+            if let Some(ref pfilter) = ctx.publisher {
+                if &pubname != pfilter {
+                    continue;
+                }
+            }
+            if fmri.stem() != stem {
+                continue;
+            }
             let ver = fmri.version();
-            if ver.is_empty() { continue; }
+            if ver.is_empty() {
+                continue;
+            }
             available.push(ver);
         }
     }
@@ -460,17 +619,43 @@ fn build_missing_detail(image: &Image, ctx: &mut AdviceContext, stem: &str, cons
         available.join(", ")
     };
 
-    let lock = get_incorporated_release_cached(image, ctx, stem).ok().flatten();
+    let lock = get_incorporated_release_cached(image, ctx, stem)
+        .ok()
+        .flatten();
 
     match (&constraint.release, &constraint.branch, lock) {
-        (Some(r), Some(b), Some(lr)) => format!("Required release={}, branch={} not found. Incorporation lock release={} may also constrain candidates. Available versions: {}", r, b, lr, available_str),
-        (Some(r), Some(b), None) => format!("Required release={}, branch={} not found. Available versions: {}", r, b, available_str),
-        (Some(r), None, Some(lr)) => format!("Required release={} not found. Incorporation lock release={} present. Available versions: {}", r, lr, available_str),
-        (Some(r), None, None) => format!("Required release={} not found. Available versions: {}", r, available_str),
-        (None, Some(b), Some(lr)) => format!("Required branch={} not found. Incorporation lock release={} present. Available versions: {}", b, lr, available_str),
-        (None, Some(b), None) => format!("Required branch={} not found. Available versions: {}", b, available_str),
-        (None, None, Some(lr)) => format!("No candidates matched. Incorporation lock release={} present. Available versions: {}", lr, available_str),
-        (None, None, None) => format!("No candidates matched. Available versions: {}", available_str),
+        (Some(r), Some(b), Some(lr)) => format!(
+            "Required release={}, branch={} not found. Incorporation lock release={} may also constrain candidates. Available versions: {}",
+            r, b, lr, available_str
+        ),
+        (Some(r), Some(b), None) => format!(
+            "Required release={}, branch={} not found. Available versions: {}",
+            r, b, available_str
+        ),
+        (Some(r), None, Some(lr)) => format!(
+            "Required release={} not found. Incorporation lock release={} present. Available versions: {}",
+            r, lr, available_str
+        ),
+        (Some(r), None, None) => format!(
+            "Required release={} not found. Available versions: {}",
+            r, available_str
+        ),
+        (None, Some(b), Some(lr)) => format!(
+            "Required branch={} not found. Incorporation lock release={} present. Available versions: {}",
+            b, lr, available_str
+        ),
+        (None, Some(b), None) => format!(
+            "Required branch={} not found. Available versions: {}",
+            b, available_str
+        ),
+        (None, None, Some(lr)) => format!(
+            "No candidates matched. Incorporation lock release={} present. Available versions: {}",
+            lr, available_str
+        ),
+        (None, None, None) => format!(
+            "No candidates matched. Available versions: {}",
+            available_str
+        ),
     }
 }
 
@@ -494,25 +679,47 @@ fn find_best_candidate(
     let mut candidates: Vec<(String, libips::fmri::Fmri)> = Vec::new();
 
     // Prefer matching release from incorporation lock, unless explicit req_release provided
-    let lock_release = if req_release.is_none() { get_incorporated_release_cached(image, ctx, stem).ok().flatten() } else { None };
+    let lock_release = if req_release.is_none() {
+        get_incorporated_release_cached(image, ctx, stem)
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
 
     for (pubf, pfmri) in query_catalog_cached(image, ctx, stem)? {
-        if let Some(ref pfilter) = ctx.publisher { if &pubf != pfilter { continue; } }
-        if pfmri.stem() != stem { continue; }
+        if let Some(ref pfilter) = ctx.publisher {
+            if &pubf != pfilter {
+                continue;
+            }
+        }
+        if pfmri.stem() != stem {
+            continue;
+        }
         let ver = pfmri.version();
-        if ver.is_empty() { continue; }
+        if ver.is_empty() {
+            continue;
+        }
 
         // Parse version string to extract release and branch heuristically: release,branch-rest
         let rel = version_release(&ver);
         let br = version_branch(&ver);
 
         if let Some(req_r) = req_release {
-            if Some(req_r) != rel.as_deref() { continue; }
+            if Some(req_r) != rel.as_deref() {
+                continue;
+            }
         } else if let Some(lock_r) = lock_release.as_deref() {
-            if Some(lock_r) != rel.as_deref() { continue; }
+            if Some(lock_r) != rel.as_deref() {
+                continue;
+            }
         }
 
-        if let Some(req_b) = req_branch { if Some(req_b) != br.as_deref() { continue; } }
+        if let Some(req_b) = req_branch {
+            if Some(req_b) != br.as_deref() {
+                continue;
+            }
+        }
 
         candidates.push((ver.clone(), pfmri.clone()));
     }
@@ -550,7 +757,10 @@ fn query_catalog_cached(
     // We don't have mutable borrow on ctx here; clone and return, caller will populate cache through a mutable wrapper.
     // To keep code simple, provide a small wrapper that fills the cache when needed.
     // We'll implement a separate function that has mutable ctx.
-    let mut tmp_ctx = AdviceContext { catalog_cache: ctx.catalog_cache.clone(), ..Default::default() };
+    let mut tmp_ctx = AdviceContext {
+        catalog_cache: ctx.catalog_cache.clone(),
+        ..Default::default()
+    };
     query_catalog_cached_mut(image, &mut tmp_ctx, stem)
 }
 
@@ -563,10 +773,9 @@ fn query_catalog_cached_mut(
         return Ok(v.clone());
     }
     let mut out = Vec::new();
-    for p in image
-        .query_catalog(Some(stem))
-        .map_err(|e| PkgTreeError { message: format!("Failed to query catalog for {}: {}", stem, e) })?
-    {
+    for p in image.query_catalog(Some(stem)).map_err(|e| PkgTreeError {
+        message: format!("Failed to query catalog for {}: {}", stem, e),
+    })? {
         out.push((p.publisher, p.fmri));
     }
     ctx.catalog_cache.insert(stem.to_string(), out.clone());
@@ -584,7 +793,9 @@ fn get_manifest_cached(
     }
     let manifest_opt = image
         .get_manifest_from_catalog(fmri)
-        .map_err(|e| PkgTreeError { message: format!("Failed to load manifest for {}: {}", fmri.to_string(), e) })?;
+        .map_err(|e| PkgTreeError {
+            message: format!("Failed to load manifest for {}: {}", fmri.to_string(), e),
+        })?;
     let manifest = manifest_opt.unwrap_or_else(|| libips::actions::Manifest::new());
     ctx.manifest_cache.insert(key, manifest.clone());
     Ok(manifest)
@@ -595,7 +806,9 @@ fn get_incorporated_release_cached(
     ctx: &mut AdviceContext,
     stem: &str,
 ) -> Result<Option<String>> {
-    if let Some(v) = ctx.lock_cache.get(stem) { return Ok(v.clone()); }
+    if let Some(v) = ctx.lock_cache.get(stem) {
+        return Ok(v.clone());
+    }
     let v = image.get_incorporated_release(stem)?;
     ctx.lock_cache.insert(stem.to_string(), v.clone());
     Ok(v)
@@ -607,7 +820,9 @@ fn print_trees(graph: &Graph, roots: &[String], max_depth: usize) {
     // Print a tree for each root
     let mut printed = HashSet::new();
     for r in roots {
-        if printed.contains(r) { continue; }
+        if printed.contains(r) {
+            continue;
+        }
         printed.insert(r.clone());
         println!("{}", r);
         let mut path = Vec::new();
@@ -625,7 +840,9 @@ fn print_tree_rec(
     path: &mut Vec<String>,
     _seen: &mut HashSet<String>,
 ) {
-    if max_depth != 0 && depth > max_depth { return; }
+    if max_depth != 0 && depth > max_depth {
+        return;
+    }
     path.push(node.to_string());
 
     if let Some(edges) = graph.adj.get(node) {
@@ -675,7 +892,11 @@ fn dfs_cycles(
                 let mut cycle_edges = Vec::new();
                 for i in pos..stack.len() {
                     let from = &stack[i];
-                    let to2 = if i + 1 < stack.len() { &stack[i+1] } else { to };
+                    let to2 = if i + 1 < stack.len() {
+                        &stack[i + 1]
+                    } else {
+                        to
+                    };
                     if let Some(es2) = graph.adj.get(from) {
                         if let Some(edge) = es2.iter().find(|ed| &ed.to == to2) {
                             cycle_edges.push(edge.dep_type.clone());
@@ -684,7 +905,10 @@ fn dfs_cycles(
                         }
                     }
                 }
-                cycles.push(Cycle { nodes: cycle_nodes, edges: cycle_edges });
+                cycles.push(Cycle {
+                    nodes: cycle_nodes,
+                    edges: cycle_edges,
+                });
             } else if !visited.contains(to) {
                 dfs_cycles(graph, to, visited, stack, cycles);
             }
@@ -702,7 +926,7 @@ fn dedup_cycles(mut cycles: Vec<Cycle>) -> Vec<Cycle> {
         }
         // rotate to minimal node position (excluding the duplicate last element when comparing)
         if c.nodes.len() > 1 {
-            let inner = &c.nodes[..c.nodes.len()-1];
+            let inner = &c.nodes[..c.nodes.len() - 1];
             if let Some((min_idx, _)) = inner.iter().enumerate().min_by_key(|(_, n)| *n) {
                 c.nodes.rotate_left(min_idx);
                 c.edges.rotate_left(min_idx);
@@ -713,7 +937,12 @@ fn dedup_cycles(mut cycles: Vec<Cycle>) -> Vec<Cycle> {
     let mut seen = HashSet::new();
     cycles.retain(|c| {
         let key = c.nodes.join("->");
-        if seen.contains(&key) { false } else { seen.insert(key); true }
+        if seen.contains(&key) {
+            false
+        } else {
+            seen.insert(key);
+            true
+        }
     });
     cycles
 }
@@ -730,7 +959,9 @@ fn print_cycles(cycles: &[Cycle]) {
 }
 
 fn print_suggestions(cycles: &[Cycle], graph: &Graph) {
-    if cycles.is_empty() { return; }
+    if cycles.is_empty() {
+        return;
+    }
     println!("\nSuggestions to break cycles (heuristic):");
     for (i, c) in cycles.iter().enumerate() {
         // Prefer breaking an 'incorporate' edge if present, otherwise any edge
@@ -741,16 +972,30 @@ fn print_suggestions(cycles: &[Cycle], graph: &Graph) {
             if let Some(es) = graph.adj.get(from) {
                 for e in es {
                     if &e.to == to {
-                        if e.dep_type == "incorporate" { suggested = Some((from.clone(), to.clone())); break 'outer; }
-                        if suggested.is_none() { suggested = Some((from.clone(), to.clone())); }
+                        if e.dep_type == "incorporate" {
+                            suggested = Some((from.clone(), to.clone()));
+                            break 'outer;
+                        }
+                        if suggested.is_none() {
+                            suggested = Some((from.clone(), to.clone()));
+                        }
                     }
                 }
             }
         }
         if let Some((from, to)) = suggested {
-            println!("  {}. Consider relaxing/removing edge {} -> {} (preferably if it's an incorporation).", i + 1, from, to);
+            println!(
+                "  {}. Consider relaxing/removing edge {} -> {} (preferably if it's an incorporation).",
+                i + 1,
+                from,
+                to
+            );
         } else {
-            println!("  {}. Consider relaxing one edge along the cycle: {}", i + 1, c.nodes.join(" -> "));
+            println!(
+                "  {}. Consider relaxing one edge along the cycle: {}",
+                i + 1,
+                c.nodes.join(" -> ")
+            );
         }
     }
 }
@@ -777,7 +1022,6 @@ mod tests {
     }
 }
 
-
 // ---------- Dangling dependency scan ----------
 fn run_dangling_scan(
     image: &Image,
@@ -786,9 +1030,9 @@ fn run_dangling_scan(
     format: OutputFormat,
 ) -> Result<()> {
     // Query full catalog once
-    let mut pkgs = image
-        .query_catalog(None)
-        .map_err(|e| PkgTreeError { message: format!("Failed to query catalog: {}", e) })?;
+    let mut pkgs = image.query_catalog(None).map_err(|e| PkgTreeError {
+        message: format!("Failed to query catalog: {}", e),
+    })?;
 
     // Build set of available non-obsolete stems AND an index of available (release, branch) pairs per stem,
     // honoring publisher filter
@@ -796,9 +1040,13 @@ fn run_dangling_scan(
     let mut available_index: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     for p in &pkgs {
         if let Some(pubf) = publisher {
-            if p.publisher != pubf { continue; }
+            if p.publisher != pubf {
+                continue;
+            }
         }
-        if p.obsolete { continue; }
+        if p.obsolete {
+            continue;
+        }
         let stem = p.fmri.stem().to_string();
         available_stems.insert(stem.clone());
         let ver = p.fmri.version();
@@ -828,8 +1076,12 @@ fn run_dangling_scan(
             Ok(Some(man)) => {
                 let mut missing_for_pkg: Vec<String> = Vec::new();
                 for dep in man.dependencies {
-                    if dep.dependency_type != "require" && dep.dependency_type != "incorporate" { continue; }
-                    let Some(df) = dep.fmri else { continue; };
+                    if dep.dependency_type != "require" && dep.dependency_type != "incorporate" {
+                        continue;
+                    }
+                    let Some(df) = dep.fmri else {
+                        continue;
+                    };
                     let stem = df.stem().to_string();
 
                     // Extract version/branch constraints if any (from optional properties)
@@ -849,7 +1101,9 @@ fn run_dangling_scan(
                     let satisfies = |stem: &str, rel: Option<&str>, br: Option<&str>| -> bool {
                         if let Some(list) = available_index.get(stem) {
                             if let (Some(rreq), Some(breq)) = (rel, br) {
-                                return list.iter().any(|(r, b)| r == rreq && b.as_deref() == Some(breq));
+                                return list
+                                    .iter()
+                                    .any(|(r, b)| r == rreq && b.as_deref() == Some(breq));
                             } else if let Some(rreq) = rel {
                                 return list.iter().any(|(r, _)| r == rreq);
                             } else if let Some(breq) = br {
@@ -868,14 +1122,24 @@ fn run_dangling_scan(
                         if !satisfies(&stem, c.release.as_deref(), c.branch.as_deref()) {
                             // Include constraint context in output for maintainers
                             let mut ctx = String::new();
-                            if let Some(r) = &c.release { ctx.push_str(&format!("release={} ", r)); }
-                            if let Some(b) = &c.branch { ctx.push_str(&format!("branch={}", b)); }
+                            if let Some(r) = &c.release {
+                                ctx.push_str(&format!("release={} ", r));
+                            }
+                            if let Some(b) = &c.branch {
+                                ctx.push_str(&format!("branch={}", b));
+                            }
                             let ctx = ctx.trim().to_string();
-                            if ctx.is_empty() { mark_missing = Some(stem.clone()); } else { mark_missing = Some(format!("{} [required {}]", stem, ctx)); }
+                            if ctx.is_empty() {
+                                mark_missing = Some(stem.clone());
+                            } else {
+                                mark_missing = Some(format!("{} [required {}]", stem, ctx));
+                            }
                         }
                     }
 
-                    if let Some(m) = mark_missing { missing_for_pkg.push(m); }
+                    if let Some(m) = mark_missing {
+                        missing_for_pkg.push(m);
+                    }
                 }
                 if !missing_for_pkg.is_empty() {
                     missing_for_pkg.sort();
@@ -898,13 +1162,18 @@ fn run_dangling_scan(
             if dangling.is_empty() {
                 println!("No dangling dependencies detected.");
             } else {
-                println!("Found {} package(s) with dangling dependencies:", dangling.len());
+                println!(
+                    "Found {} package(s) with dangling dependencies:",
+                    dangling.len()
+                );
                 let mut keys: Vec<String> = dangling.keys().cloned().collect();
                 keys.sort();
                 for k in keys {
                     println!("- {}:", k);
                     if let Some(list) = dangling.get(&k) {
-                        for m in list { println!("   • {}", m); }
+                        for m in list {
+                            println!("   • {}", m);
+                        }
                     }
                 }
             }
@@ -912,10 +1181,16 @@ fn run_dangling_scan(
         OutputFormat::Json => {
             use serde::Serialize;
             #[derive(Serialize)]
-            struct DanglingJson { package_fmri: String, missing_stems: Vec<String> }
+            struct DanglingJson {
+                package_fmri: String,
+                missing_stems: Vec<String>,
+            }
             let mut out: Vec<DanglingJson> = Vec::new();
             for (pkg, miss) in dangling.into_iter() {
-                out.push(DanglingJson { package_fmri: pkg, missing_stems: miss });
+                out.push(DanglingJson {
+                    package_fmri: pkg,
+                    missing_stems: miss,
+                });
             }
             out.sort_by(|a, b| a.package_fmri.cmp(&b.package_fmri));
             println!("{}", serde_json::to_string_pretty(&out).into_diagnostic()?);
@@ -927,8 +1202,9 @@ fn run_dangling_scan(
 
 // ---------- Targeted analysis: parse pkg6 solver error text ----------
 fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathBuf) -> Result<()> {
-    let text = std::fs::read_to_string(err_path)
-        .map_err(|e| PkgTreeError { message: format!("Failed to read solver error file {:?}: {}", err_path, e) })?;
+    let text = std::fs::read_to_string(err_path).map_err(|e| PkgTreeError {
+        message: format!("Failed to read solver error file {:?}: {}", err_path, e),
+    })?;
 
     // Build a stack based on indentation before the tree bullet "└─".
     let mut stack: Vec<String> = Vec::new();
@@ -943,14 +1219,22 @@ fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathB
 
             // Extract node text after "└─ "
             let bullet = "└─ ";
-            let start = match line.find(bullet) { Some(p) => p + bullet.len(), None => continue };
+            let start = match line.find(bullet) {
+                Some(p) => p + bullet.len(),
+                None => continue,
+            };
             let mut node_full = line[start..].trim().to_string();
             // Remove trailing diagnostic phrases for leaf line
             if let Some(pos) = node_full.find("for which no candidates were found") {
                 node_full = node_full[..pos].trim().trim_end_matches(',').to_string();
             }
 
-            if level >= stack.len() { stack.push(node_full.clone()); } else { stack.truncate(level); stack.push(node_full.clone()); }
+            if level >= stack.len() {
+                stack.push(node_full.clone());
+            } else {
+                stack.truncate(level);
+                stack.push(node_full.clone());
+            }
 
             if line.contains("for which no candidates were found") {
                 failing_leaf = Some(node_full.clone());
@@ -961,7 +1245,9 @@ fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathB
     }
 
     if failing_leaf.is_none() {
-        println!("Could not find a 'for which no candidates were found' leaf in the provided solver error file.");
+        println!(
+            "Could not find a 'for which no candidates were found' leaf in the provided solver error file."
+        );
         return Ok(());
     }
 
@@ -983,23 +1269,56 @@ fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathB
     println!("Found 1 installability issue (from solver error):");
     let constraint_str = format!(
         "{}{}",
-        constraint.release.as_ref().map(|r| format!("release={} ", r)).unwrap_or_default(),
-        constraint.branch.as_ref().map(|b| format!("branch={}", b)).unwrap_or_default(),
-    ).trim().to_string();
-    println!("  1. No viable candidates for '{}'\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
+        constraint
+            .release
+            .as_ref()
+            .map(|r| format!("release={} ", r))
+            .unwrap_or_default(),
+        constraint
+            .branch
+            .as_ref()
+            .map(|b| format!("branch={}", b))
+            .unwrap_or_default(),
+    )
+    .trim()
+    .to_string();
+    println!(
+        "  1. No viable candidates for '{}'\n     - Path: {}\n     - Constraint: {}\n     - Details: {}",
         stem,
         path_stems.join(" -> "),
-        if constraint_str.is_empty() { "<none>".to_string() } else { constraint_str },
+        if constraint_str.is_empty() {
+            "<none>".to_string()
+        } else {
+            constraint_str
+        },
         details,
     );
     println!("     - Suggestions:");
-    println!("       • Add or publish a matching package for '{}'{}{}.",
+    println!(
+        "       • Add or publish a matching package for '{}'{}{}.",
         stem,
-        constraint.release.as_ref().map(|r| format!(" (release={})", r)).unwrap_or_default(),
-        constraint.branch.as_ref().map(|b| format!(" (branch={})", b)).unwrap_or_default());
-    println!("       • Alternatively, relax the dependency constraint in the requiring package to match available releases.");
-    if let Some(lock) = get_incorporated_release_cached(image, &mut ctx, &stem).ok().flatten() {
-        println!("       • Incorporation lock present for '{}': release={}. Consider updating the incorporation to allow the required release, or align the dependency.", stem, lock);
+        constraint
+            .release
+            .as_ref()
+            .map(|r| format!(" (release={})", r))
+            .unwrap_or_default(),
+        constraint
+            .branch
+            .as_ref()
+            .map(|b| format!(" (branch={})", b))
+            .unwrap_or_default()
+    );
+    println!(
+        "       • Alternatively, relax the dependency constraint in the requiring package to match available releases."
+    );
+    if let Some(lock) = get_incorporated_release_cached(image, &mut ctx, &stem)
+        .ok()
+        .flatten()
+    {
+        println!(
+            "       • Incorporation lock present for '{}': release={}. Consider updating the incorporation to allow the required release, or align the dependency.",
+            stem, lock
+        );
     }
     println!("       • Ensure catalogs are up to date: 'pkg6 refresh'.");
 
@@ -1010,31 +1329,45 @@ fn stem_from_node(node: &str) -> String {
     // Node may be like: "pkg://...@ver would require" or "archiver/gnu-tar branch=5.11, which ..." or just a stem
     let first = node.split_whitespace().next().unwrap_or("");
     if first.starts_with("pkg://") {
-        if let Ok(fmri) = libips::fmri::Fmri::parse(first) { return fmri.stem().to_string(); }
+        if let Ok(fmri) = libips::fmri::Fmri::parse(first) {
+            return fmri.stem().to_string();
+        }
     }
     // If it contains '@' (FMRI without scheme), parse via Fmri::parse
     if first.contains('@') {
-        if let Ok(fmri) = libips::fmri::Fmri::parse(first) { return fmri.stem().to_string(); }
+        if let Ok(fmri) = libips::fmri::Fmri::parse(first) {
+            return fmri.stem().to_string();
+        }
     }
     // Otherwise assume it's a stem token
     first.trim_end_matches(',').to_string()
 }
 
 fn parse_leaf_node(node: &str) -> (String, DepConstraint) {
-    let core = node.split("for which").next().unwrap_or(node).trim().trim_end_matches(',').to_string();
+    let core = node
+        .split("for which")
+        .next()
+        .unwrap_or(node)
+        .trim()
+        .trim_end_matches(',')
+        .to_string();
     let mut release: Option<String> = None;
     let mut branch: Option<String> = None;
 
     // Find release=
     if let Some(p) = core.find("release=") {
         let rest = &core[p + "release=".len()..];
-        let end = rest.find(|c: char| c == ' ' || c == ',').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c == ' ' || c == ',')
+            .unwrap_or(rest.len());
         release = Some(rest[..end].to_string());
     }
     // Find branch=
     if let Some(p) = core.find("branch=") {
         let rest = &core[p + "branch=".len()..];
-        let end = rest.find(|c: char| c == ' ' || c == ',').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c == ' ' || c == ',')
+            .unwrap_or(rest.len());
         branch = Some(rest[..end].to_string());
     }
 

@@ -898,7 +898,10 @@ impl Manifest {
         match serde_json::from_str::<Manifest>(&content) {
             Ok(manifest) => Ok(manifest),
             Err(err) => {
-                debug!("Manifest::parse_file: Error in JSON deserialization: {}. Continuing with mtree like format parsing", err);
+                debug!(
+                    "Manifest::parse_file: Error in JSON deserialization: {}. Continuing with mtree like format parsing",
+                    err
+                );
                 // If JSON parsing fails, fall back to string format
                 Manifest::parse_string(content)
             }
@@ -933,17 +936,24 @@ impl Manifest {
                                                         property.key = prop.as_str().to_owned();
                                                     }
                                                     Rule::property_value => {
-                                                        let str_val: String =  prop.as_str().to_owned();
-                                                        property.value = str_val
-                                                            .replace(['\"', '\\'], "");
+                                                        let str_val: String =
+                                                            prop.as_str().to_owned();
+                                                        property.value =
+                                                            str_val.replace(['\"', '\\'], "");
                                                     }
-                                                    _ => panic!("unexpected rule {:?} inside action expected property_name or property_value", prop.as_rule())
+                                                    _ => panic!(
+                                                        "unexpected rule {:?} inside action expected property_name or property_value",
+                                                        prop.as_rule()
+                                                    ),
                                                 }
                                             }
                                             act.properties.push(property);
                                         }
                                         Rule::EOI => (),
-                                        _ => panic!("unexpected rule {:?} inside action expected payload, property, action_name", action.as_rule()),
+                                        _ => panic!(
+                                            "unexpected rule {:?} inside action expected payload, property, action_name",
+                                            action.as_rule()
+                                        ),
                                     }
                                 }
                                 m.add_action(act);

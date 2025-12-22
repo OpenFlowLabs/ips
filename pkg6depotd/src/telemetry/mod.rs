@@ -1,5 +1,5 @@
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use crate::config::Config;
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init(_config: &Config) {
     let env_filter = EnvFilter::try_from_default_env()
@@ -10,6 +10,6 @@ pub fn init(_config: &Config) {
         .with(tracing_subscriber::fmt::layer());
 
     // TODO: Add OTLP layer if configured in _config
-    
+
     registry.init();
 }

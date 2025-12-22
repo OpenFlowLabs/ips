@@ -13,12 +13,12 @@ use tracing::{debug, info, warn};
 use reqwest::blocking::Client;
 use serde_json::Value;
 
+use super::catalog::CatalogManager;
 use super::{
     NoopProgressReporter, PackageContents, PackageInfo, ProgressInfo, ProgressReporter,
     PublisherInfo, ReadableRepository, RepositoryConfig, RepositoryError, RepositoryInfo,
     RepositoryVersion, Result, WritableRepository,
 };
-use super::catalog::CatalogManager;
 
 /// Repository implementation that uses a REST API to interact with a remote repository.
 ///
@@ -125,27 +125,33 @@ impl WritableRepository for RestBackend {
             println!("Creating publisher directory...");
             let publisher_dir = cache_path.join("publisher").join(publisher);
             println!("Publisher directory path: {}", publisher_dir.display());
-            
+
             match fs::create_dir_all(&publisher_dir) {
                 Ok(_) => println!("Successfully created publisher directory"),
                 Err(e) => println!("Failed to create publisher directory: {}", e),
             }
-            
+
             // Check if the directory was created
-            println!("Publisher directory exists after creation: {}", publisher_dir.exists());
-            
+            println!(
+                "Publisher directory exists after creation: {}",
+                publisher_dir.exists()
+            );
+
             // Create catalog directory
             let catalog_dir = publisher_dir.join("catalog");
             println!("Catalog directory path: {}", catalog_dir.display());
-            
+
             match fs::create_dir_all(&catalog_dir) {
                 Ok(_) => println!("Successfully created catalog directory"),
                 Err(e) => println!("Failed to create catalog directory: {}", e),
             }
-            
+
             // Check if the directory was created
-            println!("Catalog directory exists after creation: {}", catalog_dir.exists());
-            
+            println!(
+                "Catalog directory exists after creation: {}",
+                catalog_dir.exists()
+            );
+
             debug!("Created publisher directory: {}", publisher_dir.display());
         } else {
             println!("No local cache path set, skipping directory creation");
@@ -256,10 +262,12 @@ impl WritableRepository for RestBackend {
             client: Client::new(),
             catalog_managers: HashMap::new(),
         };
-        
+
         // Check if we have a local cache path
         if cloned_self.local_cache_path.is_none() {
-            return Err(RepositoryError::Other("No local cache path set".to_string()));
+            return Err(RepositoryError::Other(
+                "No local cache path set".to_string(),
+            ));
         }
 
         // Filter publishers if specified
@@ -316,18 +324,18 @@ impl ReadableRepository for RestBackend {
     /// Open an existing repository
     fn open<P: AsRef<Path>>(uri: P) -> Result<Self> {
         let uri_str = uri.as_ref().to_string_lossy().to_string();
-        
+
         // Create an HTTP client
         let client = Client::new();
-        
+
         // Fetch the repository configuration from the remote server
         // We'll try to get the publisher information using the publisher endpoint
         let url = format!("{}/publisher/0", uri_str);
-        
+
         debug!("Fetching repository configuration from: {}", url);
-        
+
         let mut config = RepositoryConfig::default();
-        
+
         // Try to fetch publisher information
         match client.get(&url).send() {
             Ok(response) => {
@@ -336,31 +344,36 @@ impl ReadableRepository for RestBackend {
                     match response.json::<Value>() {
                         Ok(json) => {
                             // Extract publisher information
-                            if let Some(publishers) = json.get("publishers").and_then(|p| p.as_object()) {
+                            if let Some(publishers) =
+                                json.get("publishers").and_then(|p| p.as_object())
+                            {
                                 for (name, _) in publishers {
                                     debug!("Found publisher: {}", name);
                                     config.publishers.push(name.clone());
                                 }
                             }
-                        },
+                        }
                         Err(e) => {
                             warn!("Failed to parse publisher information: {}", e);
                         }
                     }
                 } else {
-                    warn!("Failed to fetch publisher information: HTTP status {}", response.status());
+                    warn!(
+                        "Failed to fetch publisher information: HTTP status {}",
+                        response.status()
+                    );
                 }
-            },
+            }
             Err(e) => {
                 warn!("Failed to connect to repository: {}", e);
             }
         }
-        
+
         // If we couldn't get any publishers, add a default one
         if config.publishers.is_empty() {
             config.publishers.push("openindiana.org".to_string());
         }
-        
+
         // Create the repository instance
         Ok(RestBackend {
             uri: uri_str,
@@ -536,12 +549,7 @@ impl ReadableRepository for RestBackend {
         Ok(package_contents)
     }
 
-    fn fetch_payload(
-        &mut self,
-        publisher: &str,
-        digest: &str,
-        dest: &Path,
-    ) -> Result<()> {
+    fn fetch_payload(&mut self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
         // Determine hash and algorithm from the provided digest string
         let mut hash = digest.to_string();
         let mut algo: Option<crate::digest::DigestAlgorithm> = None;
@@ -556,10 +564,17 @@ impl ReadableRepository for RestBackend {
             return Err(RepositoryError::Other("Empty digest provided".to_string()));
         }
 
-        let shard = if hash.len() >= 2 { &hash[0..2] } else { &hash[..] };
+        let shard = if hash.len() >= 2 {
+            &hash[0..2]
+        } else {
+            &hash[..]
+        };
         let candidates = vec![
             format!("{}/file/{}/{}", self.uri, shard, hash),
-            format!("{}/publisher/{}/file/{}/{}", self.uri, publisher, shard, hash),
+            format!(
+                "{}/publisher/{}/file/{}/{}",
+                self.uri, publisher, shard, hash
+            ),
         ];
 
         // Ensure destination directory exists
@@ -571,11 +586,17 @@ impl ReadableRepository for RestBackend {
         for url in candidates {
             match self.client.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
-                    let body = resp.bytes().map_err(|e| RepositoryError::Other(format!("Failed to read payload body: {}", e)))?;
+                    let body = resp.bytes().map_err(|e| {
+                        RepositoryError::Other(format!("Failed to read payload body: {}", e))
+                    })?;
 
                     // Verify digest if algorithm is known
                     if let Some(alg) = algo.clone() {
-                        match crate::digest::Digest::from_bytes(&body, alg, crate::digest::DigestSource::PrimaryPayloadHash) {
+                        match crate::digest::Digest::from_bytes(
+                            &body,
+                            alg,
+                            crate::digest::DigestSource::PrimaryPayloadHash,
+                        ) {
                             Ok(comp) => {
                                 if comp.hash != hash {
                                     return Err(RepositoryError::DigestError(format!(
@@ -605,7 +626,9 @@ impl ReadableRepository for RestBackend {
             }
         }
 
-        Err(RepositoryError::NotFound(last_err.unwrap_or_else(|| "payload not found".to_string())))
+        Err(RepositoryError::NotFound(
+            last_err.unwrap_or_else(|| "payload not found".to_string()),
+        ))
     }
 
     fn fetch_manifest(
@@ -636,14 +659,18 @@ impl RestBackend {
         // Require versioned FMRI
         let version = fmri.version();
         if version.is_empty() {
-            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+            return Err(RepositoryError::Other(
+                "FMRI must include a version to fetch manifest".into(),
+            ));
         }
         // URL-encode helper
         let url_encode = |s: &str| -> String {
             let mut out = String::new();
             for b in s.bytes() {
                 match b {
-                    b'-' | b'_' | b'.' | b'~' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => out.push(b as char),
+                    b'-' | b'_' | b'.' | b'~' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => {
+                        out.push(b as char)
+                    }
                     b' ' => out.push('+'),
                     _ => {
                         out.push('%');
@@ -658,16 +685,24 @@ impl RestBackend {
         let encoded_version = url_encode(&version);
         let candidates = vec![
             format!("{}/manifest/0/{}", self.uri, encoded_fmri),
-            format!("{}/publisher/{}/manifest/0/{}", self.uri, publisher, encoded_fmri),
+            format!(
+                "{}/publisher/{}/manifest/0/{}",
+                self.uri, publisher, encoded_fmri
+            ),
             // Fallbacks to direct file-style paths if server exposes static files
             format!("{}/pkg/{}/{}", self.uri, encoded_stem, encoded_version),
-            format!("{}/publisher/{}/pkg/{}/{}", self.uri, publisher, encoded_stem, encoded_version),
+            format!(
+                "{}/publisher/{}/pkg/{}/{}",
+                self.uri, publisher, encoded_stem, encoded_version
+            ),
         ];
         let mut last_err: Option<String> = None;
         for url in candidates {
             match self.client.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
-                    let text = resp.text().map_err(|e| RepositoryError::Other(format!("Failed to read manifest body: {}", e)))?;
+                    let text = resp.text().map_err(|e| {
+                        RepositoryError::Other(format!("Failed to read manifest body: {}", e))
+                    })?;
                     return Ok(text);
                 }
                 Ok(resp) => {
@@ -678,7 +713,9 @@ impl RestBackend {
                 }
             }
         }
-        Err(RepositoryError::NotFound(last_err.unwrap_or_else(|| "manifest not found".to_string())))
+        Err(RepositoryError::NotFound(
+            last_err.unwrap_or_else(|| "manifest not found".to_string()),
+        ))
     }
     /// Sets the local path where catalog files will be cached.
     ///
@@ -698,15 +735,15 @@ impl RestBackend {
     /// Returns an error if the directory could not be created.
     pub fn set_local_cache_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         self.local_cache_path = Some(path.as_ref().to_path_buf());
-        
+
         // Create the directory if it doesn't exist
         if let Some(path) = &self.local_cache_path {
             fs::create_dir_all(path)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Initializes the repository by downloading catalog files for all publishers.
     ///
     /// This method should be called after setting the local cache path with
@@ -729,21 +766,27 @@ impl RestBackend {
     pub fn initialize(&mut self, progress: Option<&dyn ProgressReporter>) -> Result<()> {
         // Check if we have a local cache path
         if self.local_cache_path.is_none() {
-            return Err(RepositoryError::Other("No local cache path set".to_string()));
+            return Err(RepositoryError::Other(
+                "No local cache path set".to_string(),
+            ));
         }
-        
+
         // Download catalogs for all publishers
         self.download_all_catalogs(progress)?;
-        
+
         Ok(())
     }
-    
+
     /// Get the catalog manager for a publisher
     fn get_catalog_manager(&mut self, publisher: &str) -> Result<&mut CatalogManager> {
         // Check if we have a local cache path
         let cache_path = match &self.local_cache_path {
             Some(path) => path,
-            None => return Err(RepositoryError::Other("No local cache path set".to_string())),
+            None => {
+                return Err(RepositoryError::Other(
+                    "No local cache path set".to_string(),
+                ));
+            }
         };
 
         // The local cache path is expected to already point to the per-publisher directory
@@ -753,12 +796,13 @@ impl RestBackend {
         // Get or create the catalog manager pointing at the per-publisher directory directly
         if !self.catalog_managers.contains_key(publisher) {
             let catalog_manager = CatalogManager::new(cache_path, publisher)?;
-            self.catalog_managers.insert(publisher.to_string(), catalog_manager);
+            self.catalog_managers
+                .insert(publisher.to_string(), catalog_manager);
         }
 
         Ok(self.catalog_managers.get_mut(publisher).unwrap())
     }
-    
+
     /// Downloads a catalog file from the remote server.
     ///
     /// # Arguments
@@ -789,12 +833,18 @@ impl RestBackend {
         // Prepare candidate URLs to support both modern and legacy pkg5 depotd layouts
         let mut urls: Vec<String> = vec![
             format!("{}/catalog/1/{}", self.uri, file_name),
-            format!("{}/publisher/{}/catalog/1/{}", self.uri, publisher, file_name),
+            format!(
+                "{}/publisher/{}/catalog/1/{}",
+                self.uri, publisher, file_name
+            ),
         ];
         if file_name == "catalog.attrs" {
             // Some older depots expose catalog.attrs at the root or under publisher path
             urls.insert(1, format!("{}/catalog.attrs", self.uri));
-            urls.push(format!("{}/publisher/{}/catalog.attrs", self.uri, publisher));
+            urls.push(format!(
+                "{}/publisher/{}/catalog.attrs",
+                self.uri, publisher
+            ));
         }
 
         debug!(
@@ -855,13 +905,10 @@ impl RestBackend {
                 "Failed to download '{}' from any known endpoint: {}",
                 file_name, s
             ),
-            None => format!(
-                "Failed to download '{}' from any known endpoint",
-                file_name
-            ),
+            None => format!("Failed to download '{}' from any known endpoint", file_name),
         }))
     }
-    
+
     /// Download and store a catalog file
     ///
     /// # Arguments
@@ -890,7 +937,11 @@ impl RestBackend {
         // Check if we have a local cache path
         let cache_path = match &self.local_cache_path {
             Some(path) => path,
-            None => return Err(RepositoryError::Other("No local cache path set".to_string())),
+            None => {
+                return Err(RepositoryError::Other(
+                    "No local cache path set".to_string(),
+                ));
+            }
         };
 
         // Ensure the per-publisher directory (local cache path) exists
@@ -913,19 +964,23 @@ impl RestBackend {
 
         // Store the file directly under the per-publisher directory
         let file_path = cache_path.join(file_name);
-        let mut file = File::create(&file_path)
-            .map_err(|e| {
-                // Report failure
-                progress.finish(&progress_info);
-                RepositoryError::FileWriteError { path: file_path.clone(), source: e }
-            })?;
+        let mut file = File::create(&file_path).map_err(|e| {
+            // Report failure
+            progress.finish(&progress_info);
+            RepositoryError::FileWriteError {
+                path: file_path.clone(),
+                source: e,
+            }
+        })?;
 
-        file.write_all(&content)
-            .map_err(|e| {
-                // Report failure
-                progress.finish(&progress_info);
-                RepositoryError::FileWriteError { path: file_path.clone(), source: e }
-            })?;
+        file.write_all(&content).map_err(|e| {
+            // Report failure
+            progress.finish(&progress_info);
+            RepositoryError::FileWriteError {
+                path: file_path.clone(),
+                source: e,
+            }
+        })?;
 
         debug!("Stored catalog file: {}", file_path.display());
 
@@ -935,7 +990,7 @@ impl RestBackend {
 
         Ok(file_path)
     }
-    
+
     /// Downloads all catalog files for a specific publisher.
     ///
     /// This method downloads the catalog.attrs file first to determine what catalog parts
@@ -967,73 +1022,77 @@ impl RestBackend {
     ) -> Result<()> {
         // Use a no-op reporter if none was provided
         let progress_reporter = progress.unwrap_or(&NoopProgressReporter);
-        
+
         // Create progress info for the overall operation
-        let mut overall_progress = ProgressInfo::new(format!("Downloading catalog for {}", publisher));
-        
+        let mut overall_progress =
+            ProgressInfo::new(format!("Downloading catalog for {}", publisher));
+
         // Notify that we're starting the download
         progress_reporter.start(&overall_progress);
-        
+
         // First download catalog.attrs to get the list of available parts
-        let attrs_path = self.download_and_store_catalog_file(publisher, "catalog.attrs", progress)?;
-        
+        let attrs_path =
+            self.download_and_store_catalog_file(publisher, "catalog.attrs", progress)?;
+
         // Parse the catalog.attrs file to get the list of parts
-        let attrs_content = fs::read_to_string(&attrs_path)
-            .map_err(|e| {
-                progress_reporter.finish(&overall_progress);
-                RepositoryError::FileReadError { path: attrs_path.clone(), source: e }
-            })?;
-        
-        let attrs: Value = serde_json::from_str(&attrs_content)
-            .map_err(|e| {
-                progress_reporter.finish(&overall_progress);
-                RepositoryError::JsonParseError(format!("Failed to parse catalog.attrs: {}", e))
-            })?;
-        
+        let attrs_content = fs::read_to_string(&attrs_path).map_err(|e| {
+            progress_reporter.finish(&overall_progress);
+            RepositoryError::FileReadError {
+                path: attrs_path.clone(),
+                source: e,
+            }
+        })?;
+
+        let attrs: Value = serde_json::from_str(&attrs_content).map_err(|e| {
+            progress_reporter.finish(&overall_progress);
+            RepositoryError::JsonParseError(format!("Failed to parse catalog.attrs: {}", e))
+        })?;
+
         // Get the list of parts
         let parts = attrs["parts"].as_object().ok_or_else(|| {
             progress_reporter.finish(&overall_progress);
             RepositoryError::JsonParseError("Missing 'parts' field in catalog.attrs".to_string())
         })?;
-        
+
         // Update progress with total number of parts
         let total_parts = parts.len() as u64 + 1; // +1 for catalog.attrs
         overall_progress = overall_progress.with_total(total_parts).with_current(1);
         progress_reporter.update(&overall_progress);
-        
+
         // Download each part
         for (i, part_name) in parts.keys().enumerate() {
             debug!("Downloading catalog part: {}", part_name);
-            
+
             // Update progress with current part
-            overall_progress = overall_progress.with_current(i as u64 + 2) // +2 because we already downloaded catalog.attrs
+            overall_progress = overall_progress
+                .with_current(i as u64 + 2) // +2 because we already downloaded catalog.attrs
                 .with_context(format!("Downloading part: {}", part_name));
             progress_reporter.update(&overall_progress);
-            
+
             self.download_and_store_catalog_file(publisher, part_name, progress)?;
         }
-        
+
         // Get the catalog manager for this publisher
         let catalog_manager = self.get_catalog_manager(publisher)?;
-        
+
         // Update progress for loading parts
         overall_progress = overall_progress.with_context("Loading catalog parts".to_string());
         progress_reporter.update(&overall_progress);
-        
+
         // Load the catalog parts
         for part_name in parts.keys() {
             catalog_manager.load_part(part_name)?;
         }
-        
+
         // Report completion
         overall_progress = overall_progress.with_current(total_parts);
         progress_reporter.finish(&overall_progress);
-        
+
         info!("Downloaded catalog for publisher: {}", publisher);
-        
+
         Ok(())
     }
-    
+
     /// Download catalogs for all publishers
     ///
     /// # Arguments
@@ -1046,19 +1105,19 @@ impl RestBackend {
     pub fn download_all_catalogs(&mut self, progress: Option<&dyn ProgressReporter>) -> Result<()> {
         // Use a no-op reporter if none was provided
         let progress_reporter = progress.unwrap_or(&NoopProgressReporter);
-        
+
         // Clone the publishers list to avoid borrowing issues
         let publishers = self.config.publishers.clone();
         let total_publishers = publishers.len() as u64;
-        
+
         // Create progress info for the overall operation
         let mut overall_progress = ProgressInfo::new("Downloading all catalogs")
             .with_total(total_publishers)
             .with_current(0);
-        
+
         // Notify that we're starting the download
         progress_reporter.start(&overall_progress);
-        
+
         // Download catalogs for each publisher
         for (i, publisher) in publishers.iter().enumerate() {
             // Update progress with current publisher
@@ -1066,21 +1125,21 @@ impl RestBackend {
                 .with_current(i as u64)
                 .with_context(format!("Publisher: {}", publisher));
             progress_reporter.update(&overall_progress);
-            
+
             // Download catalog for this publisher
             self.download_catalog(publisher, progress)?;
-            
+
             // Update progress after completing this publisher
             overall_progress = overall_progress.with_current(i as u64 + 1);
             progress_reporter.update(&overall_progress);
         }
-        
+
         // Report completion
         progress_reporter.finish(&overall_progress);
-        
+
         Ok(())
     }
-    
+
     /// Refresh the catalog for a publisher
     ///
     /// # Arguments
@@ -1091,7 +1150,11 @@ impl RestBackend {
     /// # Returns
     ///
     /// * `Result<()>` - Ok if the catalog was refreshed successfully, Err otherwise
-    pub fn refresh_catalog(&mut self, publisher: &str, progress: Option<&dyn ProgressReporter>) -> Result<()> {
+    pub fn refresh_catalog(
+        &mut self,
+        publisher: &str,
+        progress: Option<&dyn ProgressReporter>,
+    ) -> Result<()> {
         self.download_catalog(publisher, progress)
     }
 }

@@ -9,8 +9,8 @@ use miette::Diagnostic;
 use thiserror::Error;
 use tracing::info;
 
-use crate::actions::{Link as LinkAction, Manifest};
 use crate::actions::{Dir as DirAction, File as FileAction};
+use crate::actions::{Link as LinkAction, Manifest};
 
 #[derive(Error, Debug, Diagnostic)]
 pub enum InstallerError {
@@ -23,16 +23,25 @@ pub enum InstallerError {
     },
 
     #[error("Absolute paths are forbidden in actions: {path}")]
-    #[diagnostic(code(ips::installer_error::absolute_path_forbidden), help("Provide paths relative to the image root"))]
+    #[diagnostic(
+        code(ips::installer_error::absolute_path_forbidden),
+        help("Provide paths relative to the image root")
+    )]
     AbsolutePathForbidden { path: String },
 
     #[error("Path escapes image root via traversal: {rel}")]
-    #[diagnostic(code(ips::installer_error::path_outside_image), help("Remove '..' components that escape the image root"))]
+    #[diagnostic(
+        code(ips::installer_error::path_outside_image),
+        help("Remove '..' components that escape the image root")
+    )]
     PathTraversalOutsideImage { rel: String },
 
     #[error("Unsupported or not yet implemented action: {action} ({reason})")]
     #[diagnostic(code(ips::installer_error::unsupported_action))]
-    UnsupportedAction { action: &'static str, reason: String },
+    UnsupportedAction {
+        action: &'static str,
+        reason: String,
+    },
 }
 
 fn parse_mode(mode: &str, default: u32) -> u32 {
@@ -74,7 +83,7 @@ pub fn safe_join(image_root: &Path, rel: &str) -> Result<PathBuf, InstallerError
             Component::Prefix(_) | Component::RootDir => {
                 return Err(InstallerError::AbsolutePathForbidden {
                     path: rel.to_string(),
-                })
+                });
             }
         }
     }
@@ -107,7 +116,10 @@ impl std::fmt::Debug for ApplyOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApplyOptions")
             .field("dry_run", &self.dry_run)
-            .field("progress", &self.progress.as_ref().map(|_| "Some(callback)"))
+            .field(
+                "progress",
+                &self.progress.as_ref().map(|_| "Some(callback)"),
+            )
             .field("progress_interval", &self.progress_interval)
             .finish()
     }
@@ -115,65 +127,154 @@ impl std::fmt::Debug for ApplyOptions {
 
 impl Default for ApplyOptions {
     fn default() -> Self {
-        Self { dry_run: false, progress: None, progress_interval: 0 }
+        Self {
+            dry_run: false,
+            progress: None,
+            progress_interval: 0,
+        }
     }
 }
 
 /// Progress event emitted by apply_manifest when a callback is provided.
 #[derive(Debug, Clone, Copy)]
 pub enum ProgressEvent {
-    StartingPhase { phase: &'static str, total: usize },
-    Progress { phase: &'static str, current: usize, total: usize },
-    FinishedPhase { phase: &'static str, total: usize },
+    StartingPhase {
+        phase: &'static str,
+        total: usize,
+    },
+    Progress {
+        phase: &'static str,
+        current: usize,
+        total: usize,
+    },
+    FinishedPhase {
+        phase: &'static str,
+        total: usize,
+    },
 }
 
 pub type ProgressCallback = Arc<dyn Fn(ProgressEvent) + Send + Sync + 'static>;
 
 /// Apply a manifest to the filesystem rooted at image_root.
 /// This function enforces ordering: directories, then files, then links, then others (no-ops for now).
-pub fn apply_manifest(image_root: &Path, manifest: &Manifest, opts: &ApplyOptions) -> Result<(), InstallerError> {
+pub fn apply_manifest(
+    image_root: &Path,
+    manifest: &Manifest,
+    opts: &ApplyOptions,
+) -> Result<(), InstallerError> {
     let emit = |evt: ProgressEvent, cb: &Option<ProgressCallback>| {
-        if let Some(cb) = cb.as_ref() { (cb)(evt); }
+        if let Some(cb) = cb.as_ref() {
+            (cb)(evt);
+        }
     };
 
     // Directories first
     let total_dirs = manifest.directories.len();
-    if total_dirs > 0 { emit(ProgressEvent::StartingPhase { phase: "directories", total: total_dirs }, &opts.progress); }
+    if total_dirs > 0 {
+        emit(
+            ProgressEvent::StartingPhase {
+                phase: "directories",
+                total: total_dirs,
+            },
+            &opts.progress,
+        );
+    }
     let mut i = 0usize;
     for d in &manifest.directories {
         apply_dir(image_root, d, opts)?;
         i += 1;
         if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_dirs) {
-            emit(ProgressEvent::Progress { phase: "directories", current: i, total: total_dirs }, &opts.progress);
+            emit(
+                ProgressEvent::Progress {
+                    phase: "directories",
+                    current: i,
+                    total: total_dirs,
+                },
+                &opts.progress,
+            );
         }
     }
-    if total_dirs > 0 { emit(ProgressEvent::FinishedPhase { phase: "directories", total: total_dirs }, &opts.progress); }
+    if total_dirs > 0 {
+        emit(
+            ProgressEvent::FinishedPhase {
+                phase: "directories",
+                total: total_dirs,
+            },
+            &opts.progress,
+        );
+    }
 
     // Files next
     let total_files = manifest.files.len();
-    if total_files > 0 { emit(ProgressEvent::StartingPhase { phase: "files", total: total_files }, &opts.progress); }
+    if total_files > 0 {
+        emit(
+            ProgressEvent::StartingPhase {
+                phase: "files",
+                total: total_files,
+            },
+            &opts.progress,
+        );
+    }
     i = 0;
     for f_action in &manifest.files {
         apply_file(image_root, f_action, opts)?;
         i += 1;
         if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_files) {
-            emit(ProgressEvent::Progress { phase: "files", current: i, total: total_files }, &opts.progress);
+            emit(
+                ProgressEvent::Progress {
+                    phase: "files",
+                    current: i,
+                    total: total_files,
+                },
+                &opts.progress,
+            );
         }
     }
-    if total_files > 0 { emit(ProgressEvent::FinishedPhase { phase: "files", total: total_files }, &opts.progress); }
+    if total_files > 0 {
+        emit(
+            ProgressEvent::FinishedPhase {
+                phase: "files",
+                total: total_files,
+            },
+            &opts.progress,
+        );
+    }
 
     // Links
     let total_links = manifest.links.len();
-    if total_links > 0 { emit(ProgressEvent::StartingPhase { phase: "links", total: total_links }, &opts.progress); }
+    if total_links > 0 {
+        emit(
+            ProgressEvent::StartingPhase {
+                phase: "links",
+                total: total_links,
+            },
+            &opts.progress,
+        );
+    }
     i = 0;
     for l in &manifest.links {
         apply_link(image_root, l, opts)?;
         i += 1;
         if opts.progress_interval > 0 && (i % opts.progress_interval == 0 || i == total_links) {
-            emit(ProgressEvent::Progress { phase: "links", current: i, total: total_links }, &opts.progress);
+            emit(
+                ProgressEvent::Progress {
+                    phase: "links",
+                    current: i,
+                    total: total_links,
+                },
+                &opts.progress,
+            );
         }
     }
-    if total_links > 0 { emit(ProgressEvent::FinishedPhase { phase: "links", total: total_links }, &opts.progress); }
+    if total_links > 0 {
+        emit(
+            ProgressEvent::FinishedPhase {
+                phase: "links",
+                total: total_links,
+            },
+            &opts.progress,
+        );
+    }
 
     // Other action kinds are ignored for now and left for future extension.
     Ok(())
@@ -216,7 +317,11 @@ fn ensure_parent(image_root: &Path, p: &str, opts: &ApplyOptions) -> Result<(), 
     Ok(())
 }
 
-fn apply_file(image_root: &Path, f: &FileAction, opts: &ApplyOptions) -> Result<(), InstallerError> {
+fn apply_file(
+    image_root: &Path,
+    f: &FileAction,
+    opts: &ApplyOptions,
+) -> Result<(), InstallerError> {
     let full = safe_join(image_root, &f.path)?;
 
     // Ensure parent exists (directories should already be applied, but be robust)
@@ -248,7 +353,11 @@ fn apply_file(image_root: &Path, f: &FileAction, opts: &ApplyOptions) -> Result<
     Ok(())
 }
 
-fn apply_link(image_root: &Path, l: &LinkAction, opts: &ApplyOptions) -> Result<(), InstallerError> {
+fn apply_link(
+    image_root: &Path,
+    l: &LinkAction,
+    opts: &ApplyOptions,
+) -> Result<(), InstallerError> {
     let link_path = safe_join(image_root, &l.path)?;
 
     // Determine link type (default to symlink). If properties contain type=hard, create hard link.
@@ -275,7 +384,9 @@ fn apply_link(image_root: &Path, l: &LinkAction, opts: &ApplyOptions) -> Result<
     } else {
         // Symlink: require non-absolute target to avoid embedding full host paths
         if Path::new(&l.target).is_absolute() {
-            return Err(InstallerError::AbsolutePathForbidden { path: l.target.clone() });
+            return Err(InstallerError::AbsolutePathForbidden {
+                path: l.target.clone(),
+            });
         }
         // Create relative symlink as provided (do not convert to absolute to avoid embedding full paths)
         #[cfg(target_family = "unix")]

@@ -1,35 +1,38 @@
+use crate::errors::DepotError;
+use crate::repo::DepotRepo;
 use axum::{
     extract::{Path, State},
-    response::{IntoResponse, Response},
     http::header,
+    response::{IntoResponse, Response},
 };
-use std::sync::Arc;
-use crate::repo::DepotRepo;
-use crate::errors::DepotError;
-use libips::fmri::Fmri;
-use std::str::FromStr;
+use chrono::{Datelike, NaiveDateTime, TimeZone, Timelike, Utc};
 use libips::actions::Manifest;
-use chrono::{NaiveDateTime, Utc, TimeZone, Datelike, Timelike};
 use libips::actions::Property;
+use libips::fmri::Fmri;
 use std::fs;
 use std::io::Read as _;
+use std::str::FromStr;
+use std::sync::Arc;
 
 pub async fn get_info(
     State(repo): State<Arc<DepotRepo>>,
     Path((publisher, fmri_str)): Path<(String, String)>,
 ) -> Result<Response, DepotError> {
-    let fmri = Fmri::from_str(&fmri_str).map_err(|e| DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string())))?;
-    
+    let fmri = Fmri::from_str(&fmri_str)
+        .map_err(|e| DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string())))?;
+
     let content = repo.get_manifest_text(&publisher, &fmri)?;
-    
+
     let manifest = match serde_json::from_str::<Manifest>(&content) {
         Ok(m) => m,
-        Err(_) => Manifest::parse_string(content).map_err(|e| DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string())))?,
+        Err(_) => Manifest::parse_string(content).map_err(|e| {
+            DepotError::Repo(libips::repository::RepositoryError::Other(e.to_string()))
+        })?,
     };
-    
+
     let mut out = String::new();
     out.push_str(&format!("Name: {}\n", fmri.name));
-    
+
     if let Some(summary) = find_attr(&manifest, "pkg.summary") {
         out.push_str(&format!("Summary: {}\n", summary));
     }
@@ -46,17 +49,27 @@ pub async fn get_info(
         if let Some((rel_branch, ts)) = rest.split_once(':') {
             ts_str = Some(ts.to_string());
             if let Some((rel, br)) = rel_branch.split_once('-') {
-                if !rel.is_empty() { build_release = Some(rel.to_string()); }
-                if !br.is_empty() { branch = Some(br.to_string()); }
+                if !rel.is_empty() {
+                    build_release = Some(rel.to_string());
+                }
+                if !br.is_empty() {
+                    branch = Some(br.to_string());
+                }
             } else {
                 // No branch
-                if !rel_branch.is_empty() { build_release = Some(rel_branch.to_string()); }
+                if !rel_branch.is_empty() {
+                    build_release = Some(rel_branch.to_string());
+                }
             }
         } else {
             // No timestamp
             if let Some((rel, br)) = rest.split_once('-') {
-                if !rel.is_empty() { build_release = Some(rel.to_string()); }
-                if !br.is_empty() { branch = Some(br.to_string()); }
+                if !rel.is_empty() {
+                    build_release = Some(rel.to_string());
+                }
+                if !br.is_empty() {
+                    branch = Some(br.to_string());
+                }
             } else if !rest.is_empty() {
                 build_release = Some(rest.to_string());
             }
@@ -64,8 +77,12 @@ pub async fn get_info(
     }
 
     out.push_str(&format!("Version: {}\n", version_core));
-    if let Some(rel) = build_release { out.push_str(&format!("Build Release: {}\n", rel)); }
-    if let Some(br) = branch { out.push_str(&format!("Branch: {}\n", br)); }
+    if let Some(rel) = build_release {
+        out.push_str(&format!("Build Release: {}\n", rel));
+    }
+    if let Some(br) = branch {
+        out.push_str(&format!("Branch: {}\n", br));
+    }
     if let Some(ts) = ts_str.and_then(|s| format_packaging_date(&s)) {
         out.push_str(&format!("Packaging Date: {}\n", ts));
     }
@@ -83,13 +100,15 @@ pub async fn get_info(
     } else {
         out.push_str(&format!("FMRI: pkg://{}/{}@{}\n", publisher, name, version));
     }
-    
+
     // License
     // Print actual license text content from repository instead of hash.
     out.push_str("\nLicense:\n");
     let mut first = true;
     for license in &manifest.licenses {
-        if !first { out.push('\n'); }
+        if !first {
+            out.push('\n');
+        }
         first = false;
 
         // Optional license name header for readability
@@ -105,20 +124,22 @@ pub async fn get_info(
             match resolve_license_text(&repo, &publisher, digest) {
                 Some(text) => {
                     out.push_str(&text);
-                    if !text.ends_with('\n') { out.push('\n'); }
+                    if !text.ends_with('\n') {
+                        out.push('\n');
+                    }
                 }
                 None => {
                     // Fallback: show the digest if content could not be resolved
-                    out.push_str(&format!("<license content unavailable for digest {}>\n", digest));
+                    out.push_str(&format!(
+                        "<license content unavailable for digest {}>\n",
+                        digest
+                    ));
                 }
             }
         }
     }
-    
-    Ok((
-        [(header::CONTENT_TYPE, "text/plain")],
-        out
-    ).into_response())
+
+    Ok(([(header::CONTENT_TYPE, "text/plain")], out).into_response())
 }
 
 // Try to read and decode the license text for a given digest from the repository.
@@ -152,7 +173,9 @@ fn resolve_license_text(repo: &DepotRepo, publisher: &str, digest: &str) -> Opti
 
     let mut text = String::from_utf8_lossy(&data).to_string();
     if truncated {
-        if !text.ends_with('\n') { text.push('\n'); }
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
         text.push_str("...[truncated]\n");
     }
     Some(text)
@@ -161,7 +184,7 @@ fn resolve_license_text(repo: &DepotRepo, publisher: &str, digest: &str) -> Opti
 fn find_attr(manifest: &Manifest, key: &str) -> Option<String> {
     for attr in &manifest.attributes {
         if attr.key == key {
-             return attr.values.first().cloned();
+            return attr.values.first().cloned();
         }
     }
     None
@@ -187,17 +210,32 @@ fn month_name(month: u32) -> &'static str {
 
 fn format_packaging_date(ts: &str) -> Option<String> {
     // Expect formats like YYYYMMDDThhmmssZ or with fractional seconds before Z
-    let clean_ts = if let Some((base, _frac)) = ts.split_once('.') { format!("{}Z", base) } else { ts.to_string() };
+    let clean_ts = if let Some((base, _frac)) = ts.split_once('.') {
+        format!("{}Z", base)
+    } else {
+        ts.to_string()
+    };
     let ndt = NaiveDateTime::parse_from_str(&clean_ts, "%Y%m%dT%H%M%SZ").ok()?;
     let dt_utc = Utc.from_utc_datetime(&ndt);
     let month = month_name(dt_utc.month() as u32);
     let day = dt_utc.day();
     let year = dt_utc.year();
     let hour24 = dt_utc.hour();
-    let (ampm, hour12) = if hour24 == 0 { ("AM", 12) } else if hour24 < 12 { ("AM", hour24) } else if hour24 == 12 { ("PM", 12) } else { ("PM", hour24 - 12) };
+    let (ampm, hour12) = if hour24 == 0 {
+        ("AM", 12)
+    } else if hour24 < 12 {
+        ("AM", hour24)
+    } else if hour24 == 12 {
+        ("PM", 12)
+    } else {
+        ("PM", hour24 - 12)
+    };
     let minute = dt_utc.minute();
     let second = dt_utc.second();
-    Some(format!("{} {:02}, {} at {:02}:{:02}:{:02} {}", month, day, year, hour12, minute, second, ampm))
+    Some(format!(
+        "{} {:02}, {} at {:02}:{:02}:{:02} {}",
+        month, day, year, hour12, minute, second, ampm
+    ))
 }
 
 // Sum pkg.size (uncompressed) and pkg.csize (compressed) over all file actions
@@ -208,9 +246,13 @@ fn compute_sizes(manifest: &Manifest) -> (u128, u128) {
     for file in &manifest.files {
         for Property { key, value } in &file.properties {
             if key == "pkg.size" {
-                if let Ok(v) = value.parse::<u128>() { size = size.saturating_add(v); }
+                if let Ok(v) = value.parse::<u128>() {
+                    size = size.saturating_add(v);
+                }
             } else if key == "pkg.csize" {
-                if let Ok(v) = value.parse::<u128>() { csize = csize.saturating_add(v); }
+                if let Ok(v) = value.parse::<u128>() {
+                    csize = csize.saturating_add(v);
+                }
             }
         }
     }

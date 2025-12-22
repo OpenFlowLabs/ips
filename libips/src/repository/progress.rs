@@ -63,13 +63,13 @@ pub trait ProgressReporter {
 pub struct ProgressInfo {
     /// The name of the operation being performed
     pub operation: String,
-    
+
     /// The current progress value (e.g., bytes downloaded, files processed)
     pub current: Option<u64>,
-    
+
     /// The total expected value (e.g., total bytes, total files)
     pub total: Option<u64>,
-    
+
     /// Additional context about the operation (e.g., current file name)
     pub context: Option<String>,
 }
@@ -139,18 +139,18 @@ impl ProgressInfo {
 impl fmt::Display for ProgressInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.operation)?;
-        
+
         if let (Some(current), Some(total)) = (self.current, self.total) {
             let percentage = (current as f64 / total as f64) * 100.0;
             write!(f, " {:.1}% ({}/{})", percentage, current, total)?;
         } else if let Some(current) = self.current {
             write!(f, " {}", current)?;
         }
-        
+
         if let Some(context) = &self.context {
             write!(f, " - {}", context)?;
         }
-        
+
         Ok(())
     }
 }

@@ -8,9 +8,9 @@ use miette::Diagnostic;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::error::Error as StdError;
 use thiserror::Error;
 use tracing::{debug, warn};
 
@@ -27,10 +27,16 @@ pub struct DependError {
 
 impl DependError {
     fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), source: None }
+        Self {
+            message: message.into(),
+            source: None,
+        }
     }
     fn with_source(message: impl Into<String>, source: Box<dyn StdError + Send + Sync>) -> Self {
-        Self { message: message.into(), source: Some(source) }
+        Self {
+            message: message.into(),
+            source: Some(source),
+        }
     }
 }
 
@@ -84,16 +90,26 @@ pub struct FileDep {
 }
 
 /// Convert manifest file actions into FileDep entries (ELF only for now).
-pub fn generate_file_dependencies_from_manifest(manifest: &Manifest, opts: &GenerateOptions) -> Result<Vec<FileDep>> {
+pub fn generate_file_dependencies_from_manifest(
+    manifest: &Manifest,
+    opts: &GenerateOptions,
+) -> Result<Vec<FileDep>> {
     let mut out = Vec::new();
     let bypass = compile_bypass(&opts.bypass_patterns)?;
 
     for f in &manifest.files {
         // Determine installed path (manifests typically do not start with '/').
-        let installed_path = if f.path.starts_with('/') { f.path.clone() } else { format!("/{}", f.path) };
+        let installed_path = if f.path.starts_with('/') {
+            f.path.clone()
+        } else {
+            format!("/{}", f.path)
+        };
 
         if should_bypass(&installed_path, &bypass) {
-            debug!("bypassing dependency generation for {} per patterns", installed_path);
+            debug!(
+                "bypassing dependency generation for {} per patterns",
+                installed_path
+            );
             continue;
         }
 
@@ -142,16 +158,28 @@ pub fn generate_file_dependencies_from_manifest(manifest: &Manifest, opts: &Gene
                 // Normalize /bin -> /usr/bin
                 let interp_path = normalize_bin_path(&interp);
                 if !interp_path.starts_with('/') {
-                    warn!("Script shebang for {} specifies non-absolute interpreter: {}", installed_path, interp_path);
+                    warn!(
+                        "Script shebang for {} specifies non-absolute interpreter: {}",
+                        installed_path, interp_path
+                    );
                 } else {
                     // Derive dir and base name
                     let (dir, base) = split_dir_base(&interp_path);
                     if let Some(dir) = dir {
-                        out.push(FileDep { kind: FileDepKind::Script { base_name: base.to_string(), run_paths: vec![dir.to_string()], installed_path: installed_path.clone() } });
+                        out.push(FileDep {
+                            kind: FileDepKind::Script {
+                                base_name: base.to_string(),
+                                run_paths: vec![dir.to_string()],
+                                installed_path: installed_path.clone(),
+                            },
+                        });
                         // If Python interpreter, perform Python analysis
                         if interp_path.contains("python") {
-                            if let Some((maj, min)) = infer_python_version_from_paths(&installed_path, Some(&interp_path)) {
-                                let mut pydeps = process_python(&bytes, &installed_path, (maj, min), opts);
+                            if let Some((maj, min)) =
+                                infer_python_version_from_paths(&installed_path, Some(&interp_path))
+                            {
+                                let mut pydeps =
+                                    process_python(&bytes, &installed_path, (maj, min), opts);
                                 out.append(&mut pydeps);
                             }
                         }
@@ -171,7 +199,13 @@ pub fn generate_file_dependencies_from_manifest(manifest: &Manifest, opts: &Gene
                     if exec_path.starts_with('/') {
                         let (dir, base) = split_dir_base(&exec_path);
                         if let Some(dir) = dir {
-                            out.push(FileDep { kind: FileDepKind::Script { base_name: base.to_string(), run_paths: vec![dir.to_string()], installed_path: installed_path.clone() } });
+                            out.push(FileDep {
+                                kind: FileDepKind::Script {
+                                    base_name: base.to_string(),
+                                    run_paths: vec![dir.to_string()],
+                                    installed_path: installed_path.clone(),
+                                },
+                            });
                         }
                     }
                 }
@@ -183,14 +217,19 @@ pub fn generate_file_dependencies_from_manifest(manifest: &Manifest, opts: &Gene
 }
 
 /// Insert default runpaths into provided runpaths based on PD_DEFAULT_RUNPATH token
-fn insert_default_runpath(defaults: &[String], provided: &[String]) -> std::result::Result<Vec<String>, DependError> {
+fn insert_default_runpath(
+    defaults: &[String],
+    provided: &[String],
+) -> std::result::Result<Vec<String>, DependError> {
     let mut out = Vec::new();
     let mut token_count = 0;
     for p in provided {
         if p == PD_DEFAULT_RUNPATH {
             token_count += 1;
             if token_count > 1 {
-                return Err(DependError::new("Multiple PD_DEFAULT_RUNPATH tokens in runpath override"));
+                return Err(DependError::new(
+                    "Multiple PD_DEFAULT_RUNPATH tokens in runpath override",
+                ));
             }
             out.extend_from_slice(defaults);
         } else {
@@ -208,7 +247,9 @@ fn insert_default_runpath(defaults: &[String], provided: &[String]) -> std::resu
 fn compile_bypass(patterns: &[String]) -> Result<Vec<Regex>> {
     let mut out = Vec::new();
     for p in patterns {
-        out.push(Regex::new(p).map_err(|e| DependError::with_source(format!("invalid bypass pattern: {}", p), Box::new(e)))?);
+        out.push(Regex::new(p).map_err(|e| {
+            DependError::with_source(format!("invalid bypass pattern: {}", p), Box::new(e))
+        })?);
     }
     Ok(out)
 }
@@ -259,11 +300,18 @@ fn process_elf(bytes: &[u8], installed_path: &str, opts: &GenerateOptions) -> Ve
                 }
             } else {
                 // If no override, prefer DT_RUNPATH if present else defaults
-                if runpaths.is_empty() { defaults.clone() } else { runpaths.clone() }
+                if runpaths.is_empty() {
+                    defaults.clone()
+                } else {
+                    runpaths.clone()
+                }
             };
 
             // Expand $ORIGIN
-            let origin = Path::new(installed_path).parent().map(|p| p.display().to_string()).unwrap_or_else(|| "/".to_string());
+            let origin = Path::new(installed_path)
+                .parent()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "/".to_string());
             let expanded: Vec<String> = effective
                 .into_iter()
                 .map(|p| p.replace("$ORIGIN", &origin))
@@ -271,7 +319,13 @@ fn process_elf(bytes: &[u8], installed_path: &str, opts: &GenerateOptions) -> Ve
 
             // Emit FileDep for each DT_NEEDED base name
             for bn in needed.drain(..) {
-                out.push(FileDep { kind: FileDepKind::Elf { base_name: bn, run_paths: expanded.clone(), installed_path: installed_path.to_string() } });
+                out.push(FileDep {
+                    kind: FileDepKind::Elf {
+                        base_name: bn,
+                        run_paths: expanded.clone(),
+                        installed_path: installed_path.to_string(),
+                    },
+                });
             }
         }
         Err(err) => warn!("ELF parse error for {}: {}", installed_path, err),
@@ -292,7 +346,11 @@ pub fn resolve_dependencies<R: ReadableRepository>(
 
     for fd in file_deps {
         match &fd.kind {
-            FileDepKind::Elf { base_name, run_paths, .. } => {
+            FileDepKind::Elf {
+                base_name,
+                run_paths,
+                ..
+            } => {
                 let mut providers: Vec<Fmri> = Vec::new();
                 for dir in run_paths {
                     let full = normalize_join(dir, base_name);
@@ -330,7 +388,11 @@ pub fn resolve_dependencies<R: ReadableRepository>(
                     // unresolved -> skip for now; future: emit analysis warnings
                 }
             }
-            FileDepKind::Script { base_name, run_paths, .. } => {
+            FileDepKind::Script {
+                base_name,
+                run_paths,
+                ..
+            } => {
                 let mut providers: Vec<Fmri> = Vec::new();
                 for dir in run_paths {
                     let full = normalize_join(dir, base_name);
@@ -366,7 +428,11 @@ pub fn resolve_dependencies<R: ReadableRepository>(
                 } else {
                 }
             }
-            FileDepKind::Python { base_names, run_paths, .. } => {
+            FileDepKind::Python {
+                base_names,
+                run_paths,
+                ..
+            } => {
                 let mut providers: Vec<Fmri> = Vec::new();
                 for dir in run_paths {
                     for base in base_names {
@@ -418,7 +484,10 @@ fn normalize_join(dir: &str, base: &str) -> String {
     }
 }
 
-fn build_path_provider_map<R: ReadableRepository>(repo: &R, publisher: Option<&str>) -> Result<HashMap<String, Vec<Fmri>>> {
+fn build_path_provider_map<R: ReadableRepository>(
+    repo: &R,
+    publisher: Option<&str>,
+) -> Result<HashMap<String, Vec<Fmri>>> {
     // Ask repo to show contents for all packages (files only)
     let contents = repo
         .show_contents(publisher, None, Some(&["file".to_string()]))
@@ -429,21 +498,27 @@ fn build_path_provider_map<R: ReadableRepository>(repo: &R, publisher: Option<&s
         let fmri = match pc.package_id.parse::<Fmri>() {
             Ok(f) => f,
             Err(e) => {
-                warn!("Skipping package with invalid FMRI {}: {}", pc.package_id, e);
+                warn!(
+                    "Skipping package with invalid FMRI {}: {}",
+                    pc.package_id, e
+                );
                 continue;
             }
         };
         if let Some(files) = pc.files {
             for p in files {
                 // Ensure leading slash
-                let key = if p.starts_with('/') { p } else { format!("/{}", p) };
+                let key = if p.starts_with('/') {
+                    p
+                } else {
+                    format!("/{}", p)
+                };
                 map.entry(key).or_default().push(fmri.clone());
             }
         }
     }
     Ok(map)
 }
-
 
 // --- Helpers for script processing ---
 fn parse_shebang(bytes: &[u8]) -> Option<String> {
@@ -501,7 +576,6 @@ fn split_dir_base(path: &str) -> (Option<&str>, &str) {
     }
 }
 
-
 fn looks_like_smf_manifest(bytes: &[u8]) -> bool {
     // Very lightweight detection: SMF manifests are XML files with a <service_bundle ...> root
     // We do a lossy UTF-8 conversion and look for the tag to avoid a full XML parser.
@@ -510,7 +584,10 @@ fn looks_like_smf_manifest(bytes: &[u8]) -> bool {
 }
 
 // --- Python helpers ---
-fn infer_python_version_from_paths(installed_path: &str, shebang_path: Option<&str>) -> Option<(u8, u8)> {
+fn infer_python_version_from_paths(
+    installed_path: &str,
+    shebang_path: Option<&str>,
+) -> Option<(u8, u8)> {
     // Prefer version implied by installed path under /usr/lib/pythonX.Y
     if let Ok(re) = Regex::new(r"^/usr/lib/python(\d+)\.(\d+)(/|$)") {
         if let Some(c) = re.captures(installed_path) {
@@ -526,7 +603,9 @@ fn infer_python_version_from_paths(installed_path: &str, shebang_path: Option<&s
         if let Ok(re) = Regex::new(r"python(\d+)\.(\d+)") {
             if let Some(c) = re.captures(sb) {
                 if let (Some(ma), Some(mi)) = (c.get(1), c.get(2)) {
-                    if let (Ok(maj), Ok(min)) = (ma.as_str().parse::<u8>(), mi.as_str().parse::<u8>()) {
+                    if let (Ok(maj), Ok(min)) =
+                        (ma.as_str().parse::<u8>(), mi.as_str().parse::<u8>())
+                    {
                         return Some((maj, min));
                     }
                 }
@@ -580,7 +659,12 @@ fn collect_python_imports(src: &str) -> Vec<String> {
     mods
 }
 
-fn process_python(bytes: &[u8], installed_path: &str, version: (u8, u8), opts: &GenerateOptions) -> Vec<FileDep> {
+fn process_python(
+    bytes: &[u8],
+    installed_path: &str,
+    version: (u8, u8),
+    opts: &GenerateOptions,
+) -> Vec<FileDep> {
     let text = String::from_utf8_lossy(bytes);
     let imports = collect_python_imports(&text);
     if imports.is_empty() {
@@ -591,11 +675,21 @@ fn process_python(bytes: &[u8], installed_path: &str, version: (u8, u8), opts: &
     for m in imports {
         let py = format!("{}.py", m);
         let so = format!("{}.so", m);
-        if !base_names.contains(&py) { base_names.push(py); }
-        if !base_names.contains(&so) { base_names.push(so); }
+        if !base_names.contains(&py) {
+            base_names.push(py);
+        }
+        if !base_names.contains(&so) {
+            base_names.push(so);
+        }
     }
     let run_paths = compute_python_runpaths(version, opts);
-    vec![FileDep { kind: FileDepKind::Python { base_names, run_paths, installed_path: installed_path.to_string() } }]
+    vec![FileDep {
+        kind: FileDepKind::Python {
+            base_names,
+            run_paths,
+            installed_path: installed_path.to_string(),
+        },
+    }]
 }
 
 // --- SMF helpers ---
@@ -608,7 +702,9 @@ fn extract_smf_execs(bytes: &[u8]) -> Vec<String> {
             let m = cap.get(1).or_else(|| cap.get(2));
             if let Some(v) = m {
                 let val = v.as_str().to_string();
-                if !out.contains(&val) { out.push(val); }
+                if !out.contains(&val) {
+                    out.push(val);
+                }
             }
         }
     }

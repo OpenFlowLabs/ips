@@ -129,7 +129,7 @@ impl Digest {
             x => {
                 return Err(DigestError::UnknownAlgorithm {
                     algorithm: x.to_string(),
-                })
+                });
             }
         };
 
@@ -152,7 +152,9 @@ pub enum DigestError {
     #[error("hashing algorithm {algorithm:?} is not known by this library")]
     #[diagnostic(
         code(ips::digest_error::unknown_algorithm),
-        help("Use one of the supported algorithms: sha1, sha256t, sha512t, sha512t_256, sha3256t, sha3512t_256, sha3512t")
+        help(
+            "Use one of the supported algorithms: sha1, sha256t, sha512t, sha512t_256, sha3256t, sha3512t_256, sha3512t"
+        )
     )]
     UnknownAlgorithm { algorithm: String },
 

@@ -33,38 +33,52 @@ pub struct AdviceReport {
 
 #[derive(Debug, Default, Clone)]
 pub struct AdviceOptions {
-    pub max_depth: usize,            // 0 = unlimited
-    pub dependency_cap: usize,       // 0 = unlimited per node
+    pub max_depth: usize,      // 0 = unlimited
+    pub dependency_cap: usize, // 0 = unlimited per node
 }
 
 #[derive(Default)]
 struct Ctx {
     // caches
     catalog_cache: HashMap<String, Vec<(String, Fmri)>>, // stem -> [(publisher, fmri)]
-    manifest_cache: HashMap<String, Manifest>,            // fmri string -> manifest
-    lock_cache: HashMap<String, Option<String>>,          // stem -> incorporated release
-    candidate_cache: HashMap<(String, Option<String>, Option<String>, Option<String>), Option<Fmri>>, // (stem, rel, branch, publisher)
+    manifest_cache: HashMap<String, Manifest>,           // fmri string -> manifest
+    lock_cache: HashMap<String, Option<String>>,         // stem -> incorporated release
+    candidate_cache:
+        HashMap<(String, Option<String>, Option<String>, Option<String>), Option<Fmri>>, // (stem, rel, branch, publisher)
     publisher_filter: Option<String>,
     cap: usize,
 }
 
 impl Ctx {
     fn new(publisher_filter: Option<String>, cap: usize) -> Self {
-        Self { publisher_filter, cap, ..Default::default() }
+        Self {
+            publisher_filter,
+            cap,
+            ..Default::default()
+        }
     }
 }
 
-pub fn advise_from_error(image: &Image, err: &SolverError, opts: AdviceOptions) -> Result<AdviceReport, AdviceError> {
+pub fn advise_from_error(
+    image: &Image,
+    err: &SolverError,
+    opts: AdviceOptions,
+) -> Result<AdviceReport, AdviceError> {
     let mut report = AdviceReport::default();
     let Some(problem) = err.problem() else {
         return Ok(report);
     };
 
     match &problem.kind {
-        SolverProblemKind::NoCandidates { stem, release, branch } => {
+        SolverProblemKind::NoCandidates {
+            stem,
+            release,
+            branch,
+        } => {
             // Advise directly on the missing root
             let mut ctx = Ctx::new(None, opts.dependency_cap);
-            let details = build_missing_detail(image, &mut ctx, stem, release.as_deref(), branch.as_deref());
+            let details =
+                build_missing_detail(image, &mut ctx, stem, release.as_deref(), branch.as_deref());
             report.issues.push(AdviceIssue {
                 path: vec![stem.clone()],
                 stem: stem.clone(),
@@ -78,11 +92,23 @@ pub fn advise_from_error(image: &Image, err: &SolverError, opts: AdviceOptions) 
             // Fall back to analyzing roots and traversing dependencies to find a missing candidate leaf.
             let mut ctx = Ctx::new(None, opts.dependency_cap);
             for root in &problem.roots {
-                let root_fmri = match find_best_candidate(image, &mut ctx, &root.stem, root.version_req.as_deref(), root.branch.as_deref()) {
+                let root_fmri = match find_best_candidate(
+                    image,
+                    &mut ctx,
+                    &root.stem,
+                    root.version_req.as_deref(),
+                    root.branch.as_deref(),
+                ) {
                     Ok(Some(f)) => f,
                     _ => {
                         // Missing root candidate
-                        let details = build_missing_detail(image, &mut ctx, &root.stem, root.version_req.as_deref(), root.branch.as_deref());
+                        let details = build_missing_detail(
+                            image,
+                            &mut ctx,
+                            &root.stem,
+                            root.version_req.as_deref(),
+                            root.branch.as_deref(),
+                        );
                         report.issues.push(AdviceIssue {
                             path: vec![root.stem.clone()],
                             stem: root.stem.clone(),
@@ -97,7 +123,16 @@ pub fn advise_from_error(image: &Image, err: &SolverError, opts: AdviceOptions) 
                 // Depth-first traversal looking for missing candidates
                 let mut path = vec![root.stem.clone()];
                 let mut seen = std::collections::HashSet::new();
-                advise_recursive(image, &mut ctx, &root_fmri, &mut path, 1, opts.max_depth, &mut seen, &mut report)?;
+                advise_recursive(
+                    image,
+                    &mut ctx,
+                    &root_fmri,
+                    &mut path,
+                    1,
+                    opts.max_depth,
+                    &mut seen,
+                    &mut report,
+                )?;
             }
             Ok(report)
         }
@@ -114,30 +149,43 @@ fn advise_recursive(
     seen: &mut std::collections::HashSet<String>,
     report: &mut AdviceReport,
 ) -> Result<(), AdviceError> {
-    if max_depth != 0 && depth > max_depth { return Ok(()); }
+    if max_depth != 0 && depth > max_depth {
+        return Ok(());
+    }
     let manifest = get_manifest_cached(image, ctx, fmri)?;
 
     let mut processed = 0usize;
-    for dep in manifest.dependencies.iter().filter(|d| d.dependency_type == "require" || d.dependency_type == "incorporate") {
-        let Some(df) = &dep.fmri else { continue; };
+    for dep in manifest
+        .dependencies
+        .iter()
+        .filter(|d| d.dependency_type == "require" || d.dependency_type == "incorporate")
+    {
+        let Some(df) = &dep.fmri else {
+            continue;
+        };
         let dep_stem = df.stem().to_string();
         // Extract constraints from optional properties and, if absent, from the dependency FMRI version string
         let (mut rel, mut br) = extract_constraint(&dep.optional);
         let df_ver_str = df.version();
         if !df_ver_str.is_empty() {
-            if rel.is_none() { rel = version_release(&df_ver_str); }
-            if br.is_none() { br = version_branch(&df_ver_str); }
+            if rel.is_none() {
+                rel = version_release(&df_ver_str);
+            }
+            if br.is_none() {
+                br = version_branch(&df_ver_str);
+            }
         }
         // Mirror solver behavior: lock child to parent's branch when not explicitly constrained
         if br.is_none() {
-            let parent_branch = fmri
-                .version
-                .as_ref()
-                .and_then(|v| v.branch.clone());
-            if let Some(pb) = parent_branch { br = Some(pb); }
+            let parent_branch = fmri.version.as_ref().and_then(|v| v.branch.clone());
+            if let Some(pb) = parent_branch {
+                br = Some(pb);
+            }
         }
 
-        if ctx.cap != 0 && processed >= ctx.cap { break; }
+        if ctx.cap != 0 && processed >= ctx.cap {
+            break;
+        }
         processed += 1;
 
         match find_best_candidate(image, ctx, &dep_stem, rel.as_deref(), br.as_deref())? {
@@ -150,7 +198,8 @@ fn advise_recursive(
                 }
             }
             None => {
-                let details = build_missing_detail(image, ctx, &dep_stem, rel.as_deref(), br.as_deref());
+                let details =
+                    build_missing_detail(image, ctx, &dep_stem, rel.as_deref(), br.as_deref());
                 report.issues.push(AdviceIssue {
                     path: path.clone(),
                     stem: dep_stem.clone(),
@@ -177,32 +226,76 @@ fn extract_constraint(optional: &[Property]) -> (Option<String>, Option<String>)
     (release, branch)
 }
 
-fn build_missing_detail(image: &Image, ctx: &mut Ctx, stem: &str, release: Option<&str>, branch: Option<&str>) -> String {
+fn build_missing_detail(
+    image: &Image,
+    ctx: &mut Ctx,
+    stem: &str,
+    release: Option<&str>,
+    branch: Option<&str>,
+) -> String {
     let mut available: Vec<String> = Vec::new();
     if let Ok(list) = query_catalog_cached_mut(image, ctx, stem) {
         for (pubname, fmri) in list {
-            if let Some(ref pfilter) = ctx.publisher_filter { if &pubname != pfilter { continue; } }
-            if fmri.stem() != stem { continue; }
+            if let Some(ref pfilter) = ctx.publisher_filter {
+                if &pubname != pfilter {
+                    continue;
+                }
+            }
+            if fmri.stem() != stem {
+                continue;
+            }
             let ver = fmri.version();
-            if ver.is_empty() { continue; }
+            if ver.is_empty() {
+                continue;
+            }
             available.push(ver);
         }
     }
     available.sort();
     available.dedup();
 
-    let available_str = if available.is_empty() { "<none>".to_string() } else { available.join(", ") };
-    let lock = get_incorporated_release_cached(image, ctx, stem).ok().flatten();
+    let available_str = if available.is_empty() {
+        "<none>".to_string()
+    } else {
+        available.join(", ")
+    };
+    let lock = get_incorporated_release_cached(image, ctx, stem)
+        .ok()
+        .flatten();
 
     match (release, branch, lock.as_deref()) {
-        (Some(r), Some(b), Some(lr)) => format!("Required release={}, branch={} not found. Image incorporation lock release={} may constrain candidates. Available versions: {}", r, b, lr, available_str),
-        (Some(r), Some(b), None) => format!("Required release={}, branch={} not found. Available versions: {}", r, b, available_str),
-        (Some(r), None, Some(lr)) => format!("Required release={} not found. Image incorporation lock release={} present. Available versions: {}", r, lr, available_str),
-        (Some(r), None, None) => format!("Required release={} not found. Available versions: {}", r, available_str),
-        (None, Some(b), Some(lr)) => format!("Required branch={} not found. Image incorporation lock release={} present. Available versions: {}", b, lr, available_str),
-        (None, Some(b), None) => format!("Required branch={} not found. Available versions: {}", b, available_str),
-        (None, None, Some(lr)) => format!("No candidates matched. Image incorporation lock release={} present. Available versions: {}", lr, available_str),
-        (None, None, None) => format!("No candidates matched. Available versions: {}", available_str),
+        (Some(r), Some(b), Some(lr)) => format!(
+            "Required release={}, branch={} not found. Image incorporation lock release={} may constrain candidates. Available versions: {}",
+            r, b, lr, available_str
+        ),
+        (Some(r), Some(b), None) => format!(
+            "Required release={}, branch={} not found. Available versions: {}",
+            r, b, available_str
+        ),
+        (Some(r), None, Some(lr)) => format!(
+            "Required release={} not found. Image incorporation lock release={} present. Available versions: {}",
+            r, lr, available_str
+        ),
+        (Some(r), None, None) => format!(
+            "Required release={} not found. Available versions: {}",
+            r, available_str
+        ),
+        (None, Some(b), Some(lr)) => format!(
+            "Required branch={} not found. Image incorporation lock release={} present. Available versions: {}",
+            b, lr, available_str
+        ),
+        (None, Some(b), None) => format!(
+            "Required branch={} not found. Available versions: {}",
+            b, available_str
+        ),
+        (None, None, Some(lr)) => format!(
+            "No candidates matched. Image incorporation lock release={} present. Available versions: {}",
+            lr, available_str
+        ),
+        (None, None, None) => format!(
+            "No candidates matched. Available versions: {}",
+            available_str
+        ),
     }
 }
 
@@ -219,20 +312,48 @@ fn find_best_candidate(
         req_branch.map(|s| s.to_string()),
         ctx.publisher_filter.clone(),
     );
-    if let Some(cached) = ctx.candidate_cache.get(&key) { return Ok(cached.clone()); }
+    if let Some(cached) = ctx.candidate_cache.get(&key) {
+        return Ok(cached.clone());
+    }
 
-    let lock_release = if req_release.is_none() { get_incorporated_release_cached(image, ctx, stem).ok().flatten() } else { None };
+    let lock_release = if req_release.is_none() {
+        get_incorporated_release_cached(image, ctx, stem)
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
 
     let mut candidates: Vec<(String, Fmri)> = Vec::new();
     for (pubf, pfmri) in query_catalog_cached(image, ctx, stem)? {
-        if let Some(ref pfilter) = ctx.publisher_filter { if &pubf != pfilter { continue; } }
-        if pfmri.stem() != stem { continue; }
+        if let Some(ref pfilter) = ctx.publisher_filter {
+            if &pubf != pfilter {
+                continue;
+            }
+        }
+        if pfmri.stem() != stem {
+            continue;
+        }
         let ver = pfmri.version();
-        if ver.is_empty() { continue; }
+        if ver.is_empty() {
+            continue;
+        }
         let rel = version_release(&ver);
         let br = version_branch(&ver);
-        if let Some(req_r) = req_release { if Some(req_r) != rel.as_deref() { continue; } } else if let Some(lock_r) = lock_release.as_deref() { if Some(lock_r) != rel.as_deref() { continue; } }
-        if let Some(req_b) = req_branch { if Some(req_b) != br.as_deref() { continue; } }
+        if let Some(req_r) = req_release {
+            if Some(req_r) != rel.as_deref() {
+                continue;
+            }
+        } else if let Some(lock_r) = lock_release.as_deref() {
+            if Some(lock_r) != rel.as_deref() {
+                continue;
+            }
+        }
+        if let Some(req_b) = req_branch {
+            if Some(req_b) != br.as_deref() {
+                continue;
+            }
+        }
         candidates.push((ver.clone(), pfmri.clone()));
     }
 
@@ -247,7 +368,9 @@ fn version_release(version: &str) -> Option<String> {
 }
 
 fn version_branch(version: &str) -> Option<String> {
-    if let Some((_, rest)) = version.split_once(',') { return rest.split_once('-').map(|(b, _)| b.to_string()); }
+    if let Some((_, rest)) = version.split_once(',') {
+        return rest.split_once('-').map(|(b, _)| b.to_string());
+    }
     None
 }
 
@@ -256,8 +379,13 @@ fn query_catalog_cached(
     ctx: &Ctx,
     stem: &str,
 ) -> Result<Vec<(String, Fmri)>, AdviceError> {
-    if let Some(v) = ctx.catalog_cache.get(stem) { return Ok(v.clone()); }
-    let mut tmp = Ctx { catalog_cache: ctx.catalog_cache.clone(), ..Default::default() };
+    if let Some(v) = ctx.catalog_cache.get(stem) {
+        return Ok(v.clone());
+    }
+    let mut tmp = Ctx {
+        catalog_cache: ctx.catalog_cache.clone(),
+        ..Default::default()
+    };
     query_catalog_cached_mut(image, &mut tmp, stem)
 }
 
@@ -266,26 +394,48 @@ fn query_catalog_cached_mut(
     ctx: &mut Ctx,
     stem: &str,
 ) -> Result<Vec<(String, Fmri)>, AdviceError> {
-    if let Some(v) = ctx.catalog_cache.get(stem) { return Ok(v.clone()); }
+    if let Some(v) = ctx.catalog_cache.get(stem) {
+        return Ok(v.clone());
+    }
     let mut out = Vec::new();
-    let res = image.query_catalog(Some(stem)).map_err(|e| AdviceError{ message: format!("Failed to query catalog for {}: {}", stem, e) })?;
-    for p in res { out.push((p.publisher, p.fmri)); }
+    let res = image.query_catalog(Some(stem)).map_err(|e| AdviceError {
+        message: format!("Failed to query catalog for {}: {}", stem, e),
+    })?;
+    for p in res {
+        out.push((p.publisher, p.fmri));
+    }
     ctx.catalog_cache.insert(stem.to_string(), out.clone());
     Ok(out)
 }
 
 fn get_manifest_cached(image: &Image, ctx: &mut Ctx, fmri: &Fmri) -> Result<Manifest, AdviceError> {
     let key = fmri.to_string();
-    if let Some(m) = ctx.manifest_cache.get(&key) { return Ok(m.clone()); }
-    let manifest_opt = image.get_manifest_from_catalog(fmri).map_err(|e| AdviceError { message: format!("Failed to load manifest for {}: {}", fmri.to_string(), e) })?;
+    if let Some(m) = ctx.manifest_cache.get(&key) {
+        return Ok(m.clone());
+    }
+    let manifest_opt = image
+        .get_manifest_from_catalog(fmri)
+        .map_err(|e| AdviceError {
+            message: format!("Failed to load manifest for {}: {}", fmri.to_string(), e),
+        })?;
     let manifest = manifest_opt.unwrap_or_else(Manifest::new);
     ctx.manifest_cache.insert(key, manifest.clone());
     Ok(manifest)
 }
 
-fn get_incorporated_release_cached(image: &Image, ctx: &mut Ctx, stem: &str) -> Result<Option<String>, AdviceError> {
-    if let Some(v) = ctx.lock_cache.get(stem) { return Ok(v.clone()); }
-    let v = image.get_incorporated_release(stem).map_err(|e| AdviceError{ message: format!("Failed to read incorporation lock for {}: {}", stem, e) })?;
+fn get_incorporated_release_cached(
+    image: &Image,
+    ctx: &mut Ctx,
+    stem: &str,
+) -> Result<Option<String>, AdviceError> {
+    if let Some(v) = ctx.lock_cache.get(stem) {
+        return Ok(v.clone());
+    }
+    let v = image
+        .get_incorporated_release(stem)
+        .map_err(|e| AdviceError {
+            message: format!("Failed to read incorporation lock for {}: {}", stem, e),
+        })?;
     ctx.lock_cache.insert(stem.to_string(), v.clone());
     Ok(v)
 }

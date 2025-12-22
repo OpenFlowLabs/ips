@@ -3,15 +3,15 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use miette::Diagnostic;
 use thiserror::Error;
 
 use crate::actions::{File as FileAction, Manifest, Transform as TransformAction};
-use crate::repository::{ReadableRepository, RepositoryError, WritableRepository};
 use crate::repository::file_backend::{FileBackend, Transaction};
+use crate::repository::{ReadableRepository, RepositoryError, WritableRepository};
 use crate::transformer;
 
 /// Error type for high-level publishing operations
@@ -30,7 +30,10 @@ pub enum PublisherError {
     Io(String),
 
     #[error("invalid root path: {0}")]
-    #[diagnostic(code(ips::publisher_error::invalid_root_path), help("Ensure the directory exists and is readable"))]
+    #[diagnostic(
+        code(ips::publisher_error::invalid_root_path),
+        help("Ensure the directory exists and is readable")
+    )]
     InvalidRoot(String),
 }
 
@@ -51,7 +54,12 @@ impl PublisherClient {
     /// Open an existing repository located at `path` with a selected `publisher`.
     pub fn open<P: AsRef<Path>>(path: P, publisher: impl Into<String>) -> Result<Self> {
         let backend = FileBackend::open(path)?;
-        Ok(Self { backend, publisher: publisher.into(), tx: None, transform_rules: Vec::new() })
+        Ok(Self {
+            backend,
+            publisher: publisher.into(),
+            tx: None,
+            transform_rules: Vec::new(),
+        })
     }
 
     /// Open a transaction if not already open and return whether a new transaction was created.
@@ -70,9 +78,13 @@ impl PublisherClient {
             return Err(PublisherError::InvalidRoot(root.display().to_string()));
         }
         let mut manifest = Manifest::new();
-        let root = root.canonicalize().map_err(|_| PublisherError::InvalidRoot(root.display().to_string()))?;
+        let root = root
+            .canonicalize()
+            .map_err(|_| PublisherError::InvalidRoot(root.display().to_string()))?;
 
-        let walker = walkdir::WalkDir::new(&root).into_iter().filter_map(|e| e.ok());
+        let walker = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok());
         // Ensure a transaction is open
         if self.tx.is_none() {
             self.open_transaction()?;

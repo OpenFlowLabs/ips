@@ -1,5 +1,5 @@
-pub mod server;
-pub mod routes;
+pub mod admin;
 pub mod handlers;
 pub mod middleware;
-pub mod admin;
+pub mod routes;
+pub mod server;

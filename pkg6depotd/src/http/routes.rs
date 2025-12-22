@@ -1,25 +1,42 @@
+use crate::http::admin;
+use crate::http::handlers::{catalog, file, info, manifest, publisher, versions};
+use crate::repo::DepotRepo;
 use axum::{
-    routing::{get, post, head},
     Router,
+    routing::{get, post},
 };
 use std::sync::Arc;
-use crate::repo::DepotRepo;
-use crate::http::handlers::{versions, catalog, manifest, file, info, publisher};
-use crate::http::admin;
+use tower_http::trace::TraceLayer;
 
 pub fn app_router(state: Arc<DepotRepo>) -> Router {
     Router::new()
         .route("/versions/0/", get(versions::get_versions))
-        .route("/{publisher}/catalog/1/{filename}", get(catalog::get_catalog_v1).head(catalog::get_catalog_v1))
-        .route("/{publisher}/manifest/0/{fmri}", get(manifest::get_manifest).head(manifest::get_manifest))
-        .route("/{publisher}/manifest/1/{fmri}", get(manifest::get_manifest).head(manifest::get_manifest))
-        .route("/{publisher}/file/0/{algo}/{digest}", get(file::get_file).head(file::get_file))
-        .route("/{publisher}/file/1/{algo}/{digest}", get(file::get_file).head(file::get_file))
+        .route(
+            "/{publisher}/catalog/1/{filename}",
+            get(catalog::get_catalog_v1).head(catalog::get_catalog_v1),
+        )
+        .route(
+            "/{publisher}/manifest/0/{fmri}",
+            get(manifest::get_manifest).head(manifest::get_manifest),
+        )
+        .route(
+            "/{publisher}/manifest/1/{fmri}",
+            get(manifest::get_manifest).head(manifest::get_manifest),
+        )
+        .route(
+            "/{publisher}/file/0/{algo}/{digest}",
+            get(file::get_file).head(file::get_file),
+        )
+        .route(
+            "/{publisher}/file/1/{algo}/{digest}",
+            get(file::get_file).head(file::get_file),
+        )
         .route("/{publisher}/info/0/{fmri}", get(info::get_info))
         .route("/{publisher}/publisher/0", get(publisher::get_publisher_v0))
         .route("/{publisher}/publisher/1", get(publisher::get_publisher_v1))
         // Admin API over HTTP
         .route("/admin/health", get(admin::health))
         .route("/admin/auth/check", post(admin::auth_check))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -19,7 +19,9 @@ use libips::image::{Image, ImageType};
 
 fn should_run_network_tests() -> bool {
     // Even when ignored, provide an env switch to document intent
-    env::var("IPS_E2E_NET").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false)
+    env::var("IPS_E2E_NET")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
 }
 
 #[test]
@@ -38,7 +40,8 @@ fn e2e_download_and_build_catalog_openindiana() {
     let img_path = temp.path().join("image");
 
     // Create the image
-    let mut image = Image::create_image(&img_path, ImageType::Full).expect("failed to create image");
+    let mut image =
+        Image::create_image(&img_path, ImageType::Full).expect("failed to create image");
 
     // Add OpenIndiana publisher
     let publisher = "openindiana.org";
@@ -52,12 +55,12 @@ fn e2e_download_and_build_catalog_openindiana() {
         .download_publisher_catalog(publisher)
         .expect("failed to download publisher catalog");
 
-    image.build_catalog().expect("failed to build merged catalog");
+    image
+        .build_catalog()
+        .expect("failed to build merged catalog");
 
     // Query catalog; we expect at least one package
-    let packages = image
-        .query_catalog(None)
-        .expect("failed to query catalog");
+    let packages = image.query_catalog(None).expect("failed to query catalog");
 
     assert!(
         !packages.is_empty(),

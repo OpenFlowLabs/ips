@@ -8,9 +8,9 @@ mod tests {
     use crate::actions::Manifest;
     use crate::fmri::Fmri;
     use crate::repository::{
-        CatalogManager, FileBackend, ProgressInfo, ProgressReporter,
-        ReadableRepository, RepositoryError, RepositoryVersion, RestBackend, Result, WritableRepository,
-        REPOSITORY_CONFIG_FILENAME,
+        CatalogManager, FileBackend, ProgressInfo, ProgressReporter, REPOSITORY_CONFIG_FILENAME,
+        ReadableRepository, RepositoryError, RepositoryVersion, RestBackend, Result,
+        WritableRepository,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -208,15 +208,21 @@ mod tests {
         assert!(repo.config.publishers.contains(&"example.com".to_string()));
         assert!(FileBackend::construct_catalog_path(&repo_path, "example.com").exists());
         assert!(FileBackend::construct_package_dir(&repo_path, "example.com", "").exists());
-        
+
         // Check that the pub.p5i file was created for backward compatibility
-        let pub_p5i_path = repo_path.join("publisher").join("example.com").join("pub.p5i");
-        assert!(pub_p5i_path.exists(), "pub.p5i file should be created for backward compatibility");
-        
+        let pub_p5i_path = repo_path
+            .join("publisher")
+            .join("example.com")
+            .join("pub.p5i");
+        assert!(
+            pub_p5i_path.exists(),
+            "pub.p5i file should be created for backward compatibility"
+        );
+
         // Verify the content of the pub.p5i file
         let pub_p5i_content = fs::read_to_string(&pub_p5i_path).unwrap();
         let pub_p5i_json: serde_json::Value = serde_json::from_str(&pub_p5i_content).unwrap();
-        
+
         // Check the structure of the pub.p5i file
         assert_eq!(pub_p5i_json["version"], 1);
         assert!(pub_p5i_json["packages"].is_array());
@@ -246,7 +252,9 @@ mod tests {
 
         // Add a package to the part using the stored publisher
         let fmri = Fmri::parse("pkg://test/example@1.0.0").unwrap();
-        catalog_manager.add_package_to_part("test_part", &fmri, None, None).unwrap();
+        catalog_manager
+            .add_package_to_part("test_part", &fmri, None, None)
+            .unwrap();
 
         // Save the part
         catalog_manager.save_part("test_part").unwrap();
@@ -286,7 +294,13 @@ mod tests {
         publish_package(&mut repo, &manifest_path, &prototype_dir, "test").unwrap();
 
         // Check that the files were published in the publisher-specific directory
-        assert!(repo_path.join("publisher").join("test").join("file").exists());
+        assert!(
+            repo_path
+                .join("publisher")
+                .join("test")
+                .join("file")
+                .exists()
+        );
 
         // Get repository information
         let repo_info = repo.get_info().unwrap();
@@ -364,9 +378,11 @@ mod tests {
 
         // Check for specific files
         assert!(files.iter().any(|f| f.contains("usr/bin/hello")));
-        assert!(files
-            .iter()
-            .any(|f| f.contains("usr/share/doc/example/README.txt")));
+        assert!(
+            files
+                .iter()
+                .any(|f| f.contains("usr/share/doc/example/README.txt"))
+        );
         assert!(files.iter().any(|f| f.contains("etc/config/example.conf")));
 
         // Clean up
@@ -428,7 +444,8 @@ mod tests {
         let hash = repo.store_file(&test_file_path, "test").unwrap();
 
         // Check if the file was stored in the correct directory structure
-        let expected_path = FileBackend::construct_file_path_with_publisher(&repo_path, "test", &hash);
+        let expected_path =
+            FileBackend::construct_file_path_with_publisher(&repo_path, "test", &hash);
 
         // Verify that the file exists at the expected path
         assert!(
@@ -448,7 +465,7 @@ mod tests {
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     #[test]
     fn test_transaction_pub_p5i_creation() {
         // Run the setup script to prepare the test environment
@@ -463,39 +480,42 @@ mod tests {
 
         // Create a new publisher through a transaction
         let publisher = "transaction_test";
-        
+
         // Start a transaction
         let mut transaction = repo.begin_transaction().unwrap();
-        
+
         // Set the publisher for the transaction
         transaction.set_publisher(publisher);
-        
+
         // Add a simple manifest to the transaction
         let manifest_path = manifest_dir.join("example.p5m");
         let manifest = Manifest::parse_file(&manifest_path).unwrap();
         transaction.update_manifest(manifest);
-        
+
         // Commit the transaction
         transaction.commit().unwrap();
-        
+
         // Check that the pub.p5i file was created for the new publisher
         let pub_p5i_path = repo_path.join("publisher").join(publisher).join("pub.p5i");
-        assert!(pub_p5i_path.exists(), "pub.p5i file should be created for new publisher in transaction");
-        
+        assert!(
+            pub_p5i_path.exists(),
+            "pub.p5i file should be created for new publisher in transaction"
+        );
+
         // Verify the content of the pub.p5i file
         let pub_p5i_content = fs::read_to_string(&pub_p5i_path).unwrap();
         let pub_p5i_json: serde_json::Value = serde_json::from_str(&pub_p5i_content).unwrap();
-        
+
         // Check the structure of the pub.p5i file
         assert_eq!(pub_p5i_json["version"], 1);
         assert!(pub_p5i_json["packages"].is_array());
         assert!(pub_p5i_json["publishers"].is_array());
         assert_eq!(pub_p5i_json["publishers"][0]["name"], publisher);
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     #[test]
     fn test_legacy_pkg5_repository_creation() {
         // Create a test directory
@@ -508,20 +528,23 @@ mod tests {
         // Add a publisher
         let publisher = "openindiana.org";
         repo.add_publisher(publisher).unwrap();
-        
+
         // Set as default publisher
         repo.set_default_publisher(publisher).unwrap();
-        
+
         // Check that the pkg5.repository file was created
         let pkg5_repo_path = repo_path.join("pkg5.repository");
-        assert!(pkg5_repo_path.exists(), "pkg5.repository file should be created for backward compatibility");
-        
+        assert!(
+            pkg5_repo_path.exists(),
+            "pkg5.repository file should be created for backward compatibility"
+        );
+
         // Verify the content of the pkg5.repository file
         let pkg5_content = fs::read_to_string(&pkg5_repo_path).unwrap();
-        
+
         // Print the content for debugging
         println!("pkg5.repository content:\n{}", pkg5_content);
-        
+
         // Check that the file contains the expected sections and values
         assert!(pkg5_content.contains("[publisher]"));
         assert!(pkg5_content.contains("prefix=openindiana.org"));
@@ -531,55 +554,58 @@ mod tests {
         assert!(pkg5_content.contains("signature-required-names=[]"));
         assert!(pkg5_content.contains("check-certificate-revocation=False"));
         assert!(pkg5_content.contains("[CONFIGURATION]"));
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     #[test]
     fn test_rest_repository_local_functionality() {
         use crate::repository::RestBackend;
-        
+
         // Create a test directory
         let test_dir = create_test_dir("rest_repository");
         let cache_path = test_dir.join("cache");
-        
+
         println!("Test directory: {}", test_dir.display());
         println!("Cache path: {}", cache_path.display());
-        
+
         // Create a REST repository
         let uri = "http://pkg.opensolaris.org/release";
         let mut repo = RestBackend::open(uri).unwrap();
-        
+
         // Set the local cache path
         repo.set_local_cache_path(&cache_path).unwrap();
-        
+
         println!("Local cache path set to: {:?}", repo.local_cache_path);
-        
+
         // Add a publisher
         let publisher = "openindiana.org";
         repo.add_publisher(publisher).unwrap();
-        
+
         println!("Publisher added: {}", publisher);
         println!("Publishers in config: {:?}", repo.config.publishers);
-        
+
         // Verify that the directory structure was created correctly
         let publisher_dir = cache_path.join("publisher").join(publisher);
         println!("Publisher directory: {}", publisher_dir.display());
         println!("Publisher directory exists: {}", publisher_dir.exists());
-        
-        assert!(publisher_dir.exists(), "Publisher directory should be created");
-        
+
+        assert!(
+            publisher_dir.exists(),
+            "Publisher directory should be created"
+        );
+
         let catalog_dir = publisher_dir.join("catalog");
         println!("Catalog directory: {}", catalog_dir.display());
         println!("Catalog directory exists: {}", catalog_dir.exists());
-        
+
         assert!(catalog_dir.exists(), "Catalog directory should be created");
-        
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }
-    
+
     /// A test progress reporter that records all progress events
     #[derive(Debug, Clone)]
     struct TestProgressReporter {
@@ -590,7 +616,7 @@ mod tests {
         /// Records of all finish events
         finish_events: Arc<Mutex<Vec<ProgressInfo>>>,
     }
-    
+
     impl TestProgressReporter {
         /// Create a new test progress reporter
         fn new() -> Self {
@@ -600,116 +626,116 @@ mod tests {
                 finish_events: Arc::new(Mutex::new(Vec::new())),
             }
         }
-    
+
         /// Get the number of start events recorded
         fn start_count(&self) -> usize {
             self.start_events.lock().unwrap().len()
         }
-    
+
         /// Get the number of update events recorded
         fn update_count(&self) -> usize {
             self.update_events.lock().unwrap().len()
         }
-    
+
         /// Get the number of finish events recorded
         fn finish_count(&self) -> usize {
             self.finish_events.lock().unwrap().len()
         }
-    
+
         /// Get a clone of all start events
         fn get_start_events(&self) -> Vec<ProgressInfo> {
             self.start_events.lock().unwrap().clone()
         }
-    
+
         /// Get a clone of all update events
         fn get_update_events(&self) -> Vec<ProgressInfo> {
             self.update_events.lock().unwrap().clone()
         }
-    
+
         /// Get a clone of all finish events
         fn get_finish_events(&self) -> Vec<ProgressInfo> {
             self.finish_events.lock().unwrap().clone()
         }
     }
-    
+
     impl ProgressReporter for TestProgressReporter {
         fn start(&self, info: &ProgressInfo) {
             let mut events = self.start_events.lock().unwrap();
             events.push(info.clone());
         }
-    
+
         fn update(&self, info: &ProgressInfo) {
             let mut events = self.update_events.lock().unwrap();
             events.push(info.clone());
         }
-    
+
         fn finish(&self, info: &ProgressInfo) {
             let mut events = self.finish_events.lock().unwrap();
             events.push(info.clone());
         }
     }
-    
+
     #[test]
     fn test_progress_reporter() {
         // Create a test progress reporter
         let reporter = TestProgressReporter::new();
-    
+
         // Create some progress info
         let info1 = ProgressInfo::new("Test operation 1");
         let info2 = ProgressInfo::new("Test operation 2")
             .with_current(50)
             .with_total(100);
-    
+
         // Report some progress
         reporter.start(&info1);
         reporter.update(&info2);
         reporter.finish(&info1);
-    
+
         // Check that the events were recorded
         assert_eq!(reporter.start_count(), 1);
         assert_eq!(reporter.update_count(), 1);
         assert_eq!(reporter.finish_count(), 1);
-    
+
         // Check the content of the events
         let start_events = reporter.get_start_events();
         let update_events = reporter.get_update_events();
         let finish_events = reporter.get_finish_events();
-    
+
         assert_eq!(start_events[0].operation, "Test operation 1");
         assert_eq!(update_events[0].operation, "Test operation 2");
         assert_eq!(update_events[0].current, Some(50));
         assert_eq!(update_events[0].total, Some(100));
         assert_eq!(finish_events[0].operation, "Test operation 1");
     }
-    
+
     #[test]
     fn test_rest_backend_with_progress() {
         // This test is a mock test that doesn't actually connect to a remote server
         // It just verifies that the progress reporting mechanism works correctly
-    
+
         // Create a test directory
         let test_dir = create_test_dir("rest_progress");
         let cache_path = test_dir.join("cache");
-    
+
         // Create a REST repository
         let uri = "http://pkg.opensolaris.org/release";
         let mut repo = RestBackend::create(uri, RepositoryVersion::V4).unwrap();
-    
+
         // Set the local cache path
         repo.set_local_cache_path(&cache_path).unwrap();
-    
+
         // Create a test progress reporter
         let reporter = TestProgressReporter::new();
-    
+
         // Add a publisher
         let publisher = "test";
         repo.add_publisher(publisher).unwrap();
-    
+
         // Create a mock catalog.attrs file
         let publisher_dir = cache_path.join("publisher").join(publisher);
         let catalog_dir = publisher_dir.join("catalog");
         fs::create_dir_all(&catalog_dir).unwrap();
-    
+
         let attrs_content = r#"{
             "created": "20250803T124900Z",
             "last-modified": "20250803T124900Z",
@@ -728,35 +754,39 @@ mod tests {
             },
             "version": 1
         }"#;
-    
+
         let attrs_path = catalog_dir.join("catalog.attrs");
         fs::write(&attrs_path, attrs_content).unwrap();
-    
+
         // Create mock catalog part files
-        for part_name in ["catalog.base.C", "catalog.dependency.C", "catalog.summary.C"] {
+        for part_name in [
+            "catalog.base.C",
+            "catalog.dependency.C",
+            "catalog.summary.C",
+        ] {
             let part_path = catalog_dir.join(part_name);
             fs::write(&part_path, "{}").unwrap();
         }
-    
+
         // Mock the download_catalog_file method to avoid actual HTTP requests
         // This is done by creating the files before calling download_catalog
-    
+
         // Create a simple progress update to ensure update events are recorded
         let progress_info = ProgressInfo::new("Test update")
             .with_current(1)
             .with_total(2);
         reporter.update(&progress_info);
-        
+
         // Call download_catalog with the progress reporter
         // This will fail because we're not actually connecting to a server,
         // but we can still verify that the progress reporter was called
         let _ = repo.download_catalog(publisher, Some(&reporter));
-    
+
         // Check that the progress reporter was called
         assert!(reporter.start_count() > 0, "No start events recorded");
         assert!(reporter.update_count() > 0, "No update events recorded");
         assert!(reporter.finish_count() > 0, "No finish events recorded");
-    
+
         // Clean up
         cleanup_test_dir(&test_dir);
     }

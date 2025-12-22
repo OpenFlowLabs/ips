@@ -4,8 +4,8 @@
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::{RepositoryError, Result};
-use flate2::write::GzEncoder;
 use flate2::Compression as GzipCompression;
+use flate2::write::GzEncoder;
 use lz4::EncoderBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -25,11 +25,11 @@ use crate::digest::Digest;
 use crate::fmri::Fmri;
 use crate::payload::{Payload, PayloadCompressionAlgorithm};
 
-use super::{
-    PackageContents, PackageInfo, PublisherInfo, ReadableRepository, RepositoryConfig,
-    RepositoryInfo, RepositoryVersion, WritableRepository, REPOSITORY_CONFIG_FILENAME,
-};
 use super::catalog_writer;
+use super::{
+    PackageContents, PackageInfo, PublisherInfo, REPOSITORY_CONFIG_FILENAME, ReadableRepository,
+    RepositoryConfig, RepositoryInfo, RepositoryVersion, WritableRepository,
+};
 use ini::Ini;
 
 // Define a struct to hold the content vectors for each package
@@ -224,7 +224,8 @@ pub struct FileBackend {
     /// Uses RefCell for interior mutability to allow mutation through immutable references
     catalog_manager: Option<std::cell::RefCell<crate::repository::catalog::CatalogManager>>,
     /// Manager for obsoleted packages
-    obsoleted_manager: Option<std::cell::RefCell<crate::repository::obsoleted::ObsoletedPackageManager>>,
+    obsoleted_manager:
+        Option<std::cell::RefCell<crate::repository::obsoleted::ObsoletedPackageManager>>,
 }
 
 /// Format a SystemTime as an ISO 8601 timestamp string
@@ -342,20 +343,16 @@ impl Transaction {
         // Check if the temp file already exists
         if temp_file_path.exists() {
             // If it exists, remove it to avoid any issues with existing content
-            fs::remove_file(&temp_file_path).map_err(|e| {
-                RepositoryError::FileWriteError {
-                    path: temp_file_path.clone(),
-                    source: e,
-                }
+            fs::remove_file(&temp_file_path).map_err(|e| RepositoryError::FileWriteError {
+                path: temp_file_path.clone(),
+                source: e,
             })?;
         }
 
         // Read the file content
-        let file_content = fs::read(file_path).map_err(|e| {
-            RepositoryError::FileReadError {
-                path: file_path.to_path_buf(),
-                source: e,
-            }
+        let file_content = fs::read(file_path).map_err(|e| RepositoryError::FileReadError {
+            path: file_path.to_path_buf(),
+            source: e,
         })?;
 
         // Create a payload with the hash information if it doesn't exist
@@ -493,7 +490,8 @@ impl Transaction {
         // Copy files to their final location
         for (source_path, hash) in self.files {
             // Create the destination path using the helper function with publisher
-            let dest_path = FileBackend::construct_file_path_with_publisher(&self.repo, &publisher, &hash);
+            let dest_path =
+                FileBackend::construct_file_path_with_publisher(&self.repo, &publisher, &hash);
 
             // Create parent directories if they don't exist
             if let Some(parent) = dest_path.parent() {
@@ -567,7 +565,8 @@ impl Transaction {
         // Construct the manifest path using the helper method
         let pkg_manifest_path = if package_version.is_empty() {
             // If no version was provided, store as a default manifest file
-            FileBackend::construct_package_dir(&self.repo, &publisher, &package_stem).join("manifest")
+            FileBackend::construct_package_dir(&self.repo, &publisher, &package_stem)
+                .join("manifest")
         } else {
             FileBackend::construct_manifest_path(
                 &self.repo,
@@ -597,14 +596,14 @@ impl Transaction {
         if config_path.exists() {
             let config_content = fs::read_to_string(&config_path)?;
             let config: RepositoryConfig = serde_json::from_str(&config_content)?;
-            
+
             // Check if this publisher was just added in this transaction
             let publisher_dir = self.repo.join("publisher").join(&publisher);
             let pub_p5i_path = publisher_dir.join("pub.p5i");
-            
+
             if !pub_p5i_path.exists() {
                 debug!("Creating pub.p5i file for publisher: {}", publisher);
-                
+
                 // Create the pub.p5i file
                 let repo = FileBackend {
                     path: self.repo.clone(),
@@ -612,7 +611,7 @@ impl Transaction {
                     catalog_manager: None,
                     obsoleted_manager: None,
                 };
-                
+
                 repo.create_pub_p5i_file(&publisher)?;
             }
         }
@@ -667,13 +666,15 @@ impl ReadableRepository for FileBackend {
         let config5_path = path.join("pkg5.repository");
 
         let config: RepositoryConfig = if config6_path.exists() {
-            let config_data = fs::read_to_string(&config6_path)
-                .map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config6_path.display(), e)))?;
+            let config_data = fs::read_to_string(&config6_path).map_err(|e| {
+                RepositoryError::ConfigReadError(format!("{}: {}", config6_path.display(), e))
+            })?;
             serde_json::from_str(&config_data)?
         } else if config5_path.exists() {
             // Minimal mapping for legacy INI: take publishers only from INI; do not scan disk.
-            let ini = Ini::load_from_file(&config5_path)
-                .map_err(|e| RepositoryError::ConfigReadError(format!("{}: {}", config5_path.display(), e)))?;
+            let ini = Ini::load_from_file(&config5_path).map_err(|e| {
+                RepositoryError::ConfigReadError(format!("{}: {}", config5_path.display(), e))
+            })?;
 
             // Default repository version for legacy format is v4
             let mut cfg = RepositoryConfig::default();
@@ -829,7 +830,10 @@ impl ReadableRepository for FileBackend {
         pattern: Option<&str>,
         action_types: Option<&[String]>,
     ) -> Result<Vec<PackageContents>> {
-        debug!("show_contents called with publisher: {:?}, pattern: {:?}", publisher, pattern);
+        debug!(
+            "show_contents called with publisher: {:?}, pattern: {:?}",
+            publisher, pattern
+        );
         // Use a HashMap to store package information
         let mut packages = HashMap::new();
 
@@ -889,7 +893,9 @@ impl ReadableRepository for FileBackend {
 
                                         // Check if the file starts with a valid manifest marker
                                         if bytes_read == 0
-                                            || (buffer[0] != b'{' && buffer[0] != b'<' && buffer[0] != b's')
+                                            || (buffer[0] != b'{'
+                                                && buffer[0] != b'<'
+                                                && buffer[0] != b's')
                                         {
                                             continue;
                                         }
@@ -901,7 +907,9 @@ impl ReadableRepository for FileBackend {
                                                 let mut pkg_id = String::new();
 
                                                 for attr in &manifest.attributes {
-                                                    if attr.key == "pkg.fmri" && !attr.values.is_empty() {
+                                                    if attr.key == "pkg.fmri"
+                                                        && !attr.values.is_empty()
+                                                    {
                                                         let fmri = &attr.values[0];
 
                                                         // Parse the FMRI using our Fmri type
@@ -913,14 +921,22 @@ impl ReadableRepository for FileBackend {
                                                                     match Regex::new(pat) {
                                                                         Ok(regex) => {
                                                                             // Use regex matching
-                                                                            if !regex.is_match(parsed_fmri.stem()) {
+                                                                            if !regex.is_match(
+                                                                                parsed_fmri.stem(),
+                                                                            ) {
                                                                                 continue;
                                                                             }
                                                                         }
                                                                         Err(err) => {
                                                                             // Log the error but fall back to the simple string contains
-                                                                            error!("FileBackend::show_contents: Error compiling regex pattern '{}': {}", pat, err);
-                                                                            if !parsed_fmri.stem().contains(pat) {
+                                                                            error!(
+                                                                                "FileBackend::show_contents: Error compiling regex pattern '{}': {}",
+                                                                                pat, err
+                                                                            );
+                                                                            if !parsed_fmri
+                                                                                .stem()
+                                                                                .contains(pat)
+                                                                            {
                                                                                 continue;
                                                                             }
                                                                         }
@@ -970,7 +986,9 @@ impl ReadableRepository for FileBackend {
                                                         .contains(&"file".to_string())
                                                 {
                                                     for file in &manifest.files {
-                                                        content_vectors.files.push(file.path.clone());
+                                                        content_vectors
+                                                            .files
+                                                            .push(file.path.clone());
                                                     }
                                                 }
 
@@ -982,7 +1000,9 @@ impl ReadableRepository for FileBackend {
                                                         .contains(&"dir".to_string())
                                                 {
                                                     for dir in &manifest.directories {
-                                                        content_vectors.directories.push(dir.path.clone());
+                                                        content_vectors
+                                                            .directories
+                                                            .push(dir.path.clone());
                                                     }
                                                 }
 
@@ -994,7 +1014,9 @@ impl ReadableRepository for FileBackend {
                                                         .contains(&"link".to_string())
                                                 {
                                                     for link in &manifest.links {
-                                                        content_vectors.links.push(link.path.clone());
+                                                        content_vectors
+                                                            .links
+                                                            .push(link.path.clone());
                                                     }
                                                 }
 
@@ -1007,7 +1029,9 @@ impl ReadableRepository for FileBackend {
                                                 {
                                                     for depend in &manifest.dependencies {
                                                         if let Some(fmri) = &depend.fmri {
-                                                            content_vectors.dependencies.push(fmri.to_string());
+                                                            content_vectors
+                                                                .dependencies
+                                                                .push(fmri.to_string());
                                                         }
                                                     }
                                                 }
@@ -1020,12 +1044,22 @@ impl ReadableRepository for FileBackend {
                                                         .contains(&"license".to_string())
                                                 {
                                                     for license in &manifest.licenses {
-                                                        if let Some(path_prop) = license.properties.get("path") {
-                                                            content_vectors.licenses.push(path_prop.value.clone());
-                                                        } else if let Some(license_prop) = license.properties.get("license") {
-                                                            content_vectors.licenses.push(license_prop.value.clone());
+                                                        if let Some(path_prop) =
+                                                            license.properties.get("path")
+                                                        {
+                                                            content_vectors
+                                                                .licenses
+                                                                .push(path_prop.value.clone());
+                                                        } else if let Some(license_prop) =
+                                                            license.properties.get("license")
+                                                        {
+                                                            content_vectors
+                                                                .licenses
+                                                                .push(license_prop.value.clone());
                                                         } else {
-                                                            content_vectors.licenses.push(license.payload.clone());
+                                                            content_vectors
+                                                                .licenses
+                                                                .push(license.payload.clone());
                                                         }
                                                     }
                                                 }
@@ -1103,7 +1137,10 @@ impl ReadableRepository for FileBackend {
                                                             }
                                                             Err(err) => {
                                                                 // Log the error but fall back to the simple string contains
-                                                                error!("FileBackend::show_contents: Error compiling regex pattern '{}': {}", pat, err);
+                                                                error!(
+                                                                    "FileBackend::show_contents: Error compiling regex pattern '{}': {}",
+                                                                    pat, err
+                                                                );
                                                                 if !parsed_fmri.stem().contains(pat)
                                                                 {
                                                                     continue;
@@ -1323,16 +1360,30 @@ impl ReadableRepository for FileBackend {
 
         // If destination already exists and matches digest, do nothing
         if dest.exists() {
-            let bytes = fs::read(dest).map_err(|e| RepositoryError::FileReadError { path: dest.to_path_buf(), source: e })?;
-            match crate::digest::Digest::from_bytes(&bytes, algo.clone(), crate::digest::DigestSource::PrimaryPayloadHash) {
+            let bytes = fs::read(dest).map_err(|e| RepositoryError::FileReadError {
+                path: dest.to_path_buf(),
+                source: e,
+            })?;
+            match crate::digest::Digest::from_bytes(
+                &bytes,
+                algo.clone(),
+                crate::digest::DigestSource::PrimaryPayloadHash,
+            ) {
                 Ok(comp) if comp.hash == hash => return Ok(()),
                 _ => { /* fall through to overwrite */ }
             }
         }
 
         // Read source content and verify digest
-        let bytes = fs::read(&source_path).map_err(|e| RepositoryError::FileReadError { path: source_path.clone(), source: e })?;
-        match crate::digest::Digest::from_bytes(&bytes, algo, crate::digest::DigestSource::PrimaryPayloadHash) {
+        let bytes = fs::read(&source_path).map_err(|e| RepositoryError::FileReadError {
+            path: source_path.clone(),
+            source: e,
+        })?;
+        match crate::digest::Digest::from_bytes(
+            &bytes,
+            algo,
+            crate::digest::DigestSource::PrimaryPayloadHash,
+        ) {
             Ok(comp) => {
                 if comp.hash != hash {
                     return Err(RepositoryError::DigestError(format!(
@@ -1363,7 +1414,9 @@ impl ReadableRepository for FileBackend {
         // Require a concrete version
         let version = fmri.version();
         if version.is_empty() {
-            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+            return Err(RepositoryError::Other(
+                "FMRI must include a version to fetch manifest".into(),
+            ));
         }
 
         // Preferred path: publisher-scoped manifest path
@@ -1375,7 +1428,11 @@ impl ReadableRepository for FileBackend {
         // Fallbacks: global pkg layout without publisher
         let encoded_stem = Self::url_encode(fmri.stem());
         let encoded_version = Self::url_encode(&version);
-        let alt1 = self.path.join("pkg").join(&encoded_stem).join(&encoded_version);
+        let alt1 = self
+            .path
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
         if alt1.exists() {
             return crate::actions::Manifest::parse_file(&alt1).map_err(RepositoryError::from);
         }
@@ -1520,10 +1577,10 @@ impl WritableRepository for FileBackend {
         let config_path = self.path.join(REPOSITORY_CONFIG_FILENAME);
         let config_data = serde_json::to_string_pretty(&self.config)?;
         fs::write(config_path, config_data)?;
-        
+
         // Save the legacy INI format for backward compatibility
         self.save_legacy_config()?;
-        
+
         Ok(())
     }
 
@@ -1744,7 +1801,10 @@ impl FileBackend {
         locale: &str,
         fmri: &crate::fmri::Fmri,
         op_type: crate::repository::catalog::CatalogOperationType,
-        catalog_parts: std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>,
+        catalog_parts: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, Vec<String>>,
+        >,
         signature_sha1: Option<String>,
     ) -> Result<()> {
         let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
@@ -1816,19 +1876,29 @@ impl FileBackend {
         // Require a concrete version
         let version = fmri.version();
         if version.is_empty() {
-            return Err(RepositoryError::Other("FMRI must include a version to fetch manifest".into()));
+            return Err(RepositoryError::Other(
+                "FMRI must include a version to fetch manifest".into(),
+            ));
         }
         // Preferred path: publisher-scoped manifest path
         let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
         if path.exists() {
-            return std::fs::read_to_string(&path).map_err(|e| RepositoryError::FileReadError { path, source: e });
+            return std::fs::read_to_string(&path)
+                .map_err(|e| RepositoryError::FileReadError { path, source: e });
         }
         // Fallbacks: global pkg layout without publisher
         let encoded_stem = Self::url_encode(fmri.stem());
         let encoded_version = Self::url_encode(&version);
-        let alt1 = self.path.join("pkg").join(&encoded_stem).join(&encoded_version);
+        let alt1 = self
+            .path
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
         if alt1.exists() {
-            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError { path: alt1, source: e });
+            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError {
+                path: alt1,
+                source: e,
+            });
         }
         let alt2 = self
             .path
@@ -1838,9 +1908,15 @@ impl FileBackend {
             .join(&encoded_stem)
             .join(&encoded_version);
         if alt2.exists() {
-            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError { path: alt2, source: e });
+            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError {
+                path: alt2,
+                source: e,
+            });
         }
-        Err(RepositoryError::NotFound(format!("manifest for {} not found", fmri)))
+        Err(RepositoryError::NotFound(format!(
+            "manifest for {} not found",
+            fmri
+        )))
     }
     /// Fetch catalog file path
     pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
@@ -1865,32 +1941,31 @@ impl FileBackend {
     pub fn save_legacy_config(&self) -> Result<()> {
         let legacy_config_path = self.path.join("pkg5.repository");
         let mut conf = Ini::new();
-        
+
         // Add publisher section with default publisher
         if let Some(default_publisher) = &self.config.default_publisher {
             conf.with_section(Some("publisher"))
                 .set("prefix", default_publisher);
         }
-        
+
         // Add repository section with version and default values
         conf.with_section(Some("repository"))
             .set("version", "4")
             .set("trust-anchor-directory", "/etc/certs/CA/")
             .set("signature-required-names", "[]")
             .set("check-certificate-revocation", "False");
-        
+
         // Add CONFIGURATION section with version
-        conf.with_section(Some("CONFIGURATION"))
-            .set("version", "4");
-        
+        conf.with_section(Some("CONFIGURATION")).set("version", "4");
+
         // Write the INI file
         conf.write_to_file(legacy_config_path)?;
-        
+
         Ok(())
     }
 
     /// Create a pub.p5i file for a publisher for backward compatibility
-    /// 
+    ///
     /// Format: base_path/publisher/publisher_name/pub.p5i
     fn create_pub_p5i_file(&self, publisher: &str) -> Result<()> {
         // Define the structure for the pub.p5i file
@@ -1937,17 +2012,14 @@ impl FileBackend {
     }
 
     /// Helper method to construct a catalog path consistently
-    /// 
+    ///
     /// Format: base_path/publisher/publisher_name/catalog
-    pub fn construct_catalog_path(
-        base_path: &Path,
-        publisher: &str,
-    ) -> PathBuf {
+    pub fn construct_catalog_path(base_path: &Path, publisher: &str) -> PathBuf {
         base_path.join("publisher").join(publisher).join("catalog")
     }
 
     /// Helper method to construct a manifest path consistently
-    /// 
+    ///
     /// Format: base_path/publisher/publisher_name/pkg/stem/encoded_version
     pub fn construct_manifest_path(
         base_path: &Path,
@@ -1959,27 +2031,24 @@ impl FileBackend {
         let encoded_version = Self::url_encode(version);
         pkg_dir.join(encoded_version)
     }
-    
+
     /// Helper method to construct a package directory path consistently
-    /// 
+    ///
     /// Format: base_path/publisher/publisher_name/pkg/url_encoded_stem
-    pub fn construct_package_dir(
-        base_path: &Path,
-        publisher: &str,
-        stem: &str,
-    ) -> PathBuf {
+    pub fn construct_package_dir(base_path: &Path, publisher: &str, stem: &str) -> PathBuf {
         let encoded_stem = Self::url_encode(stem);
-        base_path.join("publisher").join(publisher).join("pkg").join(encoded_stem)
+        base_path
+            .join("publisher")
+            .join(publisher)
+            .join("pkg")
+            .join(encoded_stem)
     }
-    
+
     /// Helper method to construct a file path consistently
-    /// 
+    ///
     /// Format: base_path/file/XX/hash
     /// Where XX is the first two characters of the hash
-    pub fn construct_file_path(
-        base_path: &Path,
-        hash: &str,
-    ) -> PathBuf {
+    pub fn construct_file_path(base_path: &Path, hash: &str) -> PathBuf {
         if hash.len() < 2 {
             // Fallback for very short hashes (shouldn't happen with SHA256)
             base_path.join("file").join(hash)
@@ -1988,15 +2057,12 @@ impl FileBackend {
             let first_two = &hash[0..2];
 
             // Create the path: $REPO/file/XX/XXYY...
-            base_path
-                .join("file")
-                .join(first_two)
-                .join(hash)
+            base_path.join("file").join(first_two).join(hash)
         }
     }
-    
+
     /// Helper method to construct a file path consistently with publisher
-    /// 
+    ///
     /// Format: base_path/publisher/publisher_name/file/XX/hash
     /// Where XX is the first two characters of the hash
     pub fn construct_file_path_with_publisher(
@@ -2006,7 +2072,11 @@ impl FileBackend {
     ) -> PathBuf {
         if hash.len() < 2 {
             // Fallback for very short hashes (shouldn't happen with SHA256)
-            base_path.join("publisher").join(publisher).join("file").join(hash)
+            base_path
+                .join("publisher")
+                .join(publisher)
+                .join("file")
+                .join(hash)
         } else {
             // Extract the first two characters from the hash
             let first_two = &hash[0..2];
@@ -2094,7 +2164,10 @@ impl FileBackend {
                                                     }
                                                     Err(err) => {
                                                         // Log the error but fall back to the simple string contains
-                                                        error!("FileBackend::find_manifests_recursive: Error compiling regex pattern '{}': {}", pat, err);
+                                                        error!(
+                                                            "FileBackend::find_manifests_recursive: Error compiling regex pattern '{}': {}",
+                                                            pat, err
+                                                        );
                                                         if !parsed_fmri.stem().contains(pat) {
                                                             continue;
                                                         }
@@ -2111,20 +2184,22 @@ impl FileBackend {
                                             } else {
                                                 parsed_fmri.clone()
                                             };
-                                            
+
                                             // Check if the package is obsoleted
-                                            let is_obsoleted = if let Some(obsoleted_manager) = &self.obsoleted_manager {
-                                                obsoleted_manager.borrow().is_obsoleted(publisher, &final_fmri)
+                                            let is_obsoleted = if let Some(obsoleted_manager) =
+                                                &self.obsoleted_manager
+                                            {
+                                                obsoleted_manager
+                                                    .borrow()
+                                                    .is_obsoleted(publisher, &final_fmri)
                                             } else {
                                                 false
                                             };
-                                            
+
                                             // Only add the package if it's not obsoleted
                                             if !is_obsoleted {
                                                 // Create a PackageInfo struct and add it to the list
-                                                packages.push(PackageInfo {
-                                                    fmri: final_fmri,
-                                                });
+                                                packages.push(PackageInfo { fmri: final_fmri });
                                             }
 
                                             // Found the package info, no need to check other attributes
@@ -2186,7 +2261,7 @@ impl FileBackend {
         opts: crate::repository::BatchOptions,
     ) -> Result<()> {
         info!("Rebuilding catalog (batched) for publisher: {}", publisher);
-        
+
         // Create the catalog directory for the publisher if it doesn't exist
         let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
         debug!("Publisher catalog directory: {}", catalog_dir.display());
@@ -2245,7 +2320,11 @@ impl FileBackend {
             }
 
             // Read the manifest content for hash calculation
-            let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::FileReadError { path: manifest_path.clone(), source: e })?;
+            let manifest_content =
+                fs::read_to_string(&manifest_path).map_err(|e| RepositoryError::FileReadError {
+                    path: manifest_path.clone(),
+                    source: e,
+                })?;
 
             // Parse the manifest using parse_file which handles JSON correctly
             let manifest = Manifest::parse_file(&manifest_path)?;
@@ -2334,7 +2413,12 @@ impl FileBackend {
             processed_in_batch += 1;
             if processed_in_batch >= opts.batch_size {
                 batch_no += 1;
-                tracing::debug!(publisher, batch_no, processed_in_batch, "catalog rebuild batch processed");
+                tracing::debug!(
+                    publisher,
+                    batch_no,
+                    processed_in_batch,
+                    "catalog rebuild batch processed"
+                );
                 processed_in_batch = 0;
             }
         }
@@ -2407,7 +2491,8 @@ impl FileBackend {
         for (fmri, actions, signature) in dependency_entries {
             dependency_part.add_package(publisher, &fmri, actions, Some(signature));
         }
-        let dependency_sig = catalog_writer::write_catalog_part(&dependency_part_path, &mut dependency_part)?;
+        let dependency_sig =
+            catalog_writer::write_catalog_part(&dependency_part_path, &mut dependency_part)?;
         debug!("Wrote dependency part file");
 
         // Summary part
@@ -2417,7 +2502,8 @@ impl FileBackend {
         for (fmri, actions, signature) in summary_entries {
             summary_part.add_package(publisher, &fmri, actions, Some(signature));
         }
-        let summary_sig = catalog_writer::write_catalog_part(&summary_part_path, &mut summary_part)?;
+        let summary_sig =
+            catalog_writer::write_catalog_part(&summary_part_path, &mut summary_part)?;
         debug!("Wrote summary part file");
 
         // Update part signatures in attrs (written after parts)
@@ -2495,29 +2581,46 @@ impl FileBackend {
 
         // Ensure catalog dir exists
         let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
-        std::fs::create_dir_all(&catalog_dir).map_err(|e| RepositoryError::DirectoryCreateError { path: catalog_dir.clone(), source: e })?;
+        std::fs::create_dir_all(&catalog_dir).map_err(|e| {
+            RepositoryError::DirectoryCreateError {
+                path: catalog_dir.clone(),
+                source: e,
+            }
+        })?;
 
         // Serialize JSON
-        let json = serde_json::to_vec_pretty(log)
-            .map_err(|e| RepositoryError::JsonSerializeError(format!("Update log serialize error: {}", e)))?;
+        let json = serde_json::to_vec_pretty(log).map_err(|e| {
+            RepositoryError::JsonSerializeError(format!("Update log serialize error: {}", e))
+        })?;
 
         // Write atomically
         let target = catalog_dir.join(log_filename);
         let tmp = target.with_extension("tmp");
         {
-            let mut f = std::fs::File::create(&tmp)
-                .map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
+            let mut f =
+                std::fs::File::create(&tmp).map_err(|e| RepositoryError::FileWriteError {
+                    path: tmp.clone(),
+                    source: e,
+                })?;
             use std::io::Write as _;
             f.write_all(&json)
-                .map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
-            f.flush().map_err(|e| RepositoryError::FileWriteError { path: tmp.clone(), source: e })?;
+                .map_err(|e| RepositoryError::FileWriteError {
+                    path: tmp.clone(),
+                    source: e,
+                })?;
+            f.flush().map_err(|e| RepositoryError::FileWriteError {
+                path: tmp.clone(),
+                source: e,
+            })?;
         }
-        std::fs::rename(&tmp, &target)
-            .map_err(|e| RepositoryError::FileWriteError { path: target.clone(), source: e })?;
+        std::fs::rename(&tmp, &target).map_err(|e| RepositoryError::FileWriteError {
+            path: target.clone(),
+            source: e,
+        })?;
 
         Ok(())
     }
-    
+
     /// Generate the file path for a given hash using the new directory structure with publisher
     /// This is a wrapper around the construct_file_path_with_publisher helper method
     fn generate_file_path_with_publisher(&self, publisher: &str, hash: &str) -> PathBuf {
@@ -2528,7 +2631,7 @@ impl FileBackend {
     ///
     /// This method returns a mutable reference to the catalog manager.
     /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
-    /// 
+    ///
     /// The catalog manager is specific to the given publisher.
     pub fn get_catalog_manager(
         &mut self,
@@ -2536,7 +2639,8 @@ impl FileBackend {
     ) -> Result<std::cell::RefMut<'_, crate::repository::catalog::CatalogManager>> {
         if self.catalog_manager.is_none() {
             let publisher_dir = self.path.join("publisher");
-            let manager = crate::repository::catalog::CatalogManager::new(&publisher_dir, publisher)?;
+            let manager =
+                crate::repository::catalog::CatalogManager::new(&publisher_dir, publisher)?;
             let refcell = std::cell::RefCell::new(manager);
             self.catalog_manager = Some(refcell);
         }
@@ -2544,7 +2648,7 @@ impl FileBackend {
         // This is safe because we just checked that catalog_manager is Some
         Ok(self.catalog_manager.as_ref().unwrap().borrow_mut())
     }
-    
+
     /// Get or initialize the obsoleted package manager
     ///
     /// This method returns a mutable reference to the obsoleted package manager.
@@ -2597,7 +2701,7 @@ impl FileBackend {
                 .filter_map(|e| e.ok())
             {
                 let path = entry.path();
-                
+
                 if path.is_file() {
                     // Try to read the first few bytes of the file to check if it's a manifest file
                     let mut file = match fs::File::open(&path) {
@@ -2669,18 +2773,17 @@ impl FileBackend {
                                                 None
                                             };
 
-                                            let directories =
-                                                if !manifest.directories.is_empty() {
-                                                    Some(
-                                                        manifest
-                                                            .directories
-                                                            .iter()
-                                                            .map(|d| d.path.clone())
-                                                            .collect(),
-                                                    )
-                                                } else {
-                                                    None
-                                                };
+                                            let directories = if !manifest.directories.is_empty() {
+                                                Some(
+                                                    manifest
+                                                        .directories
+                                                        .iter()
+                                                        .map(|d| d.path.clone())
+                                                        .collect(),
+                                                )
+                                            } else {
+                                                None
+                                            };
 
                                             let links = if !manifest.links.is_empty() {
                                                 Some(
@@ -2694,22 +2797,20 @@ impl FileBackend {
                                                 None
                                             };
 
-                                            let dependencies =
-                                                if !manifest.dependencies.is_empty() {
-                                                    Some(
-                                                        manifest
-                                                            .dependencies
-                                                            .iter()
-                                                            .filter_map(|d| {
-                                                                d.fmri
-                                                                    .as_ref()
-                                                                    .map(|f| f.to_string())
-                                                            })
-                                                            .collect(),
-                                                    )
-                                                } else {
-                                                    None
-                                                };
+                                            let dependencies = if !manifest.dependencies.is_empty()
+                                            {
+                                                Some(
+                                                    manifest
+                                                        .dependencies
+                                                        .iter()
+                                                        .filter_map(|d| {
+                                                            d.fmri.as_ref().map(|f| f.to_string())
+                                                        })
+                                                        .collect(),
+                                                )
+                                            } else {
+                                                None
+                                            };
 
                                             let licenses = if !manifest.licenses.is_empty() {
                                                 Some(
@@ -2746,8 +2847,11 @@ impl FileBackend {
                                             };
 
                                             // Add the package to the index
-                                            index.add_package(&package_info, Some(&package_contents));
-                                            
+                                            index.add_package(
+                                                &package_info,
+                                                Some(&package_contents),
+                                            );
+
                                             // Found the package info, no need to check other attributes
                                             break;
                                         }

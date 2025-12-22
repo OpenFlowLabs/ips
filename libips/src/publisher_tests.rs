@@ -21,7 +21,8 @@ mod tests {
         let repo_path = tmp.path().to_path_buf();
 
         // Initialize repository
-        let mut backend = FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
+        let mut backend =
+            FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
         backend.add_publisher("test").expect("add publisher");
 
         // Prepare a prototype directory with a nested file
@@ -36,16 +37,27 @@ mod tests {
         // Use PublisherClient to publish
         let mut client = PublisherClient::open(&repo_path, "test").expect("open client");
         client.open_transaction().expect("open tx");
-        let manifest = client.build_manifest_from_dir(&proto_dir).expect("build manifest");
+        let manifest = client
+            .build_manifest_from_dir(&proto_dir)
+            .expect("build manifest");
         client.publish(manifest, true).expect("publish");
 
         // Verify the manifest exists at the default path for unknown version
-        let manifest_path = FileBackend::construct_package_dir(&repo_path, "test", "unknown").join("manifest");
-        assert!(manifest_path.exists(), "manifest not found at {}", manifest_path.display());
+        let manifest_path =
+            FileBackend::construct_package_dir(&repo_path, "test", "unknown").join("manifest");
+        assert!(
+            manifest_path.exists(),
+            "manifest not found at {}",
+            manifest_path.display()
+        );
 
         // Verify at least one file was stored under publisher/test/file
         let file_root = repo_path.join("publisher").join("test").join("file");
-        assert!(file_root.exists(), "file store root does not exist: {}", file_root.display());
+        assert!(
+            file_root.exists(),
+            "file store root does not exist: {}",
+            file_root.display()
+        );
         let mut any_file = false;
         if let Ok(entries) = fs::read_dir(&file_root) {
             for entry in entries.flatten() {
@@ -62,13 +74,14 @@ mod tests {
                 } else if path.is_file() {
                     any_file = true;
                 }
-                if any_file { break; }
+                if any_file {
+                    break;
+                }
             }
         }
         assert!(any_file, "no stored file found in file store");
     }
 }
-
 
 #[cfg(test)]
 mod transform_rule_integration_tests {
@@ -85,7 +98,8 @@ mod transform_rule_integration_tests {
         // Setup repository and publisher
         let tmp = TempDir::new().expect("tempdir");
         let repo_path = tmp.path().to_path_buf();
-        let mut backend = FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
+        let mut backend =
+            FileBackend::create(&repo_path, RepositoryVersion::V4).expect("create repo");
         backend.add_publisher("test").expect("add publisher");
 
         // Prototype directory with a file
@@ -102,18 +116,33 @@ mod transform_rule_integration_tests {
 
         // Use PublisherClient to load rules, build manifest and publish
         let mut client = PublisherClient::open(&repo_path, "test").expect("open client");
-        let loaded = client.load_transform_rules_from_file(&rules_path).expect("load rules");
+        let loaded = client
+            .load_transform_rules_from_file(&rules_path)
+            .expect("load rules");
         assert!(loaded >= 1, "expected at least one rule loaded");
         client.open_transaction().expect("open tx");
-        let manifest = client.build_manifest_from_dir(&proto_dir).expect("build manifest");
+        let manifest = client
+            .build_manifest_from_dir(&proto_dir)
+            .expect("build manifest");
         client.publish(manifest, false).expect("publish");
 
         // Read stored manifest and verify attribute
-        let manifest_path = FileBackend::construct_package_dir(&repo_path, "test", "unknown").join("manifest");
-        assert!(manifest_path.exists(), "manifest missing: {}", manifest_path.display());
+        let manifest_path =
+            FileBackend::construct_package_dir(&repo_path, "test", "unknown").join("manifest");
+        assert!(
+            manifest_path.exists(),
+            "manifest missing: {}",
+            manifest_path.display()
+        );
         let json = fs::read_to_string(&manifest_path).expect("read manifest");
         let parsed: Manifest = serde_json::from_str(&json).expect("parse manifest json");
-        let has_summary = parsed.attributes.iter().any(|a| a.key == "pkg.summary" && a.values.iter().any(|v| v == "Added via rules"));
-        assert!(has_summary, "pkg.summary attribute added via rules not found");
+        let has_summary = parsed
+            .attributes
+            .iter()
+            .any(|a| a.key == "pkg.summary" && a.values.iter().any(|v| v == "Added via rules"));
+        assert!(
+            has_summary,
+            "pkg.summary attribute added via rules not found"
+        );
     }
 }

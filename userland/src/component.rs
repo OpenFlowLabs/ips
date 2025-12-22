@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use semver::Version;
 use std::collections::HashMap;
 use url::Url;

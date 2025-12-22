@@ -58,12 +58,17 @@ use walkdir::WalkDir;
 
 pub use crate::actions::Manifest;
 // Core typed manifest
-use crate::actions::{Attr, Dependency as DependAction, File as FileAction, License as LicenseAction, Link as LinkAction, Property};
+use crate::actions::{
+    Attr, Dependency as DependAction, File as FileAction, License as LicenseAction,
+    Link as LinkAction, Property,
+};
 pub use crate::depend::{FileDep, GenerateOptions as DependGenerateOptions};
 pub use crate::fmri::Fmri;
 // For BaseMeta
 use crate::repository::file_backend::{FileBackend, Transaction};
-use crate::repository::{ReadableRepository, RepositoryError, RepositoryVersion, WritableRepository};
+use crate::repository::{
+    ReadableRepository, RepositoryError, RepositoryVersion, WritableRepository,
+};
 use crate::transformer;
 pub use crate::transformer::TransformRule;
 
@@ -87,7 +92,10 @@ pub enum IpsError {
     Io(String),
 
     #[error("Unimplemented feature: {feature}")]
-    #[diagnostic(code(ips::api_error::unimplemented), help("See doc/forge_docs/ips_integration.md for roadmap."))]
+    #[diagnostic(
+        code(ips::api_error::unimplemented),
+        help("See doc/forge_docs/ips_integration.md for roadmap.")
+    )]
     Unimplemented { feature: &'static str },
 }
 
@@ -183,19 +191,32 @@ impl ManifestBuilder {
         let mut props = std::collections::HashMap::new();
         props.insert(
             "path".to_string(),
-            Property { key: "path".to_string(), value: path.to_string() },
+            Property {
+                key: "path".to_string(),
+                value: path.to_string(),
+            },
         );
         props.insert(
             "license".to_string(),
-            Property { key: "license".to_string(), value: license_name.to_string() },
+            Property {
+                key: "license".to_string(),
+                value: license_name.to_string(),
+            },
         );
-        self.manifest.licenses.push(LicenseAction { payload: String::new(), properties: props });
+        self.manifest.licenses.push(LicenseAction {
+            payload: String::new(),
+            properties: props,
+        });
         self
     }
 
     /// Add a link action
     pub fn add_link(&mut self, path: &str, target: &str) -> &mut Self {
-        self.manifest.links.push(LinkAction { path: path.to_string(), target: target.to_string(), properties: Default::default() });
+        self.manifest.links.push(LinkAction {
+            path: path.to_string(),
+            target: target.to_string(),
+            properties: Default::default(),
+        });
         self
     }
 
@@ -211,7 +232,9 @@ impl ManifestBuilder {
     }
     /// Start a new empty builder
     pub fn new() -> Self {
-        Self { manifest: Manifest::new() }
+        Self {
+            manifest: Manifest::new(),
+        }
     }
 
     /// Convenience: construct a Manifest directly by scanning a prototype directory.
@@ -223,9 +246,9 @@ impl ManifestBuilder {
                 proto.display()
             )));
         }
-        let root = proto
-            .canonicalize()
-            .map_err(|e| IpsError::Io(format!("failed to canonicalize {}: {}", proto.display(), e)))?;
+        let root = proto.canonicalize().map_err(|e| {
+            IpsError::Io(format!("failed to canonicalize {}: {}", proto.display(), e))
+        })?;
 
         let mut m = Manifest::new();
         for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
@@ -260,10 +283,18 @@ impl ManifestBuilder {
         if let Some(fmri) = meta.fmri {
             push_attr("pkg.fmri", fmri.to_string());
         }
-        if let Some(s) = meta.summary { push_attr("pkg.summary", s); }
-        if let Some(c) = meta.classification { push_attr("info.classification", c); }
-        if let Some(u) = meta.upstream_url { push_attr("info.upstream-url", u); }
-        if let Some(su) = meta.source_url { push_attr("info.source-url", su); }
+        if let Some(s) = meta.summary {
+            push_attr("pkg.summary", s);
+        }
+        if let Some(c) = meta.classification {
+            push_attr("info.classification", c);
+        }
+        if let Some(u) = meta.upstream_url {
+            push_attr("info.upstream-url", u);
+        }
+        if let Some(su) = meta.source_url {
+            push_attr("info.source-url", su);
+        }
         if let Some(l) = meta.license {
             // Represent base license via an attribute named 'license'; callers may add dedicated license actions separately
             self.manifest.attributes.push(Attr {
@@ -310,12 +341,16 @@ impl Repository {
     pub fn open(path: &Path) -> Result<Self, IpsError> {
         // Validate by opening backend
         let _ = FileBackend::open(path)?;
-        Ok(Self { path: path.to_path_buf() })
+        Ok(Self {
+            path: path.to_path_buf(),
+        })
     }
 
     pub fn create(path: &Path) -> Result<Self, IpsError> {
         let _ = FileBackend::create(path, RepositoryVersion::default())?;
-        Ok(Self { path: path.to_path_buf() })
+        Ok(Self {
+            path: path.to_path_buf(),
+        })
     }
 
     pub fn has_publisher(&self, name: &str) -> Result<bool, IpsError> {
@@ -330,7 +365,9 @@ impl Repository {
         Ok(())
     }
 
-    pub fn path(&self) -> &Path { &self.path }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 /// High-level publishing client for starting repository transactions.
@@ -352,14 +389,21 @@ pub struct PublisherClient {
 
 impl PublisherClient {
     pub fn new(repo: Repository, publisher: impl Into<String>) -> Self {
-        Self { repo, publisher: publisher.into() }
+        Self {
+            repo,
+            publisher: publisher.into(),
+        }
     }
 
     /// Begin a new transaction
     pub fn begin(&self) -> Result<Txn, IpsError> {
         let backend = FileBackend::open(self.repo.path())?;
         let tx = backend.begin_transaction()?; // returns Transaction bound to repo path
-        Ok(Txn { backend_path: self.repo.path().to_path_buf(), tx, publisher: self.publisher.clone() })
+        Ok(Txn {
+            backend_path: self.repo.path().to_path_buf(),
+            tx,
+            publisher: self.publisher.clone(),
+        })
     }
 }
 
@@ -389,9 +433,9 @@ pub struct Txn {
 impl Txn {
     /// Add all files from the given payload/prototype directory
     pub fn add_payload_dir(&mut self, dir: &Path) -> Result<(), IpsError> {
-        let root = dir
-            .canonicalize()
-            .map_err(|e| IpsError::Io(format!("failed to canonicalize {}: {}", dir.display(), e)))?;
+        let root = dir.canonicalize().map_err(|e| {
+            IpsError::Io(format!("failed to canonicalize {}: {}", dir.display(), e))
+        })?;
         for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
             let p = entry.path();
             if p.is_file() {
@@ -451,7 +495,11 @@ pub struct DependencyGenerator;
 impl DependencyGenerator {
     /// Compute file-level dependencies for the given manifest, using `proto` as base for local file resolution.
     /// This is a helper for callers that want to inspect raw file deps before mapping them to package FMRIs.
-    pub fn file_deps(proto: &Path, manifest: &Manifest, mut opts: DependGenerateOptions) -> Result<Vec<FileDep>, IpsError> {
+    pub fn file_deps(
+        proto: &Path,
+        manifest: &Manifest,
+        mut opts: DependGenerateOptions,
+    ) -> Result<Vec<FileDep>, IpsError> {
         if opts.proto_dir.is_none() {
             opts.proto_dir = Some(proto.to_path_buf());
         }
@@ -463,7 +511,9 @@ impl DependencyGenerator {
     /// Intentionally not implemented in this facade: mapping raw file dependencies to package FMRIs
     /// requires repository/catalog context. Call `generate_with_repo` instead.
     pub fn generate(_proto: &Path, _manifest: &Manifest) -> Result<Manifest, IpsError> {
-        Err(IpsError::Unimplemented { feature: "DependencyGenerator::generate (use generate_with_repo)" })
+        Err(IpsError::Unimplemented {
+            feature: "DependencyGenerator::generate (use generate_with_repo)",
+        })
     }
 
     /// Generate dependencies using a repository to resolve file-level deps into package FMRIs.
@@ -562,10 +612,8 @@ impl Resolver {
                     if f.version.is_none() {
                         // Query repository for this package name
                         let pkgs = repo.list_packages(publisher, Some(&f.name))?;
-                        let matches: Vec<&crate::repository::PackageInfo> = pkgs
-                            .iter()
-                            .filter(|pi| pi.fmri.name == f.name)
-                            .collect();
+                        let matches: Vec<&crate::repository::PackageInfo> =
+                            pkgs.iter().filter(|pi| pi.fmri.name == f.name).collect();
                         if matches.len() == 1 {
                             let fmri = &matches[0].fmri;
                             if f.publisher.is_none() {
@@ -597,7 +645,6 @@ fn manifest_fmri(manifest: &Manifest) -> Option<Fmri> {
     None
 }
 
-
 /// Lint facade providing a typed, extensible rule engine with enable/disable controls.
 ///
 /// Configure which rules to run, override severities, and pass rule-specific parameters.
@@ -618,8 +665,8 @@ pub struct LintConfig {
     pub reference_repos: Vec<PathBuf>,
     pub rulesets: Vec<String>,
     // Rule configurability
-    pub disabled_rules: Vec<String>,                    // rule IDs to disable
-    pub enabled_only: Option<Vec<String>>,              // if Some, only these rule IDs run
+    pub disabled_rules: Vec<String>,       // rule IDs to disable
+    pub enabled_only: Option<Vec<String>>, // if Some, only these rule IDs run
     pub severity_overrides: std::collections::HashMap<String, lint::LintSeverity>,
     pub rule_params: std::collections::HashMap<String, std::collections::HashMap<String, String>>, // rule_id -> (key->val)
 }
@@ -638,31 +685,48 @@ pub mod lint {
 
     #[derive(Debug, Error, Diagnostic)]
     pub enum LintIssue {
-        #[error("Manifest is missing pkg.fmri or it is invalid")] 
-        #[diagnostic(code(ips::lint_error::missing_fmri), help("Add a valid set name=pkg.fmri value=... attribute"))]
+        #[error("Manifest is missing pkg.fmri or it is invalid")]
+        #[diagnostic(
+            code(ips::lint_error::missing_fmri),
+            help("Add a valid set name=pkg.fmri value=... attribute")
+        )]
         MissingOrInvalidFmri,
 
         #[error("Manifest has multiple pkg.fmri attributes")]
-        #[diagnostic(code(ips::lint_error::duplicate_fmri), help("Ensure only one pkg.fmri set action is present"))]
+        #[diagnostic(
+            code(ips::lint_error::duplicate_fmri),
+            help("Ensure only one pkg.fmri set action is present")
+        )]
         DuplicateFmri,
 
         #[error("Manifest is missing pkg.summary")]
-        #[diagnostic(code(ips::lint_error::missing_summary), help("Add a set name=pkg.summary value=... attribute"))]
+        #[diagnostic(
+            code(ips::lint_error::missing_summary),
+            help("Add a set name=pkg.summary value=... attribute")
+        )]
         MissingSummary,
 
-        #[error("Dependency is missing FMRI or name")] 
-        #[diagnostic(code(ips::lint_error::dependency_missing_fmri), help("Each depend action should include a valid fmri (name or full fmri)"))]
+        #[error("Dependency is missing FMRI or name")]
+        #[diagnostic(
+            code(ips::lint_error::dependency_missing_fmri),
+            help("Each depend action should include a valid fmri (name or full fmri)")
+        )]
         DependencyMissingFmri,
 
         #[error("Dependency type is missing")]
-        #[diagnostic(code(ips::lint_error::dependency_missing_type), help("Set depend type (e.g., require, incorporate, optional)"))]
+        #[diagnostic(
+            code(ips::lint_error::dependency_missing_type),
+            help("Set depend type (e.g., require, incorporate, optional)")
+        )]
         DependencyMissingType,
     }
 
     pub trait LintRule {
         fn id(&self) -> &'static str;
         fn description(&self) -> &'static str;
-        fn default_severity(&self) -> LintSeverity { LintSeverity::Error }
+        fn default_severity(&self) -> LintSeverity {
+            LintSeverity::Error
+        }
         /// Run this rule against the manifest. Implementors may ignore `config` (prefix with `_`) if not needed.
         /// The config carries enable/disable lists, severity overrides and rule-specific parameters for extensibility.
         fn check(&self, manifest: &Manifest, config: &LintConfig) -> Vec<miette::Report>;
@@ -670,8 +734,12 @@ pub mod lint {
 
     struct RuleManifestFmri;
     impl LintRule for RuleManifestFmri {
-        fn id(&self) -> &'static str { "manifest.fmri" }
-        fn description(&self) -> &'static str { "Validate pkg.fmri presence/uniqueness/parse" }
+        fn id(&self) -> &'static str {
+            "manifest.fmri"
+        }
+        fn description(&self) -> &'static str {
+            "Validate pkg.fmri presence/uniqueness/parse"
+        }
         fn check(&self, manifest: &Manifest, _config: &LintConfig) -> Vec<miette::Report> {
             let mut diags = Vec::new();
             let mut fmri_attr_count = 0usize;
@@ -679,13 +747,21 @@ pub mod lint {
             for attr in &manifest.attributes {
                 if attr.key == "pkg.fmri" {
                     fmri_attr_count += 1;
-                    if let Some(v) = attr.values.get(0) { fmri_text = Some(v.clone()); }
+                    if let Some(v) = attr.values.get(0) {
+                        fmri_text = Some(v.clone());
+                    }
                 }
             }
-            if fmri_attr_count > 1 { diags.push(miette::Report::new(LintIssue::DuplicateFmri)); }
+            if fmri_attr_count > 1 {
+                diags.push(miette::Report::new(LintIssue::DuplicateFmri));
+            }
             match (fmri_attr_count, fmri_text) {
                 (0, _) => diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)),
-                (_, Some(txt)) => { if crate::fmri::Fmri::parse(&txt).is_err() { diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)); } },
+                (_, Some(txt)) => {
+                    if crate::fmri::Fmri::parse(&txt).is_err() {
+                        diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri));
+                    }
+                }
                 (_, None) => diags.push(miette::Report::new(LintIssue::MissingOrInvalidFmri)),
             }
             diags
@@ -694,29 +770,47 @@ pub mod lint {
 
     struct RuleManifestSummary;
     impl LintRule for RuleManifestSummary {
-        fn id(&self) -> &'static str { "manifest.summary" }
-        fn description(&self) -> &'static str { "Validate pkg.summary presence" }
+        fn id(&self) -> &'static str {
+            "manifest.summary"
+        }
+        fn description(&self) -> &'static str {
+            "Validate pkg.summary presence"
+        }
         fn check(&self, manifest: &Manifest, _config: &LintConfig) -> Vec<miette::Report> {
             let mut diags = Vec::new();
             let has_summary = manifest
                 .attributes
                 .iter()
                 .any(|a| a.key == "pkg.summary" && a.values.iter().any(|v| !v.trim().is_empty()));
-            if !has_summary { diags.push(miette::Report::new(LintIssue::MissingSummary)); }
+            if !has_summary {
+                diags.push(miette::Report::new(LintIssue::MissingSummary));
+            }
             diags
         }
     }
 
     struct RuleDependencyFields;
     impl LintRule for RuleDependencyFields {
-        fn id(&self) -> &'static str { "depend.fields" }
-        fn description(&self) -> &'static str { "Validate basic dependency fields" }
+        fn id(&self) -> &'static str {
+            "depend.fields"
+        }
+        fn description(&self) -> &'static str {
+            "Validate basic dependency fields"
+        }
         fn check(&self, manifest: &Manifest, _config: &LintConfig) -> Vec<miette::Report> {
             let mut diags = Vec::new();
             for dep in &manifest.dependencies {
-                let fmri_ok = dep.fmri.as_ref().map(|f| !f.name.trim().is_empty()).unwrap_or(false);
-                if !fmri_ok { diags.push(miette::Report::new(LintIssue::DependencyMissingFmri)); }
-                if dep.dependency_type.trim().is_empty() { diags.push(miette::Report::new(LintIssue::DependencyMissingType)); }
+                let fmri_ok = dep
+                    .fmri
+                    .as_ref()
+                    .map(|f| !f.name.trim().is_empty())
+                    .unwrap_or(false);
+                if !fmri_ok {
+                    diags.push(miette::Report::new(LintIssue::DependencyMissingFmri));
+                }
+                if dep.dependency_type.trim().is_empty() {
+                    diags.push(miette::Report::new(LintIssue::DependencyMissingType));
+                }
             }
             diags
         }
@@ -735,7 +829,8 @@ pub mod lint {
             let set: std::collections::HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
             return set.contains(rule_id);
         }
-        let disabled: std::collections::HashSet<&str> = cfg.disabled_rules.iter().map(|s| s.as_str()).collect();
+        let disabled: std::collections::HashSet<&str> =
+            cfg.disabled_rules.iter().map(|s| s.as_str()).collect();
         !disabled.contains(rule_id)
     }
 
@@ -751,7 +846,10 @@ pub mod lint {
     /// assert!(diags.is_empty());
     /// # Ok::<(), ips::IpsError>(())
     /// ```
-    pub fn lint_manifest(manifest: &Manifest, config: &LintConfig) -> Result<Vec<miette::Report>, IpsError> {
+    pub fn lint_manifest(
+        manifest: &Manifest,
+        config: &LintConfig,
+    ) -> Result<Vec<miette::Report>, IpsError> {
         let mut diags: Vec<miette::Report> = Vec::new();
         for rule in default_rules().into_iter() {
             if rule_enabled(rule.id(), config) {
@@ -769,7 +867,11 @@ mod tests {
 
     fn make_manifest_with_fmri(fmri_str: &str) -> Manifest {
         let mut m = Manifest::new();
-        m.attributes.push(Attr { key: "pkg.fmri".into(), values: vec![fmri_str.to_string()], properties: Default::default() });
+        m.attributes.push(Attr {
+            key: "pkg.fmri".into(),
+            values: vec![fmri_str.to_string()],
+            properties: Default::default(),
+        });
         m
     }
 
@@ -799,14 +901,17 @@ mod tests {
         let fmri = dep.fmri.as_ref().unwrap();
         assert_eq!(fmri.name, "pkgA");
         assert_eq!(fmri.publisher.as_deref(), Some("pub"));
-        assert!(fmri.version.is_some(), "expected version to be filled from provider");
+        assert!(
+            fmri.version.is_some(),
+            "expected version to be filled from provider"
+        );
         assert_eq!(fmri.version.as_ref().unwrap().to_string(), "1.0");
     }
 
     #[test]
     fn resolver_uses_repository_for_provider() {
-        use crate::repository::file_backend::FileBackend;
         use crate::repository::RepositoryVersion;
+        use crate::repository::file_backend::FileBackend;
 
         // Create a temporary repository and add a publisher
         let tmp = tempfile::tempdir().unwrap();
@@ -816,7 +921,11 @@ mod tests {
 
         // Publish provider package pkgA@1.0
         let mut provider = Manifest::new();
-        provider.attributes.push(Attr { key: "pkg.fmri".into(), values: vec!["pkg://pub/pkgA@1.0".to_string()], properties: Default::default() });
+        provider.attributes.push(Attr {
+            key: "pkg.fmri".into(),
+            values: vec!["pkg://pub/pkgA@1.0".to_string()],
+            properties: Default::default(),
+        });
         let mut tx = backend.begin_transaction().unwrap();
         tx.update_manifest(provider);
         tx.set_publisher("pub");
@@ -854,8 +963,16 @@ mod tests {
     #[test]
     fn lint_accepts_valid_manifest() {
         let mut m = Manifest::new();
-        m.attributes.push(Attr { key: "pkg.fmri".into(), values: vec!["pkg://pub/name@1.0".to_string()], properties: Default::default() });
-        m.attributes.push(Attr { key: "pkg.summary".into(), values: vec!["A package".to_string()], properties: Default::default() });
+        m.attributes.push(Attr {
+            key: "pkg.fmri".into(),
+            values: vec!["pkg://pub/name@1.0".to_string()],
+            properties: Default::default(),
+        });
+        m.attributes.push(Attr {
+            key: "pkg.summary".into(),
+            values: vec!["A package".to_string()],
+            properties: Default::default(),
+        });
         let cfg = LintConfig::default();
         let diags = lint::lint_manifest(&m, &cfg).unwrap();
         assert!(diags.is_empty(), "unexpected diags: {:?}", diags);
@@ -865,14 +982,22 @@ mod tests {
     fn lint_disable_summary_rule() {
         // Manifest with valid fmri but missing summary
         let mut m = Manifest::new();
-        m.attributes.push(Attr { key: "pkg.fmri".into(), values: vec!["pkg://pub/name@1.0".to_string()], properties: Default::default() });
+        m.attributes.push(Attr {
+            key: "pkg.fmri".into(),
+            values: vec!["pkg://pub/name@1.0".to_string()],
+            properties: Default::default(),
+        });
 
         // Disable the summary rule; expect no diagnostics
         let mut cfg = LintConfig::default();
         cfg.disabled_rules = vec!["manifest.summary".to_string()];
         let diags = lint::lint_manifest(&m, &cfg).unwrap();
         // fmri is valid, dependencies empty, summary rule disabled => no diags
-        assert!(diags.is_empty(), "expected no diagnostics when summary rule disabled, got: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "expected no diagnostics when summary rule disabled, got: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -889,14 +1014,29 @@ mod tests {
         let m = b.build();
 
         // Validate attributes include fmri and summary
-        assert!(m.attributes.iter().any(|a| a.key == "pkg.fmri" && a.values.get(0).map(|v| v == &fmri.to_string()).unwrap_or(false)));
-        assert!(m.attributes.iter().any(|a| a.key == "pkg.summary" && a.values.get(0).map(|v| v == "Summary").unwrap_or(false)));
+        assert!(m.attributes.iter().any(|a| {
+            a.key == "pkg.fmri"
+                && a.values
+                    .get(0)
+                    .map(|v| v == &fmri.to_string())
+                    .unwrap_or(false)
+        }));
+        assert!(
+            m.attributes.iter().any(|a| a.key == "pkg.summary"
+                && a.values.get(0).map(|v| v == "Summary").unwrap_or(false))
+        );
 
         // Validate license
         assert_eq!(m.licenses.len(), 1);
         let lic = &m.licenses[0];
-        assert_eq!(lic.properties.get("path").map(|p| p.value.as_str()), Some("LICENSE"));
-        assert_eq!(lic.properties.get("license").map(|p| p.value.as_str()), Some("MIT"));
+        assert_eq!(
+            lic.properties.get("path").map(|p| p.value.as_str()),
+            Some("LICENSE")
+        );
+        assert_eq!(
+            lic.properties.get("license").map(|p| p.value.as_str()),
+            Some("MIT")
+        );
 
         // Validate link
         assert_eq!(m.links.len(), 1);

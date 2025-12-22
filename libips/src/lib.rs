@@ -5,17 +5,17 @@
 
 #[allow(clippy::result_large_err)]
 pub mod actions;
+pub mod api;
+pub mod depend;
 pub mod digest;
 pub mod fmri;
 pub mod image;
 pub mod payload;
-pub mod repository;
 pub mod publisher;
-pub mod transformer;
+pub mod repository;
 pub mod solver;
-pub mod depend;
-pub mod api;
 mod test_json_manifest;
+pub mod transformer;
 
 #[cfg(test)]
 mod publisher_tests;
@@ -69,91 +69,101 @@ set name=pkg.summary value=\"'XZ Utils - loss-less file compression application 
         );
 
         let test_results = vec![
-            Attr{
+            Attr {
                 key: String::from("pkg.fmri"),
-                values: vec![String::from("pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z")],
+                values: vec![String::from(
+                    "pkg://openindiana.org/web/server/nginx@1.18.0,5.11-2020.0.1.0:20200421T195136Z",
+                )],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("com.oracle.info.name"),
                 values: vec![String::from("nginx"), String::from("test")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("userland.info.git-remote"),
                 values: vec![String::from("git://github.com/OpenIndiana/oi-userland.git")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("userland.info.git-branch"),
                 values: vec![String::from("HEAD")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("userland.info.git-rev"),
                 values: vec![String::from("1665491ba61bd494bf73e2916cd2250f3024260e")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("pkg.summary"),
                 values: vec![String::from("Nginx Webserver")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("info.classification"),
-                values: vec![String::from("org.opensolaris.category.2008:Web Services/Application and Web Servers")],
+                values: vec![String::from(
+                    "org.opensolaris.category.2008:Web Services/Application and Web Servers",
+                )],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("info.upstream-url"),
                 values: vec![String::from("http://nginx.net/")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("info.source-url"),
-                values: vec![String::from("http://nginx.org/download/nginx-1.18.0.tar.gz")],
+                values: vec![String::from(
+                    "http://nginx.org/download/nginx-1.18.0.tar.gz",
+                )],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("org.opensolaris.consolidation"),
                 values: vec![String::from("userland")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("com.oracle.info.version"),
                 values: vec![String::from("1.18.0")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("pkg.summary"),
                 values: vec![String::from("provided mouse accessibility enhancements")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("info.upstream"),
                 values: vec![String::from("X.Org Foundation")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("pkg.description"),
                 values: vec![String::from("Latvian language support's extra files")],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("variant.arch"),
                 values: vec![String::from("i386")],
                 properties: optional_hash,
             },
-            Attr{
+            Attr {
                 key: String::from("info.source-url"),
-                values: vec![String::from("http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz")],
+                values: vec![String::from(
+                    "http://www.pgpool.net/download.php?f=pgpool-II-3.3.1.tar.gz",
+                )],
                 properties: HashMap::new(),
             },
-            Attr{
+            Attr {
                 key: String::from("pkg.summary"),
-                values: vec![String::from("'XZ Utils - loss-less file compression application and library.'")], //TODO knock out the single quotes
+                values: vec![String::from(
+                    "'XZ Utils - loss-less file compression application and library.'",
+                )], //TODO knock out the single quotes
                 properties: HashMap::new(),
-            }
+            },
         ];
 
         let res = Manifest::parse_string(manifest_string);

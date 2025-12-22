@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::actions::executors::{apply_manifest, ApplyOptions, InstallerError};
 use crate::actions::Manifest;
+use crate::actions::executors::{ApplyOptions, InstallerError, apply_manifest};
 use crate::solver::InstallPlan;
 
 /// ActionPlan represents a merged list of actions across all manifests
@@ -50,12 +50,20 @@ mod tests {
     #[test]
     fn build_and_apply_empty_plan_dry_run() {
         // Empty install plan should produce empty action plan and apply should be no-op.
-        let plan = SInstallPlan { add: vec![], remove: vec![], update: vec![], reasons: vec![] };
+        let plan = SInstallPlan {
+            add: vec![],
+            remove: vec![],
+            update: vec![],
+            reasons: vec![],
+        };
         let ap = ActionPlan::from_install_plan(&plan);
         assert!(ap.manifest.directories.is_empty());
         assert!(ap.manifest.files.is_empty());
         assert!(ap.manifest.links.is_empty());
-        let opts = ApplyOptions { dry_run: true, ..Default::default() };
+        let opts = ApplyOptions {
+            dry_run: true,
+            ..Default::default()
+        };
         let root = Path::new("/tmp/ips_image_test_nonexistent_root");
         // Even if root doesn't exist, dry_run should not perform any IO and succeed.
         let res = ap.apply(root, &opts);

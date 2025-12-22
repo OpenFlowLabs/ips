@@ -43,34 +43,38 @@ impl MacroParser {
                                         for macro_pair in inner.clone().into_inner() {
                                             match macro_pair.as_rule() {
                                                 Rule::macro_name => {
-                                                    replaced_line += self.get_variable(macro_pair.as_str())?;
-                                                },
+                                                    replaced_line +=
+                                                        self.get_variable(macro_pair.as_str())?;
+                                                }
                                                 Rule::macro_parameter => {
-                                                    println!("macro parameter: {}", macro_pair.as_str())
-                                                },
+                                                    println!(
+                                                        "macro parameter: {}",
+                                                        macro_pair.as_str()
+                                                    )
+                                                }
                                                 _ => panic!(
                                                     "Unexpected macro match please update the code together with the peg grammar: {:?}",
                                                     macro_pair.as_rule()
-                                                )
+                                                ),
                                             }
                                         }
                                     }
                                     _ => panic!(
                                         "Unexpected inner match please update the code together with the peg grammar: {:?}",
                                         inner.as_rule()
-                                    )
+                                    ),
                                 }
                             }
-                        },
+                        }
                         Rule::EOI => (),
                         Rule::text => {
                             replaced_line += test_pair.as_str();
                             replaced_line += " ";
-                        },
+                        }
                         _ => panic!(
                             "Unexpected match please update the code together with the peg grammar: {:?}",
                             test_pair.as_rule()
-                        )
+                        ),
                     }
                 }
             }

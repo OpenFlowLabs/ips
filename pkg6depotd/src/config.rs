@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::errors::DepotError;
 use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, knuffel::Decode, Clone)]
 pub struct Config {
@@ -83,10 +83,11 @@ pub struct Oauth2Config {
 impl Config {
     pub fn load(path: Option<PathBuf>) -> crate::errors::Result<Self> {
         let path = path.unwrap_or_else(|| PathBuf::from("pkg6depotd.kdl"));
-        
-        let content = fs::read_to_string(&path)
-            .map_err(|e| DepotError::Config(format!("Failed to read config file {:?}: {}", path, e)))?;
-            
+
+        let content = fs::read_to_string(&path).map_err(|e| {
+            DepotError::Config(format!("Failed to read config file {:?}: {}", path, e))
+        })?;
+
         knuffel::parse(path.to_str().unwrap_or("pkg6depotd.kdl"), &content)
             .map_err(|e| DepotError::Config(format!("Failed to parse config: {:?}", e)))
     }

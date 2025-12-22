@@ -10,7 +10,7 @@ pub struct Cli {
 
     #[arg(long)]
     pub no_daemon: bool,
-    
+
     #[arg(long, value_name = "FILE")]
     pub pid_file: Option<PathBuf>,
 

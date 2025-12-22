@@ -222,7 +222,8 @@ impl Pkg5Importer {
         }
 
         // Import packages and get counts
-        let (regular_count, obsoleted_count) = self.import_packages(&source_path, &mut dest_repo, publisher_to_import)?;
+        let (regular_count, obsoleted_count) =
+            self.import_packages(&source_path, &mut dest_repo, publisher_to_import)?;
         let total_count = regular_count + obsoleted_count;
 
         // Rebuild catalog and search index
@@ -235,7 +236,7 @@ impl Pkg5Importer {
         info!("  Total packages processed: {}", total_count);
         info!("  Regular packages imported: {}", regular_count);
         info!("  Obsoleted packages stored: {}", obsoleted_count);
-        
+
         Ok(())
     }
 
@@ -267,7 +268,7 @@ impl Pkg5Importer {
     }
 
     /// Imports packages from the source repository
-    /// 
+    ///
     /// Returns a tuple of (regular_package_count, obsoleted_package_count)
     fn import_packages(
         &self,
@@ -349,13 +350,15 @@ impl Pkg5Importer {
         }
 
         let total_package_count = regular_package_count + obsoleted_package_count;
-        info!("Imported {} packages ({} regular, {} obsoleted)", 
-            total_package_count, regular_package_count, obsoleted_package_count);
+        info!(
+            "Imported {} packages ({} regular, {} obsoleted)",
+            total_package_count, regular_package_count, obsoleted_package_count
+        );
         Ok((regular_package_count, obsoleted_package_count))
     }
 
     /// Imports a specific package version
-    /// 
+    ///
     /// Returns a boolean indicating whether the package was obsoleted
     fn import_package_version(
         &self,
@@ -389,7 +392,7 @@ impl Pkg5Importer {
         // Check if this is an obsoleted package
         let mut is_obsoleted = false;
         let mut fmri_str = String::new();
-        
+
         // Extract the FMRI from the manifest
         for attr in &manifest.attributes {
             if attr.key == "pkg.fmri" && !attr.values.is_empty() {
@@ -397,7 +400,7 @@ impl Pkg5Importer {
                 break;
             }
         }
-        
+
         // Check for pkg.obsolete attribute
         for attr in &manifest.attributes {
             if attr.key == "pkg.obsolete" && !attr.values.is_empty() {
@@ -408,11 +411,11 @@ impl Pkg5Importer {
                 }
             }
         }
-        
+
         // If this is an obsoleted package, store it in the obsoleted directory
         if is_obsoleted && !fmri_str.is_empty() {
             debug!("Handling obsoleted package: {}", fmri_str);
-            
+
             // Parse the FMRI
             let fmri = match Fmri::parse(&fmri_str) {
                 Ok(fmri) => fmri,
@@ -424,10 +427,10 @@ impl Pkg5Importer {
                     )));
                 }
             };
-            
+
             // Get the obsoleted package manager
             let obsoleted_manager = dest_repo.get_obsoleted_manager()?;
-            
+
             // Store the obsoleted package with null hash (don't store the original manifest)
             // This saves storage space for obsoleted packages that don't provide any useful
             // information beyond the fact that they are obsoleted. When a client requests
@@ -439,18 +442,18 @@ impl Pkg5Importer {
                 publisher,
                 &fmri,
                 &manifest_content,
-                None, // No obsoleted_by information available
-                None, // No deprecation message available
+                None,  // No obsoleted_by information available
+                None,  // No deprecation message available
                 false, // Don't store the original manifest, use null hash instead
             )?;
-            
+
             info!("Stored obsoleted package: {}", fmri);
             return Ok(true); // Return true to indicate this was an obsoleted package
         }
 
         // For non-obsoleted packages, proceed with normal import
         debug!("Processing regular (non-obsoleted) package");
-        
+
         // Begin a transaction
         debug!("Beginning transaction");
         let mut transaction = dest_repo.begin_transaction()?;
@@ -462,7 +465,8 @@ impl Pkg5Importer {
         // Debug the repository structure
         debug!(
             "Publisher directory: {}",
-            libips::repository::FileBackend::construct_package_dir(&dest_repo.path, publisher, "").display()
+            libips::repository::FileBackend::construct_package_dir(&dest_repo.path, publisher, "")
+                .display()
         );
 
         // Extract files referenced in the manifest
@@ -486,10 +490,10 @@ impl Pkg5Importer {
                 let first_two = &hash[0..2];
                 let next_two = &hash[2..4];
                 let file_path_new = file_dir.join(first_two).join(next_two).join(&hash);
-                
+
                 // Fall back to the old one-level hierarchy if the file doesn't exist in the new structure
                 let file_path_old = file_dir.join(first_two).join(&hash);
-                
+
                 // Use the path that exists
                 let file_path = if file_path_new.exists() {
                     file_path_new

@@ -1,10 +1,10 @@
 mod component;
 pub mod repology;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use lazy_static::lazy_static;
-use pest::iterators::Pairs;
 use pest::Parser;
+use pest::iterators::Pairs;
 use pest_derive::Parser;
 use regex::Regex;
 use std::collections::HashMap;
@@ -233,13 +233,16 @@ fn parse_makefile(pairs: Pairs<crate::Rule>, m: &mut Makefile) -> Result<()> {
             Rule::comment_string => (),
             Rule::include => {
                 parse_include(p.into_inner(), m)?;
-            },
+            }
             Rule::target => (),
             Rule::define => {
                 parse_define(p.into_inner(), m)?;
             }
             Rule::EOI => (),
-            _ => panic!("unexpected rule {:?} inside makefile rule expected variable, define, comment, NEWLINE, include, target", p.as_rule()),
+            _ => panic!(
+                "unexpected rule {:?} inside makefile rule expected variable, define, comment, NEWLINE, include, target",
+                p.as_rule()
+            ),
         }
     }
 
@@ -289,26 +292,23 @@ fn parse_variable(variable_pair: Pairs<crate::Rule>, m: &mut Makefile) -> Result
             Rule::variable_name => {
                 var.0 = p.as_str().to_string();
             }
-            Rule::variable_set => {
-                var.1.mode = VariableMode::Set
-            },
-            Rule::variable_add => {
-                var.1.mode = VariableMode::Add
-            }
-            Rule::variable_value => {
-                match var.1.mode {
-                    VariableMode::Add => {
-                        if m.variables.contains_key(&var.0) {
-                            var.1 = m.variables.get(&var.0).unwrap().clone()
-                        }
-                        var.1.values.push(p.as_str().to_string());
+            Rule::variable_set => var.1.mode = VariableMode::Set,
+            Rule::variable_add => var.1.mode = VariableMode::Add,
+            Rule::variable_value => match var.1.mode {
+                VariableMode::Add => {
+                    if m.variables.contains_key(&var.0) {
+                        var.1 = m.variables.get(&var.0).unwrap().clone()
                     }
-                    VariableMode::Set => {
-                        var.1.values.push(p.as_str().to_string());
-                    }
+                    var.1.values.push(p.as_str().to_string());
                 }
-            }
-            _ => panic!("unexpected rule {:?} inside makefile rule expected variable_name, variable_set, variable_add, variable_value", p.as_rule()),
+                VariableMode::Set => {
+                    var.1.values.push(p.as_str().to_string());
+                }
+            },
+            _ => panic!(
+                "unexpected rule {:?} inside makefile rule expected variable_name, variable_set, variable_add, variable_value",
+                p.as_rule()
+            ),
         }
     }
     m.variables.insert(var.0, var.1);

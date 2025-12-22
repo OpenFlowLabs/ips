@@ -18,14 +18,19 @@
 use miette::Diagnostic;
 // Begin resolvo wiring imports (names discovered by compiler)
 // We start broad and refine with compiler guidance.
-use resolvo::{self, Candidates, Condition, ConditionId, ConditionalRequirement, Dependencies as RDependencies, DependencyProvider, HintDependenciesAvailable, Interner, KnownDependencies, Mapping, NameId, Problem as RProblem, SolvableId, Solver as RSolver, SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId};
+use lz4::Decoder as Lz4Decoder;
+use redb::{ReadableDatabase, ReadableTable};
+use resolvo::{
+    self, Candidates, Condition, ConditionId, ConditionalRequirement,
+    Dependencies as RDependencies, DependencyProvider, HintDependenciesAvailable, Interner,
+    KnownDependencies, Mapping, NameId, Problem as RProblem, SolvableId, Solver as RSolver,
+    SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId,
+};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
-use thiserror::Error;
-use redb::{ReadableDatabase, ReadableTable};
-use lz4::Decoder as Lz4Decoder;
 use std::io::{Cursor, Read};
+use thiserror::Error;
 
 use crate::actions::Manifest;
 use crate::image::catalog::{CATALOG_TABLE, INCORPORATE_TABLE};
@@ -36,8 +41,12 @@ pub mod advice;
 // Local helpers to decode manifest bytes stored in catalog DB (JSON or LZ4-compressed JSON)
 fn is_likely_json_local(bytes: &[u8]) -> bool {
     let mut i = 0;
-    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') { i += 1; }
-    if i >= bytes.len() { return false; }
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return false;
+    }
     matches!(bytes[i], b'{' | b'[')
 }
 
@@ -92,7 +101,7 @@ struct IpsProvider<'a> {
     vs_name: RefCell<Mapping<VersionSetId, NameId>>,
     unions: RefCell<Mapping<VersionSetUnionId, Vec<VersionSetId>>>,
     // per-name publisher preference order; set by dependency processing or top-level specs
-    publisher_prefs: RefCell<HashMap<NameId, Vec<String>>>, 
+    publisher_prefs: RefCell<HashMap<NameId, Vec<String>>>,
 }
 use crate::fmri::Fmri;
 use crate::image::Image;
@@ -145,27 +154,31 @@ impl<'a> IpsProvider<'a> {
             .iter()
             .map_err(|e| SolverError::new(format!("iterate catalog table: {}", e)))?
         {
-            let (k, v) = entry.map_err(|e| SolverError::new(format!("read catalog entry: {}", e)))?;
+            let (k, v) =
+                entry.map_err(|e| SolverError::new(format!("read catalog entry: {}", e)))?;
             let key = k.value(); // stem@version
 
             // Try to decode manifest and extract full FMRI (including publisher)
             let mut pushed = false;
             if let Ok(manifest) = decode_manifest_bytes_local(v.value()) {
-                if let Some(attr) = manifest
-                    .attributes
-                    .iter()
-                    .find(|a| a.key == "pkg.fmri")
-                {
+                if let Some(attr) = manifest.attributes.iter().find(|a| a.key == "pkg.fmri") {
                     if let Some(fmri_str) = attr.values.get(0) {
                         if let Ok(mut fmri) = Fmri::parse(fmri_str) {
                             // Ensure publisher is present; if missing/empty, use image default publisher
-                            let missing_pub = fmri.publisher.as_deref().map(|s| s.is_empty()).unwrap_or(true);
+                            let missing_pub = fmri
+                                .publisher
+                                .as_deref()
+                                .map(|s| s.is_empty())
+                                .unwrap_or(true);
                             if missing_pub {
                                 if let Ok(defp) = self.image.default_publisher() {
                                     fmri.publisher = Some(defp.name.clone());
                                 }
                             }
-                            by_stem.entry(fmri.stem().to_string()).or_default().push(fmri);
+                            by_stem
+                                .entry(fmri.stem().to_string())
+                                .or_default()
+                                .push(fmri);
                             pushed = true;
                         }
                     }
@@ -289,8 +302,9 @@ impl<'a> Interner for IpsProvider<'a> {
             Some(VersionSetKind::Any) => "any".to_string(),
             Some(VersionSetKind::ReleaseEq(r)) => format!("release={}", r),
             Some(VersionSetKind::BranchEq(b)) => format!("branch={}", b),
-            Some(VersionSetKind::ReleaseAndBranch { release, branch }) =>
-                format!("release={}, branch={}", release, branch),
+            Some(VersionSetKind::ReleaseAndBranch { release, branch }) => {
+                format!("release={}, branch={}", release, branch)
+            }
             None => "<unknown>".to_string(),
         }
     }
@@ -300,7 +314,11 @@ impl<'a> Interner for IpsProvider<'a> {
     }
 
     fn version_set_name(&self, version_set: VersionSetId) -> NameId {
-        *self.vs_name.borrow().get(version_set).expect("version set name present")
+        *self
+            .vs_name
+            .borrow()
+            .get(version_set)
+            .expect("version set name present")
     }
 
     fn solvable_name(&self, solvable: SolvableId) -> NameId {
@@ -349,10 +367,7 @@ fn fmri_matches_version_set(fmri: &Fmri, kind: &VersionSetKind) -> bool {
         VersionSetKind::ReleaseEq(req_rel) => fmri
             .version
             .as_ref()
-            .map(|v| {
-                release_satisfies(req_rel, &v.release)
-                    || v.branch.as_deref() == Some(req_rel)
-            })
+            .map(|v| release_satisfies(req_rel, &v.release) || v.branch.as_deref() == Some(req_rel))
             .unwrap_or(false),
         VersionSetKind::BranchEq(req_branch) => fmri
             .version
@@ -363,7 +378,8 @@ fn fmri_matches_version_set(fmri: &Fmri, kind: &VersionSetKind) -> bool {
         VersionSetKind::ReleaseAndBranch { release, branch } => {
             let (mut ok_rel, mut ok_branch) = (false, false);
             if let Some(v) = fmri.version.as_ref() {
-                ok_rel = release_satisfies(release, &v.release) || v.branch.as_deref() == Some(release);
+                ok_rel =
+                    release_satisfies(release, &v.release) || v.branch.as_deref() == Some(release);
                 ok_branch = v.branch.as_ref().map(|b| b == branch).unwrap_or(false);
             }
             ok_rel && ok_branch
@@ -421,9 +437,15 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
                     let fmri = &self.solvables.get(*sid).unwrap().fmri;
                     if let Some(cv) = fmri.version.as_ref() {
                         if let Some(lv) = parsed_lock.as_ref() {
-                            if cv.release != lv.release { return false; }
-                            if cv.branch != lv.branch { return false; }
-                            if cv.build != lv.build { return false; }
+                            if cv.release != lv.release {
+                                return false;
+                            }
+                            if cv.branch != lv.branch {
+                                return false;
+                            }
+                            if cv.build != lv.build {
+                                return false;
+                            }
                             if lv.timestamp.is_some() {
                                 return cv.timestamp == lv.timestamp;
                             }
@@ -501,13 +523,14 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
 
         // Build requirements for "require" deps
         let mut reqs: Vec<ConditionalRequirement> = Vec::new();
-        let parent_branch = fmri
-            .version
-            .as_ref()
-            .and_then(|v| v.branch.clone());
+        let parent_branch = fmri.version.as_ref().and_then(|v| v.branch.clone());
         let parent_pub = fmri.publisher.as_deref();
 
-        for d in manifest.dependencies.iter().filter(|d| d.dependency_type == "require") {
+        for d in manifest
+            .dependencies
+            .iter()
+            .filter(|d| d.dependency_type == "require")
+        {
             if let Some(df) = &d.fmri {
                 let stem = df.stem().to_string();
                 let Some(child_name_id) = self.name_by_str.get(&stem).copied() else {
@@ -544,7 +567,11 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
 
 #[derive(Debug, Clone)]
 pub enum SolverProblemKind {
-    NoCandidates { stem: String, release: Option<String>, branch: Option<String> },
+    NoCandidates {
+        stem: String,
+        release: Option<String>,
+        branch: Option<String>,
+    },
     Unsolvable,
 }
 
@@ -558,7 +585,9 @@ pub struct SolverFailure {
 #[error("Solver error: {message}")]
 #[diagnostic(
     code(ips::solver_error::generic),
-    help("Check package names and repository catalogs. Use 'pkg6 image catalog --dump' for debugging.")
+    help(
+        "Check package names and repository catalogs. Use 'pkg6 image catalog --dump' for debugging."
+    )
 )]
 pub struct SolverError {
     pub message: String,
@@ -566,9 +595,21 @@ pub struct SolverError {
 }
 
 impl SolverError {
-    fn new(msg: impl Into<String>) -> Self { Self { message: msg.into(), problem: None } }
-    pub fn with_details(msg: impl Into<String>, problem: SolverFailure) -> Self { Self { message: msg.into(), problem: Some(problem) } }
-    pub fn problem(&self) -> Option<&SolverFailure> { self.problem.as_ref() }
+    fn new(msg: impl Into<String>) -> Self {
+        Self {
+            message: msg.into(),
+            problem: None,
+        }
+    }
+    pub fn with_details(msg: impl Into<String>, problem: SolverFailure) -> Self {
+        Self {
+            message: msg.into(),
+            problem: Some(problem),
+        }
+    }
+    pub fn problem(&self) -> Option<&SolverFailure> {
+        self.problem.as_ref()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -598,9 +639,6 @@ pub struct Constraint {
     // When resolving a dependency, enforce staying on the dependant's branch.
     pub branch: Option<String>,
 }
-
-
-
 
 /// IPS-specific comparison: newest release first; if equal, newest timestamp.
 fn cmp_release_desc(a: &Fmri, b: &Fmri) -> std::cmp::Ordering {
@@ -647,7 +685,10 @@ fn version_order_desc(a: &Fmri, b: &Fmri) -> std::cmp::Ordering {
 }
 
 /// Resolve an install plan for the given constraints.
-pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<InstallPlan, SolverError> {
+pub fn resolve_install(
+    image: &Image,
+    constraints: &[Constraint],
+) -> Result<InstallPlan, SolverError> {
     // Build provider indexed from catalog
     let mut provider = IpsProvider::new(image)?;
 
@@ -678,10 +719,7 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
                 prefs.push(default_pub.clone());
             }
         }
-        provider
-            .publisher_prefs
-            .borrow_mut()
-            .insert(name_id, prefs);
+        provider.publisher_prefs.borrow_mut().insert(name_id, prefs);
 
         // Build version set: by release if provided; optionally by branch if present
         let vs_kind = match (c.version_req, c.branch) {
@@ -705,7 +743,10 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
             .unwrap_or(false);
         if !has {
             let mut req = c.stem.clone();
-            if let Some(v) = &c.version_req { req.push('@'); req.push_str(v); }
+            if let Some(v) = &c.version_req {
+                req.push('@');
+                req.push_str(v);
+            }
             missing.push(req);
         }
     }
@@ -727,11 +768,18 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
         let roots: Vec<Constraint> = root_names.iter().map(|(_, c)| c.clone()).collect();
         let problem = if let Some(c) = first_missing {
             SolverFailure {
-                kind: SolverProblemKind::NoCandidates { stem: c.stem.clone(), release: c.version_req.clone(), branch: c.branch.clone() },
+                kind: SolverProblemKind::NoCandidates {
+                    stem: c.stem.clone(),
+                    release: c.version_req.clone(),
+                    branch: c.branch.clone(),
+                },
                 roots,
             }
         } else {
-            SolverFailure { kind: SolverProblemKind::Unsolvable, roots }
+            SolverFailure {
+                kind: SolverProblemKind::Unsolvable,
+                roots,
+            }
         };
         return Err(SolverError::with_details(
             format!(
@@ -788,23 +836,28 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     // Run the solver
     let roots_for_err: Vec<Constraint> = root_names.iter().map(|(_, c)| c.clone()).collect();
     let mut solver = RSolver::new(provider);
-    let solution_ids = solver.solve(problem).map_err(|conflict_or_cancelled| {
-        match conflict_or_cancelled {
-            UnsolvableOrCancelled::Unsolvable(u) => {
-                let msg = u.display_user_friendly(&solver).to_string();
-                SolverError::with_details(
-                    msg,
-                    SolverFailure { kind: SolverProblemKind::Unsolvable, roots: roots_for_err.clone() },
-                )
-            }
-            UnsolvableOrCancelled::Cancelled(_) => {
-                SolverError::with_details(
+    let solution_ids =
+        solver
+            .solve(problem)
+            .map_err(|conflict_or_cancelled| match conflict_or_cancelled {
+                UnsolvableOrCancelled::Unsolvable(u) => {
+                    let msg = u.display_user_friendly(&solver).to_string();
+                    SolverError::with_details(
+                        msg,
+                        SolverFailure {
+                            kind: SolverProblemKind::Unsolvable,
+                            roots: roots_for_err.clone(),
+                        },
+                    )
+                }
+                UnsolvableOrCancelled::Cancelled(_) => SolverError::with_details(
                     "dependency resolution cancelled".to_string(),
-                    SolverFailure { kind: SolverProblemKind::Unsolvable, roots: roots_for_err.clone() },
-                )
-            }
-        }
-    })?;
+                    SolverFailure {
+                        kind: SolverProblemKind::Unsolvable,
+                        roots: roots_for_err.clone(),
+                    },
+                ),
+            })?;
 
     // Build plan from solution
     let image_ref = image;
@@ -821,7 +874,12 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
                     } else {
                         match image_ref.get_manifest_from_catalog(&fmri) {
                             Ok(Some(m)) => m,
-                            _ => return Err(SolverError::new(format!("failed to obtain manifest for {}: {}", fmri, repo_err))),
+                            _ => {
+                                return Err(SolverError::new(format!(
+                                    "failed to obtain manifest for {}: {}",
+                                    fmri, repo_err
+                                )));
+                            }
                         }
                     }
                 }
@@ -832,7 +890,6 @@ pub fn resolve_install(image: &Image, constraints: &[Constraint]) -> Result<Inst
     }
     Ok(plan)
 }
-
 
 fn build_publisher_preference(parent_pub: Option<&str>, image: &Image) -> Vec<String> {
     let mut order: Vec<String> = Vec::new();
@@ -855,7 +912,6 @@ fn build_publisher_preference(parent_pub: Option<&str>, image: &Image) -> Vec<St
     order
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -871,21 +927,24 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod solver_integration_tests {
     use super::*;
     use crate::actions::Dependency;
     use crate::fmri::Version;
-    use crate::image::catalog::{CATALOG_TABLE, OBSOLETED_TABLE};
     use crate::image::ImageType;
+    use crate::image::catalog::{CATALOG_TABLE, OBSOLETED_TABLE};
     use redb::Database;
     use tempfile::tempdir;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
-        if let Some(b) = branch { v.branch = Some(b.to_string()); }
-        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        if let Some(b) = branch {
+            v.branch = Some(b.to_string());
+        }
+        if let Some(t) = timestamp {
+            v.timestamp = Some(t.to_string());
+        }
         v
     }
 
@@ -917,7 +976,9 @@ mod solver_integration_tests {
             let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
             let key = format!("{}@{}", fmri.stem(), fmri.version());
             let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+            table
+                .insert(key.as_str(), val.as_slice())
+                .expect("insert manifest");
         }
         tx.commit().expect("commit");
     }
@@ -926,11 +987,15 @@ mod solver_integration_tests {
         let db = Database::open(image.obsoleted_db_path()).expect("open obsoleted db");
         let tx = db.begin_write().expect("begin write");
         {
-            let mut table = tx.open_table(OBSOLETED_TABLE).expect("open obsoleted table");
+            let mut table = tx
+                .open_table(OBSOLETED_TABLE)
+                .expect("open obsoleted table");
             let key = fmri.to_string();
             // store empty value
             let empty: Vec<u8> = Vec::new();
-            table.insert(key.as_str(), empty.as_slice()).expect("insert obsolete");
+            table
+                .insert(key.as_str(), empty.as_slice())
+                .expect("insert obsolete");
         }
         tx.commit().expect("commit");
     }
@@ -941,8 +1006,13 @@ mod solver_integration_tests {
         let path = td.keep();
         let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
         for (name, is_default) in pubs.iter().copied() {
-            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
-                .expect("add publisher");
+            img.add_publisher(
+                name,
+                &format!("https://example.com/{name}"),
+                vec![],
+                is_default,
+            )
+            .expect("add publisher");
         }
         img
     }
@@ -951,15 +1021,32 @@ mod solver_integration_tests {
     fn select_newest_release_then_timestamp() {
         let img = make_image_with_publishers(&[("pubA", true)]);
 
-        let fmri_100_old = mk_fmri("pubA", "pkg/alpha", mk_version("1.0", None, Some("20200101T000000Z")));
-        let fmri_100_new = mk_fmri("pubA", "pkg/alpha", mk_version("1.0", None, Some("20200201T000000Z")));
-        let fmri_110_any = mk_fmri("pubA", "pkg/alpha", mk_version("1.1", None, Some("20200115T000000Z")));
+        let fmri_100_old = mk_fmri(
+            "pubA",
+            "pkg/alpha",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
+        let fmri_100_new = mk_fmri(
+            "pubA",
+            "pkg/alpha",
+            mk_version("1.0", None, Some("20200201T000000Z")),
+        );
+        let fmri_110_any = mk_fmri(
+            "pubA",
+            "pkg/alpha",
+            mk_version("1.1", None, Some("20200115T000000Z")),
+        );
 
         write_manifest_to_catalog(&img, &fmri_100_old, &mk_manifest(&fmri_100_old, &[]));
         write_manifest_to_catalog(&img, &fmri_100_new, &mk_manifest(&fmri_100_new, &[]));
         write_manifest_to_catalog(&img, &fmri_110_any, &mk_manifest(&fmri_110_any, &[]));
 
-        let c = Constraint { stem: "pkg/alpha".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/alpha".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         assert!(!plan.add.is_empty());
         let chosen = &plan.add[0].fmri;
@@ -970,14 +1057,31 @@ mod solver_integration_tests {
     fn ignore_obsolete_candidates() {
         let img = make_image_with_publishers(&[("pubA", true)]);
 
-        let fmri_non_obsolete = mk_fmri("pubA", "pkg/beta", mk_version("0.9", None, Some("20200101T000000Z")));
-        let fmri_obsolete = mk_fmri("pubA", "pkg/beta", mk_version("1.0", None, Some("20200301T000000Z")));
+        let fmri_non_obsolete = mk_fmri(
+            "pubA",
+            "pkg/beta",
+            mk_version("0.9", None, Some("20200101T000000Z")),
+        );
+        let fmri_obsolete = mk_fmri(
+            "pubA",
+            "pkg/beta",
+            mk_version("1.0", None, Some("20200301T000000Z")),
+        );
 
-        write_manifest_to_catalog(&img, &fmri_non_obsolete, &mk_manifest(&fmri_non_obsolete, &[]));
+        write_manifest_to_catalog(
+            &img,
+            &fmri_non_obsolete,
+            &mk_manifest(&fmri_non_obsolete, &[]),
+        );
         // mark the 1.0 as obsolete (not adding to catalog table)
         mark_obsolete(&img, &fmri_obsolete);
 
-        let c = Constraint { stem: "pkg/beta".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/beta".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         assert!(!plan.add.is_empty());
         let chosen = &plan.add[0].fmri;
@@ -1003,16 +1107,24 @@ mod solver_integration_tests {
 
         // Configure image publisher to point to file:// repo
         let origin = format!("file://{}", repo_path.display());
-        img.add_publisher("pubA", &origin, vec![], true).expect("add publisher to image");
+        img.add_publisher("pubA", &origin, vec![], true)
+            .expect("add publisher to image");
 
         // Define FMRI and limited manifest in catalog (deps only)
-        let fmri = mk_fmri("pubA", "pkg/alpha", mk_version("1.0", None, Some("20200401T000000Z")));
+        let fmri = mk_fmri(
+            "pubA",
+            "pkg/alpha",
+            mk_version("1.0", None, Some("20200401T000000Z")),
+        );
         let limited = mk_manifest(&fmri, &[]); // no files/dirs
         write_manifest_to_catalog(&img, &fmri, &limited);
 
         // Write full manifest into repository at expected path
-        let repo_manifest_path = FileBackend::construct_manifest_path(&repo_path, "pubA", fmri.stem(), &fmri.version());
-        if let Some(parent) = repo_manifest_path.parent() { fs::create_dir_all(parent).unwrap(); }
+        let repo_manifest_path =
+            FileBackend::construct_manifest_path(&repo_path, "pubA", fmri.stem(), &fmri.version());
+        if let Some(parent) = repo_manifest_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
         let full_manifest_text = format!(
             "set name=pkg.fmri value={}\n\
              dir path=opt/test owner=root group=bin mode=0755\n\
@@ -1022,11 +1134,19 @@ mod solver_integration_tests {
         fs::write(&repo_manifest_path, full_manifest_text).expect("write manifest to repo");
 
         // Resolve and ensure we got the repo (full) manifest with file/dir actions
-        let c = Constraint { stem: "pkg/alpha".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/alpha".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         assert_eq!(plan.add.len(), 1);
         let man = &plan.add[0].manifest;
-        assert!(man.directories.len() >= 1, "expected directories from repo manifest");
+        assert!(
+            man.directories.len() >= 1,
+            "expected directories from repo manifest"
+        );
         assert!(man.files.len() >= 1, "expected files from repo manifest");
     }
 
@@ -1034,23 +1154,52 @@ mod solver_integration_tests {
     fn dependency_sticks_to_parent_branch() {
         let img = make_image_with_publishers(&[("pubA", true)]);
         // Parent pkg on branch 1 with a require on dep@5.11
-        let parent = mk_fmri("pubA", "pkg/parent", mk_version("5.11", Some("1"), Some("20200102T000000Z")));
+        let parent = mk_fmri(
+            "pubA",
+            "pkg/parent",
+            mk_version("5.11", Some("1"), Some("20200102T000000Z")),
+        );
         let dep_req = Fmri::with_version("pkg/dep", Version::new("5.11"));
         let parent_manifest = mk_manifest(&parent, &[dep_req.clone()]);
         write_manifest_to_catalog(&img, &parent, &parent_manifest);
 
         // dep on branch 1 (older) and branch 2 (newer) — branch 1 must be selected
-        let dep_branch1_old = mk_fmri("pubA", "pkg/dep", mk_version("5.11", Some("1"), Some("20200101T000000Z")));
-        let dep_branch1_new = mk_fmri("pubA", "pkg/dep", mk_version("5.11", Some("1"), Some("20200201T000000Z")));
-        let dep_branch2_newer = mk_fmri("pubA", "pkg/dep", mk_version("5.11", Some("2"), Some("20200401T000000Z")));
+        let dep_branch1_old = mk_fmri(
+            "pubA",
+            "pkg/dep",
+            mk_version("5.11", Some("1"), Some("20200101T000000Z")),
+        );
+        let dep_branch1_new = mk_fmri(
+            "pubA",
+            "pkg/dep",
+            mk_version("5.11", Some("1"), Some("20200201T000000Z")),
+        );
+        let dep_branch2_newer = mk_fmri(
+            "pubA",
+            "pkg/dep",
+            mk_version("5.11", Some("2"), Some("20200401T000000Z")),
+        );
         write_manifest_to_catalog(&img, &dep_branch1_old, &mk_manifest(&dep_branch1_old, &[]));
         write_manifest_to_catalog(&img, &dep_branch1_new, &mk_manifest(&dep_branch1_new, &[]));
-        write_manifest_to_catalog(&img, &dep_branch2_newer, &mk_manifest(&dep_branch2_newer, &[]));
+        write_manifest_to_catalog(
+            &img,
+            &dep_branch2_newer,
+            &mk_manifest(&dep_branch2_newer, &[]),
+        );
 
-        let c = Constraint { stem: "pkg/parent".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/parent".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         // find dep in plan
-        let dep_pkg = plan.add.iter().find(|p| p.fmri.stem() == "pkg/dep").expect("dep present");
+        let dep_pkg = plan
+            .add
+            .iter()
+            .find(|p| p.fmri.stem() == "pkg/dep")
+            .expect("dep present");
         let v = dep_pkg.fmri.version.as_ref().unwrap();
         assert_eq!(v.release, "5.11");
         assert_eq!(v.branch.as_deref(), Some("1"));
@@ -1063,33 +1212,71 @@ mod solver_integration_tests {
         let img = make_image_with_publishers(&[("pubA", true), ("pubB", false)]);
         // Ensure image publishers order contains both; default already set by first.
 
-        let parent = mk_fmri("pubA", "pkg/root", mk_version("1.0", None, Some("20200101T000000Z")));
+        let parent = mk_fmri(
+            "pubA",
+            "pkg/root",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
         let dep_req = Fmri::with_version("pkg/child", Version::new("1.0"));
         let parent_manifest = mk_manifest(&parent, &[dep_req.clone()]);
         write_manifest_to_catalog(&img, &parent, &parent_manifest);
 
-        let dep_pub_a_old = mk_fmri("pubA", "pkg/child", mk_version("1.0", None, Some("20200101T000000Z")));
-        let dep_pub_b_new = mk_fmri("pubB", "pkg/child", mk_version("1.0", None, Some("20200301T000000Z")));
+        let dep_pub_a_old = mk_fmri(
+            "pubA",
+            "pkg/child",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
+        let dep_pub_b_new = mk_fmri(
+            "pubB",
+            "pkg/child",
+            mk_version("1.0", None, Some("20200301T000000Z")),
+        );
         write_manifest_to_catalog(&img, &dep_pub_a_old, &mk_manifest(&dep_pub_a_old, &[]));
         write_manifest_to_catalog(&img, &dep_pub_b_new, &mk_manifest(&dep_pub_b_new, &[]));
 
-        let c = Constraint { stem: "pkg/root".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/root".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
-        let dep_pkg = plan.add.iter().find(|p| p.fmri.stem() == "pkg/child").expect("child present");
+        let dep_pkg = plan
+            .add
+            .iter()
+            .find(|p| p.fmri.stem() == "pkg/child")
+            .expect("child present");
         assert_eq!(dep_pkg.fmri.publisher.as_deref(), Some("pubA"));
     }
 
     #[test]
     fn top_level_release_only_version_requirement() {
         let img = make_image_with_publishers(&[("pubA", true)]);
-        let v10_old = mk_fmri("pubA", "pkg/vers", mk_version("1.0", None, Some("20200101T000000Z")));
-        let v10_new = mk_fmri("pubA", "pkg/vers", mk_version("1.0", None, Some("20200201T000000Z")));
-        let v11 = mk_fmri("pubA", "pkg/vers", mk_version("1.1", None, Some("20200301T000000Z")));
+        let v10_old = mk_fmri(
+            "pubA",
+            "pkg/vers",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
+        let v10_new = mk_fmri(
+            "pubA",
+            "pkg/vers",
+            mk_version("1.0", None, Some("20200201T000000Z")),
+        );
+        let v11 = mk_fmri(
+            "pubA",
+            "pkg/vers",
+            mk_version("1.1", None, Some("20200301T000000Z")),
+        );
         write_manifest_to_catalog(&img, &v10_old, &mk_manifest(&v10_old, &[]));
         write_manifest_to_catalog(&img, &v10_new, &mk_manifest(&v10_new, &[]));
         write_manifest_to_catalog(&img, &v11, &mk_manifest(&v11, &[]));
 
-        let c = Constraint { stem: "pkg/vers".to_string(), version_req: Some("1.0".to_string()), preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/vers".to_string(),
+            version_req: Some("1.0".to_string()),
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         let chosen = &plan.add[0].fmri;
         let v = chosen.version.as_ref().unwrap();
@@ -1097,7 +1284,6 @@ mod solver_integration_tests {
         assert_eq!(v.timestamp.as_deref(), Some("20200201T000000Z"));
     }
 }
-
 
 #[cfg(test)]
 mod no_candidate_error_tests {
@@ -1110,30 +1296,43 @@ mod no_candidate_error_tests {
         let td = tempfile::tempdir().expect("tempdir");
         let img_path = td.path().to_path_buf();
         let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
-        img.add_publisher("pubA", "https://example.com/pubA", vec![], true).expect("add publisher");
+        img.add_publisher("pubA", "https://example.com/pubA", vec![], true)
+            .expect("add publisher");
 
         // Request a non-existent package so the root has zero candidates
-        let c = Constraint { stem: "pkg/does-not-exist".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/does-not-exist".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let err = resolve_install(&img, &[c]).err().expect("expected error");
         let msg = err.message;
-        assert!(msg.contains("No candidates") || msg.contains("no candidates"), "unexpected message: {}", msg);
+        assert!(
+            msg.contains("No candidates") || msg.contains("no candidates"),
+            "unexpected message: {}",
+            msg
+        );
     }
 }
-
 
 #[cfg(test)]
 mod solver_error_message_tests {
     use super::*;
     use crate::actions::{Dependency, Manifest};
     use crate::fmri::{Fmri, Version};
-    use crate::image::catalog::CATALOG_TABLE;
     use crate::image::ImageType;
+    use crate::image::catalog::CATALOG_TABLE;
     use redb::Database;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
-        if let Some(b) = branch { v.branch = Some(b.to_string()); }
-        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        if let Some(b) = branch {
+            v.branch = Some(b.to_string());
+        }
+        if let Some(t) = timestamp {
+            v.timestamp = Some(t.to_string());
+        }
         v
     }
 
@@ -1161,7 +1360,9 @@ mod solver_error_message_tests {
             let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
             let key = format!("{}@{}", fmri.stem(), fmri.version());
             let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+            table
+                .insert(key.as_str(), val.as_slice())
+                .expect("insert manifest");
         }
         tx.commit().expect("commit");
     }
@@ -1171,22 +1372,42 @@ mod solver_error_message_tests {
         let td = tempfile::tempdir().expect("tempdir");
         let img_path = td.path().to_path_buf();
         let mut img = Image::create_image(&img_path, ImageType::Partial).expect("create image");
-        img.add_publisher("pubA", "https://example.com/pubA", vec![], true).expect("add publisher");
+        img.add_publisher("pubA", "https://example.com/pubA", vec![], true)
+            .expect("add publisher");
 
         // Parent requires child@2.0 but only child@1.0 exists in catalog (unsatisfiable)
-        let parent = mk_fmri("pubA", "pkg/root", mk_version("1.0", None, Some("20200101T000000Z")));
+        let parent = mk_fmri(
+            "pubA",
+            "pkg/root",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
         let child_req = Fmri::with_version("pkg/child", Version::new("2.0"));
         let parent_manifest = mk_manifest_with_dep(&parent, &child_req);
         write_manifest_to_catalog(&img, &parent, &parent_manifest);
         // Add a child candidate with non-matching release
-        let child_present = mk_fmri("pubA", "pkg/child", mk_version("1.0", None, Some("20200101T000000Z")));
+        let child_present = mk_fmri(
+            "pubA",
+            "pkg/child",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
         write_manifest_to_catalog(&img, &child_present, &Manifest::new());
 
-        let c = Constraint { stem: "pkg/root".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
-        let err = resolve_install(&img, &[c]).err().expect("expected solver error");
+        let c = Constraint {
+            stem: "pkg/root".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
+        let err = resolve_install(&img, &[c])
+            .err()
+            .expect("expected solver error");
         let msg = err.message;
         let lower = msg.to_lowercase();
-        assert!(!lower.contains("clauseid("), "message should not include ClauseId identifiers: {}", msg);
+        assert!(
+            !lower.contains("clauseid("),
+            "message should not include ClauseId identifiers: {}",
+            msg
+        );
         assert!(
             lower.contains("cannot be installed") || lower.contains("rejected because"),
             "expected a clear rejection explanation in message: {}",
@@ -1200,25 +1421,30 @@ mod solver_error_message_tests {
     }
 }
 
-
 #[cfg(test)]
 mod incorporate_lock_tests {
     use super::*;
     use crate::actions::Dependency;
     use crate::fmri::Version;
-    use crate::image::catalog::CATALOG_TABLE;
     use crate::image::ImageType;
+    use crate::image::catalog::CATALOG_TABLE;
     use redb::Database;
     use tempfile::tempdir;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
-        if let Some(b) = branch { v.branch = Some(b.to_string()); }
-        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        if let Some(b) = branch {
+            v.branch = Some(b.to_string());
+        }
+        if let Some(t) = timestamp {
+            v.timestamp = Some(t.to_string());
+        }
         v
     }
 
-    fn mk_fmri(publisher: &str, name: &str, v: Version) -> Fmri { Fmri::with_publisher(publisher, name, Some(v)) }
+    fn mk_fmri(publisher: &str, name: &str, v: Version) -> Fmri {
+        Fmri::with_publisher(publisher, name, Some(v))
+    }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
         let db = Database::open(image.catalog_db_path()).expect("open catalog db");
@@ -1227,7 +1453,9 @@ mod incorporate_lock_tests {
             let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
             let key = format!("{}@{}", fmri.stem(), fmri.version());
             let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+            table
+                .insert(key.as_str(), val.as_slice())
+                .expect("insert manifest");
         }
         tx.commit().expect("commit");
     }
@@ -1237,8 +1465,13 @@ mod incorporate_lock_tests {
         let path = td.keep();
         let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
         for (name, is_default) in pubs.iter().copied() {
-            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
-                .expect("add publisher");
+            img.add_publisher(
+                name,
+                &format!("https://example.com/{name}"),
+                vec![],
+                is_default,
+            )
+            .expect("add publisher");
         }
         img
     }
@@ -1247,16 +1480,30 @@ mod incorporate_lock_tests {
     fn incorporate_lock_enforced() {
         let img = make_image_with_publishers(&[("pubA", true)]);
         // Two versions of same stem in catalog
-        let v_old = mk_fmri("pubA", "compress/gzip", mk_version("1.0.0", None, Some("20200101T000000Z")));
-        let v_new = mk_fmri("pubA", "compress/gzip", mk_version("2.0.0", None, Some("20200201T000000Z")));
+        let v_old = mk_fmri(
+            "pubA",
+            "compress/gzip",
+            mk_version("1.0.0", None, Some("20200101T000000Z")),
+        );
+        let v_new = mk_fmri(
+            "pubA",
+            "compress/gzip",
+            mk_version("2.0.0", None, Some("20200201T000000Z")),
+        );
         write_manifest_to_catalog(&img, &v_old, &Manifest::new());
         write_manifest_to_catalog(&img, &v_new, &Manifest::new());
 
         // Add incorporation lock to old version
-        img.add_incorporation_lock("compress/gzip", &v_old.version()).expect("add lock");
+        img.add_incorporation_lock("compress/gzip", &v_old.version())
+            .expect("add lock");
 
         // Resolve without version constraints should pick locked version
-        let c = Constraint { stem: "compress/gzip".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "compress/gzip".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         assert_eq!(plan.add.len(), 1);
         assert_eq!(plan.add[0].fmri.version(), v_old.version());
@@ -1266,11 +1513,21 @@ mod incorporate_lock_tests {
     fn incorporate_lock_ignored_if_missing() {
         let img = make_image_with_publishers(&[("pubA", true)]);
         // Only version 2.0 exists
-        let v_new = mk_fmri("pubA", "compress/gzip", mk_version("2.0.0", None, Some("20200201T000000Z")));
+        let v_new = mk_fmri(
+            "pubA",
+            "compress/gzip",
+            mk_version("2.0.0", None, Some("20200201T000000Z")),
+        );
         write_manifest_to_catalog(&img, &v_new, &Manifest::new());
         // Add lock to non-existent 1.0.0 -> should be ignored
-        img.add_incorporation_lock("compress/gzip", "1.0.0").expect("add lock");
-        let c = Constraint { stem: "compress/gzip".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        img.add_incorporation_lock("compress/gzip", "1.0.0")
+            .expect("add lock");
+        let c = Constraint {
+            stem: "compress/gzip".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
         assert_eq!(plan.add.len(), 1);
         assert_eq!(plan.add[0].fmri.version(), v_new.version());
@@ -1280,13 +1537,29 @@ mod incorporate_lock_tests {
     fn incorporation_overrides_transitive_requirement() {
         let img = make_image_with_publishers(&[("pubA", true)]);
         // Build package chain: gzip -> system/library -> system/library/mozilla-nss -> database/sqlite-3@3.46
-        let gzip = mk_fmri("pubA", "compress/gzip", mk_version("1.14", None, Some("20250411T052732Z")));
-        let slib = mk_fmri("pubA", "system/library", mk_version("0.5.11", None, Some("20240101T000000Z")));
-        let nss = mk_fmri("pubA", "system/library/mozilla-nss", mk_version("3.98", None, Some("20240102T000000Z")));
+        let gzip = mk_fmri(
+            "pubA",
+            "compress/gzip",
+            mk_version("1.14", None, Some("20250411T052732Z")),
+        );
+        let slib = mk_fmri(
+            "pubA",
+            "system/library",
+            mk_version("0.5.11", None, Some("20240101T000000Z")),
+        );
+        let nss = mk_fmri(
+            "pubA",
+            "system/library/mozilla-nss",
+            mk_version("3.98", None, Some("20240102T000000Z")),
+        );
 
         // sqlite candidates
         let sqlite_old = mk_fmri("pubA", "database/sqlite-3", Version::new("3.46"));
-        let sqlite_new = mk_fmri("pubA", "database/sqlite-3", Version::parse("3.50.4-2025.0.0.0").unwrap());
+        let sqlite_new = mk_fmri(
+            "pubA",
+            "database/sqlite-3",
+            Version::parse("3.50.4-2025.0.0.0").unwrap(),
+        );
 
         // gzip requires system/library (no version)
         let mut man_gzip = Manifest::new();
@@ -1307,7 +1580,11 @@ mod incorporate_lock_tests {
         attr.values = vec![slib.to_string()];
         man_slib.attributes.push(attr);
         let mut d = Dependency::default();
-        d.fmri = Some(Fmri::with_publisher("pubA", "system/library/mozilla-nss", None));
+        d.fmri = Some(Fmri::with_publisher(
+            "pubA",
+            "system/library/mozilla-nss",
+            None,
+        ));
         d.dependency_type = "require".to_string();
         man_slib.dependencies.push(d);
         write_manifest_to_catalog(&img, &slib, &man_slib);
@@ -1319,7 +1596,10 @@ mod incorporate_lock_tests {
         attr.values = vec![nss.to_string()];
         man_nss.attributes.push(attr);
         let mut d = Dependency::default();
-        d.fmri = Some(Fmri::with_version("database/sqlite-3", Version::new("3.46")));
+        d.fmri = Some(Fmri::with_version(
+            "database/sqlite-3",
+            Version::new("3.46"),
+        ));
         d.dependency_type = "require".to_string();
         man_nss.dependencies.push(d);
         write_manifest_to_catalog(&img, &nss, &man_nss);
@@ -1329,13 +1609,23 @@ mod incorporate_lock_tests {
         write_manifest_to_catalog(&img, &sqlite_new, &Manifest::new());
 
         // Add incorporation lock to newer sqlite
-        img.add_incorporation_lock("database/sqlite-3", &sqlite_new.version()).expect("add sqlite lock");
+        img.add_incorporation_lock("database/sqlite-3", &sqlite_new.version())
+            .expect("add sqlite lock");
 
         // Resolve from top-level gzip; expect sqlite_new to be chosen, overriding 3.46 requirement
-        let c = Constraint { stem: "compress/gzip".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "compress/gzip".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
 
-        let picked_sqlite = plan.add.iter().find(|p| p.fmri.stem() == "database/sqlite-3").expect("sqlite present");
+        let picked_sqlite = plan
+            .add
+            .iter()
+            .find(|p| p.fmri.stem() == "database/sqlite-3")
+            .expect("sqlite present");
         let v = picked_sqlite.fmri.version.as_ref().unwrap();
         assert_eq!(v.release, "3.50.4");
         assert_eq!(v.build.as_deref(), Some("2025.0.0.0"));
@@ -1347,14 +1637,18 @@ mod composite_release_tests {
     use super::*;
     use crate::actions::{Dependency, Manifest};
     use crate::fmri::{Fmri, Version};
-    use crate::image::catalog::CATALOG_TABLE;
     use crate::image::ImageType;
+    use crate::image::catalog::CATALOG_TABLE;
     use redb::Database;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
-        if let Some(b) = branch { v.branch = Some(b.to_string()); }
-        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        if let Some(b) = branch {
+            v.branch = Some(b.to_string());
+        }
+        if let Some(t) = timestamp {
+            v.timestamp = Some(t.to_string());
+        }
         v
     }
 
@@ -1369,7 +1663,9 @@ mod composite_release_tests {
             let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
             let key = format!("{}@{}", fmri.stem(), fmri.version());
             let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+            table
+                .insert(key.as_str(), val.as_slice())
+                .expect("insert manifest");
         }
         tx.commit().expect("commit");
     }
@@ -1380,8 +1676,13 @@ mod composite_release_tests {
         let path = td.keep();
         let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
         for (name, is_default) in pubs.iter().copied() {
-            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
-                .expect("add publisher");
+            img.add_publisher(
+                name,
+                &format!("https://example.com/{name}"),
+                vec![],
+                is_default,
+            )
+            .expect("add publisher");
         }
         img
     }
@@ -1391,7 +1692,11 @@ mod composite_release_tests {
         let img = make_image_with_publishers(&[("pubA", true)]);
 
         // Parent requires child@5.11
-        let parent = mk_fmri("pubA", "pkg/root", mk_version("1.0", None, Some("20200101T000000Z")));
+        let parent = mk_fmri(
+            "pubA",
+            "pkg/root",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
         let child_req = Fmri::with_version("pkg/child", Version::new("5.11"));
         let mut man = Manifest::new();
         // add pkg.fmri attribute
@@ -1407,12 +1712,26 @@ mod composite_release_tests {
         write_manifest_to_catalog(&img, &parent, &man);
 
         // Only child candidate is release "20,5.11"
-        let child = mk_fmri("pubA", "pkg/child", mk_version("20,5.11", None, Some("20200401T000000Z")));
+        let child = mk_fmri(
+            "pubA",
+            "pkg/child",
+            mk_version("20,5.11", None, Some("20200401T000000Z")),
+        );
         write_manifest_to_catalog(&img, &child, &Manifest::new());
 
-        let c = Constraint { stem: "pkg/root".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
-        let plan = resolve_install(&img, &[c]).expect("should resolve by matching composite release");
-        let dep_pkg = plan.add.iter().find(|p| p.fmri.stem() == "pkg/child").expect("child present");
+        let c = Constraint {
+            stem: "pkg/root".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
+        let plan =
+            resolve_install(&img, &[c]).expect("should resolve by matching composite release");
+        let dep_pkg = plan
+            .add
+            .iter()
+            .find(|p| p.fmri.stem() == "pkg/child")
+            .expect("child present");
         let v = dep_pkg.fmri.version.as_ref().unwrap();
         assert_eq!(v.release, "20");
         assert_eq!(v.branch.as_deref(), Some("5.11"));
@@ -1423,31 +1742,48 @@ mod composite_release_tests {
         let img = make_image_with_publishers(&[("pubA", true)]);
 
         // Only candidate for stem is 5.11
-        let only = mk_fmri("pubA", "pkg/alpha", mk_version("5.11", None, Some("20200101T000000Z")));
+        let only = mk_fmri(
+            "pubA",
+            "pkg/alpha",
+            mk_version("5.11", None, Some("20200101T000000Z")),
+        );
         write_manifest_to_catalog(&img, &only, &Manifest::new());
 
         // Top-level constraint requires composite 20,5.11
-        let c = Constraint { stem: "pkg/alpha".to_string(), version_req: Some("20,5.11".to_string()), preferred_publishers: vec![], branch: None };
-        let err = resolve_install(&img, &[c]).err().expect("expected unsatisfiable");
-        assert!(err.message.contains("No candidates") || err.message.contains("dependency solving failed"));
+        let c = Constraint {
+            stem: "pkg/alpha".to_string(),
+            version_req: Some("20,5.11".to_string()),
+            preferred_publishers: vec![],
+            branch: None,
+        };
+        let err = resolve_install(&img, &[c])
+            .err()
+            .expect("expected unsatisfiable");
+        assert!(
+            err.message.contains("No candidates")
+                || err.message.contains("dependency solving failed")
+        );
     }
 }
-
 
 #[cfg(test)]
 mod circular_dependency_tests {
     use super::*;
     use crate::actions::Dependency;
     use crate::fmri::{Fmri, Version};
-    use crate::image::catalog::CATALOG_TABLE;
     use crate::image::ImageType;
+    use crate::image::catalog::CATALOG_TABLE;
     use redb::Database;
     use std::collections::HashSet;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
-        if let Some(b) = branch { v.branch = Some(b.to_string()); }
-        if let Some(t) = timestamp { v.timestamp = Some(t.to_string()); }
+        if let Some(b) = branch {
+            v.branch = Some(b.to_string());
+        }
+        if let Some(t) = timestamp {
+            v.timestamp = Some(t.to_string());
+        }
         v
     }
 
@@ -1479,7 +1815,9 @@ mod circular_dependency_tests {
             let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
             let key = format!("{}@{}", fmri.stem(), fmri.version());
             let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table.insert(key.as_str(), val.as_slice()).expect("insert manifest");
+            table
+                .insert(key.as_str(), val.as_slice())
+                .expect("insert manifest");
         }
         tx.commit().expect("commit");
     }
@@ -1490,8 +1828,13 @@ mod circular_dependency_tests {
         let path = td.keep();
         let mut img = Image::create_image(&path, ImageType::Partial).expect("create image");
         for (name, is_default) in pubs.iter().copied() {
-            img.add_publisher(name, &format!("https://example.com/{name}"), vec![], is_default)
-                .expect("add publisher");
+            img.add_publisher(
+                name,
+                &format!("https://example.com/{name}"),
+                vec![],
+                is_default,
+            )
+            .expect("add publisher");
         }
         img
     }
@@ -1500,8 +1843,16 @@ mod circular_dependency_tests {
     fn two_node_cycle_resolves_once_each() {
         let img = make_image_with_publishers(&[("pubA", true)]);
 
-        let a = mk_fmri("pubA", "pkg/a", mk_version("1.0", None, Some("20200101T000000Z")));
-        let b = mk_fmri("pubA", "pkg/b", mk_version("1.0", None, Some("20200101T000000Z")));
+        let a = mk_fmri(
+            "pubA",
+            "pkg/a",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
+        let b = mk_fmri(
+            "pubA",
+            "pkg/b",
+            mk_version("1.0", None, Some("20200101T000000Z")),
+        );
 
         let a_req_b = Fmri::with_version("pkg/b", Version::new("1.0"));
         let b_req_a = Fmri::with_version("pkg/a", Version::new("1.0"));
@@ -1512,7 +1863,12 @@ mod circular_dependency_tests {
         write_manifest_to_catalog(&img, &a, &man_a);
         write_manifest_to_catalog(&img, &b, &man_b);
 
-        let c = Constraint { stem: "pkg/a".to_string(), version_req: None, preferred_publishers: vec![], branch: None };
+        let c = Constraint {
+            stem: "pkg/a".to_string(),
+            version_req: None,
+            preferred_publishers: vec![],
+            branch: None,
+        };
         let plan = resolve_install(&img, &[c]).expect("resolve");
 
         // Ensure both packages are present and no duplicates
