@@ -2520,7 +2520,7 @@ impl FileBackend {
                 );
             }
 
-            let _ = catalog_writer::write_update_log(&update_log_path, &mut update_log)?;
+            let update_log_sig = catalog_writer::write_update_log(&update_log_path, &mut update_log)?;
             debug!("Wrote update log file");
 
             // Add an update log to catalog.attrs
@@ -2529,7 +2529,7 @@ impl FileBackend {
                 update_log_name.clone(),
                 crate::repository::catalog::UpdateLogInfo {
                     last_modified: timestamp.clone(),
-                    signature_sha1: None,
+                    signature_sha1: Some(update_log_sig),
                 },
             );
 

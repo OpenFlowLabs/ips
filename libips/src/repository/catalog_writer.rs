@@ -20,18 +20,18 @@ struct PythonFormatter;
 impl Formatter for PythonFormatter {
     fn begin_object_key<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
         if !first {
-            writer.write_all(b", ")?;
+            writer.write_all(b",")?;
         }
         Ok(())
     }
 
     fn begin_object_value<W: ?Sized + Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(b": ")
+        writer.write_all(b":")
     }
 
     fn begin_array_value<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
         if !first {
-            writer.write_all(b", ")?;
+            writer.write_all(b",")?;
         }
         Ok(())
     }

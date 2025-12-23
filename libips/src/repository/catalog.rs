@@ -66,7 +66,8 @@ pub type Result<T> = std::result::Result<T, CatalogError>;
 /// Format a SystemTime as an ISO-8601 'basic format' date in UTC
 pub fn format_iso8601_basic(time: &SystemTime) -> String {
     let datetime = convert_system_time_to_datetime(time);
-    format!("{}Z", datetime.format("%Y%m%dT%H%M%S.%f"))
+    let micros = datetime.timestamp_subsec_micros();
+    format!("{}.{:06}Z", datetime.format("%Y%m%dT%H%M%S"), micros)
 }
 
 /// Convert SystemTime to UTC DateTime, handling errors gracefully
