@@ -244,6 +244,8 @@ pub struct Transaction {
     repo: PathBuf,
     /// Publisher name
     publisher: Option<String>,
+    /// Legacy manifest content (optional)
+    legacy_manifest_content: Option<String>,
 }
 
 impl Transaction {
@@ -267,12 +269,18 @@ impl Transaction {
             files: Vec::new(),
             repo: repo_path,
             publisher: None,
+            legacy_manifest_content: None,
         })
     }
 
     /// Set the publisher for this transaction
     pub fn set_publisher(&mut self, publisher: &str) {
         self.publisher = Some(publisher.to_string());
+    }
+
+    /// Set the legacy manifest content for this transaction
+    pub fn set_legacy_manifest(&mut self, content: String) {
+        self.legacy_manifest_content = Some(content);
     }
 
     /// Update the manifest in the transaction
@@ -423,12 +431,19 @@ impl Transaction {
 
     /// Commit the transaction
     pub fn commit(self) -> Result<()> {
-        // Save the manifest to the transaction directory
-        let manifest_path = self.path.join("manifest");
-
-        // Serialize the manifest to JSON
+        // Save the JSON manifest to the transaction directory
+        let manifest_json_path = self.path.join("manifest.json");
         let manifest_json = serde_json::to_string_pretty(&self.manifest)?;
-        fs::write(&manifest_path, manifest_json)?;
+        fs::write(&manifest_json_path, &manifest_json)?;
+
+        // Save the legacy manifest to the transaction directory
+        let manifest_legacy_path = self.path.join("manifest");
+        if let Some(content) = &self.legacy_manifest_content {
+            fs::write(&manifest_legacy_path, content)?;
+        } else {
+            // Fallback: write JSON as legacy content if none provided (status quo)
+            fs::write(&manifest_legacy_path, &manifest_json)?;
+        }
 
         // Determine the publisher to use
         let publisher = match &self.publisher {
@@ -562,12 +577,22 @@ impl Transaction {
         }
 
         // Copy to pkg directory
+        // 1. Copy JSON manifest
+        let pkg_manifest_json_path = PathBuf::from(format!("{}.json", pkg_manifest_path.display()));
         debug!(
-            "Copying manifest from {} to {}",
-            manifest_path.display(),
+            "Copying JSON manifest from {} to {}",
+            manifest_json_path.display(),
+            pkg_manifest_json_path.display()
+        );
+        fs::copy(&manifest_json_path, &pkg_manifest_json_path)?;
+
+        // 2. Copy legacy manifest
+        debug!(
+            "Copying legacy manifest from {} to {}",
+            manifest_legacy_path.display(),
             pkg_manifest_path.display()
         );
-        fs::copy(&manifest_path, &pkg_manifest_path)?;
+        fs::copy(&manifest_legacy_path, &pkg_manifest_path)?;
 
         // Check if we need to create a pub.p5i file for the publisher
         let config_path = self.repo.join(REPOSITORY_CONFIG_FILENAME);
@@ -2085,6 +2110,17 @@ impl FileBackend {
                     // Recursively search subdirectories
                     self.find_manifests_recursive(&path, publisher, pattern, packages)?;
                 } else if path.is_file() {
+                    // Check if this is a .json file and if a corresponding file without .json exists
+                    if let Some(extension) = path.extension() {
+                        if extension == "json" {
+                            let path_without_ext = path.with_extension("");
+                            if path_without_ext.exists() {
+                                // Skip this .json file as we'll process the other one
+                                continue;
+                            }
+                        }
+                    }
+
                     // Try to read the first few bytes of the file to check if it's a manifest file
                     let mut file = match fs::File::open(&path) {
                         Ok(file) => file,
@@ -2240,6 +2276,14 @@ impl FileBackend {
     ) -> Result<()> {
         info!("Rebuilding catalog (batched) for publisher: {}", publisher);
 
+        let quote_action_value = |s: &str| -> String {
+            if s.is_empty() || s.contains(char::is_whitespace) || s.contains('"') || s.contains('\'') {
+                format!("\"{}\"", s.replace("\"", "\\\""))
+            } else {
+                s.to_string()
+            }
+        };
+
         // Create the catalog directory for the publisher if it doesn't exist
         let catalog_dir = Self::construct_catalog_path(&self.path, publisher);
         debug!("Publisher catalog directory: {}", catalog_dir.display());
@@ -2330,7 +2374,7 @@ impl FileBackend {
             // Extract variant and facet actions
             for attr in &manifest.attributes {
                 if attr.key.starts_with("variant.") || attr.key.starts_with("facet.") {
-                    let values_str = attr.values.join(" value=");
+                    let values_str = attr.values.iter().map(|s| quote_action_value(s)).collect::<Vec<_>>().join(" value=");
                     dependency_actions.push(format!("set name={} value={}", attr.key, values_str));
                 }
             }
@@ -2351,7 +2395,7 @@ impl FileBackend {
                     && !attr.key.starts_with("facet.")
                     && attr.key != "pkg.fmri"
                 {
-                    let values_str = attr.values.join(" value=");
+                    let values_str = attr.values.iter().map(|s| quote_action_value(s)).collect::<Vec<_>>().join(" value=");
                     summary_actions.push(format!("set name={} value={}", attr.key, values_str));
                 }
             }

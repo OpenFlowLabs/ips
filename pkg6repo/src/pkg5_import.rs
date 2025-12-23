@@ -462,6 +462,9 @@ impl Pkg5Importer {
         debug!("Using specified publisher: {}", publisher);
         transaction.set_publisher(publisher);
 
+        // Set the legacy manifest content (this preserves the byte-exact original manifest)
+        transaction.set_legacy_manifest(manifest_content.clone());
+
         // Debug the repository structure
         debug!(
             "Publisher directory: {}",
