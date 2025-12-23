@@ -2347,7 +2347,10 @@ impl FileBackend {
             // Extract summary actions (set actions excluding variants and facets)
             let mut summary_actions = Vec::new();
             for attr in &manifest.attributes {
-                if !attr.key.starts_with("variant.") && !attr.key.starts_with("facet.") {
+                if !attr.key.starts_with("variant.")
+                    && !attr.key.starts_with("facet.")
+                    && attr.key != "pkg.fmri"
+                {
                     let values_str = attr.values.join(" value=");
                     summary_actions.push(format!("set name={} value={}", attr.key, values_str));
                 }
@@ -2466,8 +2469,8 @@ impl FileBackend {
             dependency_part_path.display()
         );
         let mut dependency_part = crate::repository::catalog::CatalogPart::new();
-        for (fmri, actions, signature) in dependency_entries {
-            dependency_part.add_package(publisher, &fmri, actions, Some(signature));
+        for (fmri, actions, _signature) in dependency_entries {
+            dependency_part.add_package(publisher, &fmri, actions, None);
         }
         let dependency_sig =
             catalog_writer::write_catalog_part(&dependency_part_path, &mut dependency_part)?;
@@ -2477,8 +2480,8 @@ impl FileBackend {
         let summary_part_path = catalog_dir.join(summary_part_name);
         debug!("Writing summary part to: {}", summary_part_path.display());
         let mut summary_part = crate::repository::catalog::CatalogPart::new();
-        for (fmri, actions, signature) in summary_entries {
-            summary_part.add_package(publisher, &fmri, actions, Some(signature));
+        for (fmri, actions, _signature) in summary_entries {
+            summary_part.add_package(publisher, &fmri, actions, None);
         }
         let summary_sig =
             catalog_writer::write_catalog_part(&summary_part_path, &mut summary_part)?;

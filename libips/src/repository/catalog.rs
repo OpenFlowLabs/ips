@@ -192,9 +192,6 @@ impl CatalogAttrs {
 /// Package version entry in a catalog
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageVersionEntry {
-    /// Package version string
-    pub version: String,
-
     /// Optional actions associated with this package version
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actions: Option<Vec<String>>,
@@ -202,6 +199,9 @@ pub struct PackageVersionEntry {
     /// Optional SHA-1 signature of the package manifest
     #[serde(rename = "signature-sha-1", skip_serializing_if = "Option::is_none")]
     pub signature_sha1: Option<String>,
+
+    /// Package version string
+    pub version: String,
 }
 
 /// Catalog part (base, dependency, summary)

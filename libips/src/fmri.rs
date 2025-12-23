@@ -644,12 +644,12 @@ impl Fmri {
 
 impl fmt::Display for Fmri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // For FMRIs without a publisher, we should use the format pkg:///name
+        // For FMRIs without a publisher, we should use the format pkg:/name
         // For FMRIs with a publisher, we should use the format pkg://publisher/name
         if let Some(publisher) = &self.publisher {
             write!(f, "{}://{}/", self.scheme, publisher)?;
         } else {
-            write!(f, "{}:///", self.scheme)?;
+            write!(f, "{}:/", self.scheme)?;
         }
 
         write!(f, "{}", self.name)?;
