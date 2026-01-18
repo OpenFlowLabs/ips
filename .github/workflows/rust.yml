@@ -97,7 +97,7 @@ jobs:
         with:
           prepare: |
             pkg set-publisher -g https://pkg.omnios.org/r151056/extra/ extra.omnios
-            pkg install -v ooce/developer/rust ooce/omnios-build-tools ooce/util/jq library/zlib library/lz4
+            pkg install -v ooce/developer/rust ooce/omnios-build-tools ooce/util/jq library/zlib compress/lz4
           run: |
             # Set environment variables for native libraries
             export CFLAGS="-m64"

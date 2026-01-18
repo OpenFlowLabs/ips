@@ -17,7 +17,7 @@ Vagrant.configure("2") do |config|
   config.vm.provision "shell", inline: <<-SHELL
     set -ex
     pkg set-publisher -g https://pkg.omnios.org/r151056/extra/ extra.omnios
-    pkg install -v developer/lang/rustc build-essential jq library/zlib library/lz4
+    pkg install -v developer/lang/rustc build-essential jq library/zlib compress/lz4
     mkdir -p /ws
     chown vagrant:vagrant /ws
     if ! zfs list rpool/zones > /dev/null 2>&1; then
