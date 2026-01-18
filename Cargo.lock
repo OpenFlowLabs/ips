@@ -1461,7 +1461,7 @@ checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
 name = "libips"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "bincode",
  "chrono",
@@ -2084,7 +2084,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "pkg6"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "libips",
@@ -2098,7 +2098,7 @@ dependencies = [
 
 [[package]]
 name = "pkg6depotd"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "pkg6repo"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "flate2",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "pkgtree"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "libips",
@@ -2174,7 +2174,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "ports"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2182,7 +2182,7 @@ dependencies = [
  "reqwest",
  "shellexpand",
  "specfile",
- "thiserror 2.0.17",
+ "thiserror 1.0.69",
  "url",
  "which",
 ]
@@ -2873,12 +2873,12 @@ dependencies = [
 
 [[package]]
 name = "specfile"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "pest",
  "pest_derive",
- "thiserror 2.0.17",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3482,7 +3482,7 @@ dependencies = [
 
 [[package]]
 name = "userland"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -3948,7 +3948,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
