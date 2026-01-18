@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-illumos:
+    name: Build on Illumos (OpenIndiana)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build in OpenIndiana VM
+      uses: vmactions/openindiana-vm@v1
+      with:
+        prepare: |
+          pkg install -v developer/lang/rustc build-essential jq
+        run: |
+          cargo build --release
+          mkdir -p artifacts
+          cp target/release/pkg6 artifacts/
+          cp target/release/pkg6repo artifacts/
+          cp target/release/pkg6depotd artifacts/
+          tar czf ips-illumos-x86_64.tar.gz -C artifacts .
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ips-illumos-x86_64
+        path: ips-illumos-x86_64.tar.gz
+
+  build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build
+      run: |
+        cargo build --release
+        mkdir -p artifacts
+        cp target/release/pkg6 artifacts/
+        cp target/release/pkg6repo artifacts/
+        cp target/release/pkg6depotd artifacts/
+        tar czf ips-linux-x86_64.tar.gz -C artifacts .
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ips-linux-x86_64
+        path: ips-linux-x86_64.tar.gz
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-illumos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download Illumos Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ips-illumos-x86_64
+    - name: Download Linux Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ips-linux-x86_64
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ips-illumos-x86_64.tar.gz
+          ips-linux-x86_64.tar.gz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

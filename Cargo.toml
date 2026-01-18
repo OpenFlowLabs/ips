@@ -21,3 +21,11 @@ repository = "https://github.com/OpenFlowLabs/ips"
 readme = "README.md"
 keywords = ["packaging", "illumos"]
 authors = ["Till Wegmueller <toasterson@gmail.com>"]
+
+[workspace.metadata.release]
+push = false
+tag = true
+pre-release-commit-message = "chore: Release {{version}}"
+tag-message = "chore: Release {{version}}"
+consolidate-commits = true
+shared-version = true

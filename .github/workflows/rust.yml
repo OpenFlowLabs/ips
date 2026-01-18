@@ -52,7 +52,7 @@ jobs:
 
   # Build the project
   build:
-    name: Build
+    name: Build (Linux)
     needs: [format, clippy]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -85,10 +85,32 @@ jobs:
           path: target/release/
           retention-days: 1
 
+  # Build on Illumos (OpenIndiana)
+  build-illumos:
+    name: Build (Illumos)
+    needs: [format, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in OpenIndiana VM
+        uses: vmactions/openindiana-vm@v1
+        with:
+          prepare: |
+            pkg install -v developer/lang/rustc build-essential jq
+          run: |
+            cargo run -p xtask -- build
+            cargo run -p xtask -- build -r
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ips-binaries-illumos
+          path: target/release/
+          retention-days: 1
+
   # Run unit tests
   test:
     name: Test
-    needs: [build]
+    needs: [build, build-illumos]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
