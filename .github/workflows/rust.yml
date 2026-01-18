@@ -85,15 +85,15 @@ jobs:
           path: target/release/
           retention-days: 1
 
-  # Build on Illumos (OpenIndiana)
+  # Build on Illumos (OmniOS)
   build-illumos:
     name: Build (Illumos)
     needs: [format, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build in OpenIndiana VM
-        uses: vmactions/openindiana-vm@v1
+      - name: Build in OmniOS VM
+        uses: vmactions/omnios-vm@v1
         with:
           prepare: |
             pkg install -v developer/lang/rustc build-essential jq
