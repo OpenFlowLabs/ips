@@ -1,5 +1,6 @@
 [package]
 name = "pkgtree"
+description.workspace = true
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

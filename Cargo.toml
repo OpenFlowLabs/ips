@@ -14,6 +14,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
+description = "The Image Packaging System (IPS) for illumos"
 version = "0.5.1"
 edition = "2024"
 license-file = "LICENSE"

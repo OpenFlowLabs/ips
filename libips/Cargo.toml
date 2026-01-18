@@ -5,7 +5,7 @@
 
 [package]
 name = "libips"
-description = "The core library for the rust version of the Image Packaging System. Includes Python bindings."
+description.workspace = true
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

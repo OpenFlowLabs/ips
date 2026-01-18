@@ -1,6 +1,6 @@
 [package]
 name = "pkg6repo"
-description = "The repository management utility for IPS written in rust"
+description.workspace = true
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

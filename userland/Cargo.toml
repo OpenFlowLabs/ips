@@ -1,6 +1,6 @@
 [package]
 name = "userland"
-description = "Helper tool for IPS package development"
+description.workspace = true
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
