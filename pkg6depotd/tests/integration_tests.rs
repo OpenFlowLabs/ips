@@ -375,9 +375,13 @@ async fn test_file_url_without_algo() {
     // Expected format: /{publisher}/file/1/{hash}
     let url = format!("{}/test/file/1/{}", base_url, hash);
     println!("Requesting: {}", url);
-    
+
     let resp = client.get(&url).send().await.unwrap();
-    
-    assert_eq!(resp.status(), 200, "Should handle file URL without algorithm");
+
+    assert_eq!(
+        resp.status(),
+        200,
+        "Should handle file URL without algorithm"
+    );
     let _content = resp.text().await.unwrap();
 }

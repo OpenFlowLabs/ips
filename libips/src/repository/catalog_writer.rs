@@ -18,7 +18,11 @@ use super::{RepositoryError, Result};
 struct PythonFormatter;
 
 impl Formatter for PythonFormatter {
-    fn begin_object_key<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
+    fn begin_object_key<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
         if !first {
             writer.write_all(b",")?;
         }
@@ -29,7 +33,11 @@ impl Formatter for PythonFormatter {
         writer.write_all(b":")
     }
 
-    fn begin_array_value<W: ?Sized + Write>(&mut self, writer: &mut W, first: bool) -> std::io::Result<()> {
+    fn begin_array_value<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
         if !first {
             writer.write_all(b",")?;
         }

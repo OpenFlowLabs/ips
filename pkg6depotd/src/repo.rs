@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::errors::{DepotError, Result};
 use libips::fmri::Fmri;
-use libips::repository::{FileBackend, ReadableRepository, IndexEntry};
+use libips::repository::{FileBackend, IndexEntry, ReadableRepository};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -23,7 +23,12 @@ impl DepotRepo {
         })
     }
 
-    pub fn search(&self, publisher: Option<&str>, query: &str, case_sensitive: bool) -> Result<Vec<IndexEntry>> {
+    pub fn search(
+        &self,
+        publisher: Option<&str>,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Result<Vec<IndexEntry>> {
         let backend = self
             .backend
             .lock()

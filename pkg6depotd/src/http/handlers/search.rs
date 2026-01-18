@@ -8,13 +8,13 @@ pub async fn get_search_v0(
     State(repo): State<Arc<DepotRepo>>,
     Path((publisher, token)): Path<(String, String)>,
 ) -> Result<Response, DepotError> {
-    // Decode the token (it might be URL encoded in the path, but axum usually decodes path params? 
+    // Decode the token (it might be URL encoded in the path, but axum usually decodes path params?
     // Actually, axum decodes percent-encoded path segments automatically if typed as String?
     // Let's assume yes or use it as is.
     // However, typical search tokens might contain chars that need decoding.
     // If standard axum decoding is not enough, we might need manual decoding.
     // But let's start with standard.
-    
+
     // Call search
     let results = repo.search(Some(&publisher), &token, false)?;
 
@@ -27,11 +27,7 @@ pub async fn get_search_v0(
         ));
     }
 
-    Ok((
-        [(axum::http::header::CONTENT_TYPE, "text/plain")],
-        body,
-    )
-        .into_response())
+    Ok(([(axum::http::header::CONTENT_TYPE, "text/plain")], body).into_response())
 }
 
 pub async fn get_search_v1(
@@ -81,23 +77,28 @@ pub async fn get_search_v1(
 fn split_v1_token(token: &str) -> Option<(&str, &str)> {
     // Try to find the 4th underscore
     let mut parts = token.splitn(5, '_');
-    if let (Some(_), Some(_), Some(_), Some(_), Some(_)) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) {
-        // We found 4 parts and a remainder. 
+    if let (Some(_), Some(_), Some(_), Some(_), Some(_)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        // We found 4 parts and a remainder.
         // We need to reconstruct where the split happened to return slices
         // Actually, splitn(5) returns 5 parts. The last part is the remainder.
         // But we want to be careful about the length of the prefix.
-        
+
         // Let's iterate chars to find 4th underscore
         let mut underscore_count = 0;
         for (i, c) in token.chars().enumerate() {
             if c == '_' {
                 underscore_count += 1;
                 if underscore_count == 4 {
-                    return Some((&token[..i], &token[i+1..]));
+                    return Some((&token[..i], &token[i + 1..]));
                 }
             }
         }
     }
     None
 }
-
