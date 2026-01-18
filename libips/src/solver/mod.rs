@@ -162,7 +162,7 @@ impl<'a> IpsProvider<'a> {
             let mut pushed = false;
             if let Ok(manifest) = decode_manifest_bytes_local(v.value()) {
                 if let Some(attr) = manifest.attributes.iter().find(|a| a.key == "pkg.fmri") {
-                    if let Some(fmri_str) = attr.values.get(0) {
+                    if let Some(fmri_str) = attr.values.first() {
                         if let Ok(mut fmri) = Fmri::parse(fmri_str) {
                             // Ensure publisher is present; if missing/empty, use image default publisher
                             let missing_pub = fmri

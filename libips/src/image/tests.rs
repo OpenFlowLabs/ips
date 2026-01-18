@@ -163,7 +163,7 @@ fn test_catalog_methods() {
     // Verify that the obsolete package's manifest has the obsolete attribute
     let manifest = manifest.unwrap();
     let is_obsolete = manifest.attributes.iter().any(|attr| {
-        attr.key == "pkg.obsolete" && attr.values.get(0).map_or(false, |v| v == "true")
+        attr.key == "pkg.obsolete" && attr.values.first().map_or(false, |v| v == "true")
     });
     assert!(is_obsolete);
 

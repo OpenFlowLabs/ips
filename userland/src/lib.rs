@@ -35,16 +35,11 @@ pub struct MakefileVariable {
     pub mode: VariableMode,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum VariableMode {
     Add,
+    #[default]
     Set,
-}
-
-impl Default for VariableMode {
-    fn default() -> Self {
-        Self::Set
-    }
 }
 
 #[derive(Error, Debug)]
@@ -194,7 +189,7 @@ impl Makefile {
     }
 }
 
-fn vars_to_string(vars: &Vec<String>) -> String {
+fn vars_to_string(vars: &[String]) -> String {
     if vars.is_empty() {
         String::new()
     } else if vars.len() == 1 {

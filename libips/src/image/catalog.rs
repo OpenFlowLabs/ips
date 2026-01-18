@@ -251,7 +251,7 @@ impl ImageCatalog {
                                 .attributes
                                 .iter()
                                 .find(|attr| attr.key == "pkg.fmri")
-                                .and_then(|attr| attr.values.get(0).cloned())
+                                .and_then(|attr| attr.values.first().cloned())
                                 .unwrap_or_else(|| "unknown".to_string());
 
                             println!("Key: {}", key_str);
@@ -990,7 +990,7 @@ impl ImageCatalog {
     /// Check if a package is obsolete
     fn is_package_obsolete(&self, manifest: &Manifest) -> bool {
         manifest.attributes.iter().any(|attr| {
-            attr.key == "pkg.obsolete" && attr.values.get(0).map_or(false, |v| v == "true")
+            attr.key == "pkg.obsolete" && attr.values.first().map_or(false, |v| v == "true")
         })
     }
 
@@ -1059,7 +1059,7 @@ impl ImageCatalog {
                 .iter()
                 .find(|attr| attr.key == "pkg.fmri")
                 .map(|attr| {
-                    if let Some(fmri_str) = attr.values.get(0) {
+                    if let Some(fmri_str) = attr.values.first() {
                         // Parse the FMRI string
                         match Fmri::parse(fmri_str) {
                             Ok(fmri) => fmri.publisher.unwrap_or_else(|| "unknown".to_string()),

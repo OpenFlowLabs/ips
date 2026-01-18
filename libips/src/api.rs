@@ -77,7 +77,7 @@ pub use crate::transformer::TransformRule;
 pub enum IpsError {
     #[error(transparent)]
     #[diagnostic(transparent)]
-    Repository(#[from] RepositoryError),
+    Repository(Box<RepositoryError>),
 
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -635,7 +635,7 @@ impl Resolver {
 fn manifest_fmri(manifest: &Manifest) -> Option<Fmri> {
     for attr in &manifest.attributes {
         if attr.key == "pkg.fmri" {
-            if let Some(val) = attr.values.get(0) {
+            if let Some(val) = attr.values.first() {
                 if let Ok(f) = Fmri::parse(val) {
                     return Some(f);
                 }
@@ -747,7 +747,7 @@ pub mod lint {
             for attr in &manifest.attributes {
                 if attr.key == "pkg.fmri" {
                     fmri_attr_count += 1;
-                    if let Some(v) = attr.values.get(0) {
+                    if let Some(v) = attr.values.first() {
                         fmri_text = Some(v.clone());
                     }
                 }
@@ -1017,13 +1017,13 @@ mod tests {
         assert!(m.attributes.iter().any(|a| {
             a.key == "pkg.fmri"
                 && a.values
-                    .get(0)
+                    .first()
                     .map(|v| v == &fmri.to_string())
                     .unwrap_or(false)
         }));
         assert!(
             m.attributes.iter().any(|a| a.key == "pkg.summary"
-                && a.values.get(0).map(|v| v == "Summary").unwrap_or(false))
+                && a.values.first().map(|v| v == "Summary").unwrap_or(false))
         );
 
         // Validate license
@@ -1051,5 +1051,11 @@ mod tests {
         let df = dep.fmri.as_ref().expect("dep fmri parsed");
         assert_eq!(df.publisher.as_deref(), Some("pub"));
         assert_eq!(df.version.as_ref().unwrap().to_string(), "1.2");
+    }
+}
+
+impl From<RepositoryError> for IpsError {
+    fn from(err: RepositoryError) -> Self {
+        Self::Repository(Box::new(err))
     }
 }

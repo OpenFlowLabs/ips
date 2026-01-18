@@ -615,7 +615,7 @@ mod tests {
 
                     let packages = part.packages.get("openindiana.org").unwrap();
                     println!("Found {} packages for openindiana.org", packages.len());
-                    assert!(packages.len() > 0, "Should have loaded packages");
+                    assert!(!packages.is_empty(), "Should have loaded packages");
                 }
                 Err(e) => panic!("Failed to load catalog part: {}", e),
             }

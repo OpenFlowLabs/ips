@@ -138,7 +138,7 @@ pub enum RepositoryError {
 
     #[error(transparent)]
     #[diagnostic(transparent)]
-    CatalogError(#[from] catalog::CatalogError),
+    CatalogError(Box<catalog::CatalogError>),
 
     #[error("path prefix error: {0}")]
     #[diagnostic(
@@ -441,3 +441,9 @@ pub trait WritableRepository {
 /// This trait combines both ReadableRepository and WritableRepository traits
 /// for backward compatibility.
 pub trait Repository: ReadableRepository + WritableRepository {}
+
+impl From<catalog::CatalogError> for RepositoryError {
+    fn from(err: catalog::CatalogError) -> Self {
+        Self::CatalogError(Box::new(err))
+    }
+}

@@ -425,7 +425,6 @@ pub fn resolve_dependencies<R: ReadableRepository>(
                             facets: HashMap::new(),
                         });
                     }
-                } else {
                 }
             }
             FileDepKind::Python {
@@ -467,7 +466,6 @@ pub fn resolve_dependencies<R: ReadableRepository>(
                             facets: HashMap::new(),
                         });
                     }
-                } else {
                 }
             }
         }
@@ -478,7 +476,7 @@ pub fn resolve_dependencies<R: ReadableRepository>(
 
 fn normalize_join(dir: &str, base: &str) -> String {
     if dir.ends_with('/') {
-        format!("{}{}", dir.trim_end_matches('/'), format!("/{}", base))
+        format!("{}{}", dir.trim_end_matches('/'), format_args!("/{}", base))
     } else {
         format!("{}/{}", dir, base)
     }

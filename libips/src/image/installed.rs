@@ -110,7 +110,7 @@ impl InstalledPackages {
                                 .attributes
                                 .iter()
                                 .find(|attr| attr.key == "pkg.fmri")
-                                .and_then(|attr| attr.values.get(0).cloned())
+                                .and_then(|attr| attr.values.first().cloned())
                                 .unwrap_or_else(|| "unknown".to_string());
 
                             println!("Key: {}", key_str);
