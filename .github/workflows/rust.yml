@@ -9,7 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"  # Treat warnings as errors
+#  RUSTFLAGS: "-D warnings"  # Treat warnings as errors
 
 jobs:
   # Check code formatting

@@ -56,7 +56,7 @@ To run end-to-end tests, follow these steps:
 ### How It Works
 
 The `build-e2e` command:
-- Builds the necessary binaries (pkg6repo, pkg6dev, etc.) in release mode
+- Builds the necessary binaries (pkg6repo, pkg6, etc.) in release mode
 - Copies the binaries to a dedicated directory (`/tmp/pkg6_test/bin`)
 
 The `run-e2e` command:

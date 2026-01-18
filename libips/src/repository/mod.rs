@@ -13,6 +13,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, RepositoryError>;
 
 /// Errors that can occur in repository operations
+#[allow(clippy::result_large_err)]
 #[derive(Debug, Error, Diagnostic)]
 pub enum RepositoryError {
     #[error("unsupported repository version: {0}")]

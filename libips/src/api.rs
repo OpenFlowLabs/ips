@@ -73,6 +73,7 @@ use crate::transformer;
 pub use crate::transformer::TransformRule;
 
 /// Unified error type for API-level operations
+#[allow(clippy::result_large_err)]
 #[derive(Debug, Error, Diagnostic)]
 pub enum IpsError {
     #[error(transparent)]
@@ -634,12 +635,8 @@ impl Resolver {
 // Helper: extract the package FMRI from a manifest's attributes
 fn manifest_fmri(manifest: &Manifest) -> Option<Fmri> {
     for attr in &manifest.attributes {
-        if attr.key == "pkg.fmri" {
-            if let Some(val) = attr.values.first() {
-                if let Ok(f) = Fmri::parse(val) {
-                    return Some(f);
-                }
-            }
+        if attr.key == "pkg.fmri" && let Some(val) = attr.values.first() && let Ok(f) = Fmri::parse(val) {
+            return Some(f);
         }
     }
     None

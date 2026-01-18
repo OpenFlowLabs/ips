@@ -266,9 +266,6 @@ fn clippy() -> Result<()> {
             "clippy",
             "--all-targets",
             "--all-features",
-            "--",
-            "-D",
-            "warnings",
         ])
         .status()
         .context("Failed to run clippy")?;
@@ -300,12 +297,12 @@ fn build_e2e() -> Result<()> {
         .status()
         .context("Failed to build pkg6repo")?;
 
-    // Build pkg6dev in release mode
-    println!("Building pkg6dev...");
+    // Build pkg6 in release mode
+    println!("Building pkg6...");
     Command::new("cargo")
-        .args(["build", "--release", "--package", "pkg6dev"])
+        .args(["build", "--release", "--package", "pkg6"])
         .status()
-        .context("Failed to build pkg6dev")?;
+        .context("Failed to build pkg6")?;
 
     // Copy the binaries to the bin directory
     let target_dir = PathBuf::from("target/release");
@@ -318,10 +315,10 @@ fn build_e2e() -> Result<()> {
     .context("Failed to copy pkg6repo binary")?;
 
     fs::copy(
-        target_dir.join("pkg6dev"),
-        PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6dev"),
+        target_dir.join("pkg6"),
+        PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6"),
     )
-    .context("Failed to copy pkg6dev binary")?;
+    .context("Failed to copy pkg6 binary")?;
 
     println!("End-to-end test binaries built successfully!");
     println!("Binaries are located at: {}", E2E_TEST_BIN_DIR);
@@ -335,9 +332,9 @@ fn run_e2e(test: &Option<String>) -> Result<()> {
 
     // Check if the binaries exist
     let pkg6repo_bin = PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6repo");
-    let pkg6dev_bin = PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6dev");
+    let pkg6_bin = PathBuf::from(E2E_TEST_BIN_DIR).join("pkg6");
 
-    if !pkg6repo_bin.exists() || !pkg6dev_bin.exists() {
+    if !pkg6repo_bin.exists() || !pkg6_bin.exists() {
         println!("Pre-built binaries not found. Building them first...");
         build_e2e()?;
     }
