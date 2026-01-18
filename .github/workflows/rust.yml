@@ -96,8 +96,12 @@ jobs:
         uses: vmactions/omnios-vm@v1
         with:
           prepare: |
-            pkg install -v ooce/developer/rust ooce/omnios-build-tools ooce/util/jq
+            pkg set-publisher -g https://pkg.omnios.org/r151056/extra/ extra.omnios
+            pkg install -v ooce/developer/rust ooce/omnios-build-tools ooce/util/jq library/zlib library/lz4
           run: |
+            # Set environment variables for native libraries
+            export CFLAGS="-m64"
+            export LDFLAGS="-m64"
             cargo run -p xtask -- build
             cargo run -p xtask -- build -r
       - name: Upload build artifacts

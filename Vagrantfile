@@ -1,7 +1,7 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 Vagrant.configure("2") do |config|
-  config.vm.box = "openindiana/hipster"
+  config.vm.box = "omnios/stable"
 
   config.vm.synced_folder ".", "/vagrant", type: "rsync",
     rsync__exclude: [".git/", "target/"]
@@ -16,9 +16,12 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "shell", inline: <<-SHELL
     set -ex
-    pkg install -v developer/lang/rustc build-essential jq
-    mkdir /ws
+    pkg set-publisher -g https://pkg.omnios.org/r151056/extra/ extra.omnios
+    pkg install -v developer/lang/rustc build-essential jq library/zlib library/lz4
+    mkdir -p /ws
     chown vagrant:vagrant /ws
-    zfs create -o mountpoint=/zones rpool/zones
+    if ! zfs list rpool/zones > /dev/null 2>&1; then
+      zfs create -o mountpoint=/zones rpool/zones
+    fi
   SHELL
 end
