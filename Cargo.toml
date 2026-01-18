@@ -26,9 +26,7 @@ authors = ["Till Wegmueller <toasterson@gmail.com>"]
 
 [workspace.metadata.release]
 publish = false
-push = false
+push = true
 tag = true
-pre-release-commit-message = "chore: Release {{version}}"
-tag-message = "chore: Release {{version}}"
 consolidate-commits = true
 shared-version = true
