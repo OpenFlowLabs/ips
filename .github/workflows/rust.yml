@@ -96,6 +96,7 @@ jobs:
         uses: vmactions/omnios-vm@v1
         with:
           prepare: |
+            pkg set-publisher -g https://pkg.omnios.org/r151056/extra/ extra.omnios
             pkg install -v developer/lang/rustc build-essential jq
           run: |
             cargo run -p xtask -- build
