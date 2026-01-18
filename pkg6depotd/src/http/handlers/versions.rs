@@ -9,6 +9,7 @@ pub enum Operation {
     Manifest,
     File,
     Publisher,
+    Search,
 }
 
 impl fmt::Display for Operation {
@@ -20,6 +21,7 @@ impl fmt::Display for Operation {
             Operation::Manifest => "manifest",
             Operation::File => "file",
             Operation::Publisher => "publisher",
+            Operation::Search => "search",
         };
         write!(f, "{}", s)
     }
@@ -80,6 +82,10 @@ pub async fn get_versions() -> impl IntoResponse {
                 op: Operation::Publisher,
                 versions: vec![0, 1],
             },
+            //SupportedOperation {
+            //    op: Operation::Search,
+            //    versions: vec![0, 1],
+            //},
         ],
     };
 

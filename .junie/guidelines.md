@@ -27,7 +27,6 @@ The project uses several key dependencies:
 - **Parsing**: pest and pest_derive
 - **Compression**: flate2 and lz4
 - **Versioning**: semver
-- **Search**: searchy and tantivy
 - **CLI**: clap
 
 ## Error Handling Guidelines

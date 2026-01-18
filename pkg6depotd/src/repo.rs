@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::errors::{DepotError, Result};
 use libips::fmri::Fmri;
-use libips::repository::{FileBackend, ReadableRepository};
+use libips::repository::{FileBackend, ReadableRepository, IndexEntry};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -21,6 +21,16 @@ impl DepotRepo {
             root,
             cache_max_age,
         })
+    }
+
+    pub fn search(&self, publisher: Option<&str>, query: &str, case_sensitive: bool) -> Result<Vec<IndexEntry>> {
+        let backend = self
+            .backend
+            .lock()
+            .map_err(|e| DepotError::Server(format!("Lock poisoned: {}", e)))?;
+        backend
+            .search_detailed(query, publisher, None, case_sensitive)
+            .map_err(DepotError::Repo)
     }
 
     pub fn get_catalog_path(&self, publisher: &str) -> PathBuf {

@@ -4,3 +4,4 @@ pub mod info;
 pub mod manifest;
 pub mod publisher;
 pub mod versions;
+pub mod search;

@@ -23,7 +23,7 @@ use walkdir::WalkDir;
 use crate::actions::{File as FileAction, Manifest};
 use crate::digest::Digest;
 use crate::fmri::Fmri;
-use crate::payload::{Payload, PayloadCompressionAlgorithm};
+use crate::payload::{Payload, PayloadCompressionAlgorithm, PayloadArchitecture, PayloadBits};
 
 use super::catalog_writer;
 use super::{
@@ -53,11 +53,63 @@ impl PackageContentVectors {
     }
 }
 
+/// Entry in the search index
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct IndexEntry {
+    pub fmri: String,
+    pub action_type: String,
+    pub index_type: String,
+    pub value: String,
+    pub token: String, // The term that matched (original case)
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, String>,
+}
+
+struct SearchQuery {
+    pkg: Option<String>,
+    action: Option<String>,
+    index: Option<String>,
+    token: String,
+}
+
+fn parse_query(query: &str) -> SearchQuery {
+    if !query.contains(':') {
+        return SearchQuery { pkg: None, action: None, index: None, token: query.to_string() };
+    }
+    
+    let parts: Vec<&str> = query.split(':').collect();
+    let get_opt = |s: &str| if s.is_empty() { None } else { Some(s.to_string()) };
+
+    match parts.len() {
+        2 => SearchQuery { pkg: None, action: None, index: get_opt(parts[0]), token: parts[1].to_string() },
+        3 => SearchQuery { pkg: None, action: get_opt(parts[0]), index: get_opt(parts[1]), token: parts[2].to_string() },
+        4 => SearchQuery { pkg: get_opt(parts[0]), action: get_opt(parts[1]), index: get_opt(parts[2]), token: parts[3].to_string() },
+        _ => SearchQuery { pkg: None, action: None, index: None, token: query.to_string() },
+    }
+}
+
+fn glob_to_regex(pattern: &str) -> String {
+    let mut regex = String::from("^");
+    for c in pattern.chars() {
+        match c {
+            '*' => regex.push_str(".*"),
+            '?' => regex.push('.'),
+            '.' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' | '\\' => {
+                regex.push('\\');
+                regex.push(c);
+            }
+            _ => regex.push(c),
+        }
+    }
+    regex.push('$');
+    regex
+}
+
 /// Search index for a repository
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SearchIndex {
-    /// Maps search terms to package FMRIs
-    terms: HashMap<String, HashSet<String>>,
+    /// Maps search terms to list of index entries
+    terms: HashMap<String, Vec<IndexEntry>>,
     /// Maps package FMRIs to package names
     packages: HashMap<String, String>,
     /// Last updated timestamp
@@ -78,59 +130,97 @@ impl SearchIndex {
     }
 
     /// Add a term to the index for a package
-    fn add_term(&mut self, term: &str, fmri: &str, name: &str) {
+    fn add_term(&mut self, term: &str, fmri: &str, action_type: &str, index_type: &str, value: &str, attributes: Option<BTreeMap<String, String>>) {
+        let token = term.to_string();
         // Convert term to lowercase for case-insensitive search
-        let term = term.to_lowercase();
+        let term_lower = term.to_lowercase();
+
+        let entry = IndexEntry {
+            fmri: fmri.to_string(),
+            action_type: action_type.to_string(),
+            index_type: index_type.to_string(),
+            value: value.to_string(),
+            token,
+            attributes: attributes.unwrap_or_default(),
+        };
 
         // Add the term to the index
         self.terms
-            .entry(term)
-            .or_insert_with(HashSet::new)
-            .insert(fmri.to_string());
-
-        // Add the package to the package map
-        self.packages.insert(fmri.to_string(), name.to_string());
+            .entry(term_lower)
+            .or_insert_with(Vec::new)
+            .push(entry);
     }
 
     /// Add a package to the index
     fn add_package(&mut self, package: &PackageInfo, contents: Option<&PackageContents>) {
         // Get the FMRI as a string
         let fmri = package.fmri.to_string();
+        let stem = package.fmri.stem();
 
-        // Add the package name as a term
-        self.add_term(package.fmri.stem(), &fmri, package.fmri.stem());
+        // Add package mapping
+        self.packages.insert(fmri.clone(), stem.to_string());
 
-        // Add the publisher as a term if available
-        if let Some(publisher) = &package.fmri.publisher {
-            self.add_term(publisher, &fmri, package.fmri.stem());
+        // 1. Index package stem (action=pkg, index=name)
+        // Note: Legacy pkg search often uses 'set' action for package attributes, but let's use what we have.
+        // Actually man page says `pkg_name` is implicit.
+        // Let's index it as: action="pkg", index="name", value=stem
+        self.add_term(stem, &fmri, "pkg", "name", stem, None);
+        
+        // Also index parts of the stem if it contains '/'?
+        // Legacy behavior might index tokens.
+        for part in stem.split('/') {
+            if part != stem {
+                self.add_term(part, &fmri, "pkg", "name", stem, None);
+            }
         }
 
-        // Add the version as a term if available
+        // 2. Index Publisher (action=pkg, index=publisher)
+        if let Some(publisher) = &package.fmri.publisher {
+            self.add_term(publisher, &fmri, "pkg", "publisher", publisher, None);
+        }
+
+        // 3. Index Version (action=pkg, index=version)
         let version = package.fmri.version();
         if !version.is_empty() {
-            self.add_term(&version, &fmri, &package.fmri.stem());
+            self.add_term(&version, &fmri, "pkg", "version", &version, None);
         }
 
-        // Add contents if available
+        // 4. Index Contents
         if let Some(content) = contents {
             // Add files
             if let Some(files) = &content.files {
                 for file in files {
-                    self.add_term(file, &fmri, package.fmri.stem());
+                    // index=path
+                    self.add_term(file, &fmri, "file", "path", file, None);
+                    // index=basename
+                    if let Some(basename) = Path::new(file).file_name().and_then(|s| s.to_str()) {
+                        self.add_term(basename, &fmri, "file", "basename", file, None);
+                    }
                 }
             }
 
             // Add directories
             if let Some(directories) = &content.directories {
                 for dir in directories {
-                    self.add_term(dir, &fmri, package.fmri.stem());
+                    // index=path
+                    self.add_term(dir, &fmri, "dir", "path", dir, None);
+                    // index=basename
+                    if let Some(basename) = Path::new(dir).file_name().and_then(|s| s.to_str()) {
+                        self.add_term(basename, &fmri, "dir", "basename", dir, None);
+                    }
                 }
             }
 
             // Add dependencies
             if let Some(dependencies) = &content.dependencies {
                 for dep in dependencies {
-                    self.add_term(dep, &fmri, package.fmri.stem());
+                    // dep is an FMRI string usually.
+                    // index=fmri, value=dep
+                    self.add_term(dep, &fmri, "depend", "fmri", dep, None);
+                    // maybe parse stem from dep fmri?
+                    if let Ok(dep_fmri) = Fmri::parse(dep) {
+                        self.add_term(dep_fmri.stem(), &fmri, "depend", "fmri", dep, None);
+                    }
                 }
             }
         }
@@ -143,11 +233,8 @@ impl SearchIndex {
     }
 
     /// Search the index for packages matching a query
-    fn search(&self, query: &str, limit: Option<usize>) -> Vec<String> {
-        // Convert a query to lowercase for case-insensitive search
-        let query = query.to_lowercase();
-
-        // Split the query into terms
+    fn search(&self, query: &str, case_sensitive: bool, limit: Option<usize>) -> Vec<IndexEntry> {
+        // Split the query into terms (whitespace)
         let terms: Vec<&str> = query.split_whitespace().collect();
 
         // If no terms, return an empty result
@@ -156,31 +243,104 @@ impl SearchIndex {
         }
 
         // Find packages that match all terms
-        let mut result_set: Option<HashSet<String>> = None;
+        let mut fmri_sets: Vec<HashSet<String>> = Vec::new();
+        let mut all_entries: Vec<IndexEntry> = Vec::new();
 
-        for term in terms {
-            // Find packages that match this term
-            if let Some(packages) = self.terms.get(term) {
-                // If this is the first term, initialize the result set
-                if result_set.is_none() {
-                    result_set = Some(packages.clone());
-                } else {
-                    // Otherwise, intersect with the current result set
-                    result_set = result_set.map(|rs| rs.intersection(packages).cloned().collect());
+        for term_str in terms {
+            let parsed = parse_query(term_str);
+            let token_has_wildcard = parsed.token.contains('*') || parsed.token.contains('?');
+            let token_lower = parsed.token.to_lowercase();
+            
+            let mut term_entries: Vec<&IndexEntry> = Vec::new();
+
+            if token_has_wildcard {
+                let regex_str = glob_to_regex(&token_lower);
+                if let Ok(re) = Regex::new(&regex_str) {
+                    for (key, entries) in &self.terms {
+                        if re.is_match(key) {
+                            term_entries.extend(entries);
+                        }
+                    }
                 }
             } else {
-                // If any term has no matches, the result is empty
+                if let Some(entries) = self.terms.get(&token_lower) {
+                    term_entries.extend(entries);
+                }
+            }
+            
+            // Filter entries based on structured query and case sensitivity
+            let filtered: Vec<&IndexEntry> = term_entries.into_iter().filter(|e| {
+                // Check Index Type
+                if let Some(idx) = &parsed.index {
+                     if &e.index_type != idx { return false; }
+                }
+                // Check Action Type
+                if let Some(act) = &parsed.action {
+                     if &e.action_type != act { return false; }
+                }
+                // Check Package Name (FMRI)
+                if let Some(pkg) = &parsed.pkg {
+                    let pkg_has_wildcard = pkg.contains('*') || pkg.contains('?');
+                     if pkg_has_wildcard {
+                        let re_str = glob_to_regex(&pkg.to_lowercase());
+                        if let Ok(re) = Regex::new(&re_str) {
+                            // FMRIs are usually lowercase, but let's compare lowercase to be safe/consistent
+                            if !re.is_match(&e.fmri.to_lowercase()) { return false; }
+                        }
+                    } else {
+                         if !e.fmri.contains(pkg) { return false; }
+                    }
+                }
+
+                // Check Case Sensitivity on VALUE
+                if case_sensitive {
+                     if token_has_wildcard {
+                         let re_str = glob_to_regex(&parsed.token); // Original token
+                         if let Ok(re) = Regex::new(&re_str) {
+                             if !re.is_match(&e.token) { return false; }
+                         }
+                     } else {
+                         if e.token != parsed.token { return false; }
+                     }
+                }
+                
+                true
+            }).collect();
+
+             if filtered.is_empty() {
+                return Vec::new(); // Term found no matches
+            }
+
+            let fmris: HashSet<String> = filtered.iter().map(|e| e.fmri.clone()).collect();
+            fmri_sets.push(fmris);
+            all_entries.extend(filtered.into_iter().cloned());
+        }
+
+        // Intersect FMRIs
+        let mut common_fmris = fmri_sets[0].clone();
+        for set in &fmri_sets[1..] {
+            common_fmris.retain(|fmri| set.contains(fmri));
+            if common_fmris.is_empty() {
                 return Vec::new();
             }
         }
 
-        // Convert the result set to a vector
-        let mut results: Vec<String> = result_set.unwrap_or_default().into_iter().collect();
+        // Filter entries
+        let mut results: Vec<IndexEntry> = Vec::new();
+        for entry in all_entries {
+            if common_fmris.contains(&entry.fmri) {
+                results.push(entry);
+            }
+        }
 
-        // Sort the results
-        results.sort();
+        results.sort_by(|a, b| {
+            a.fmri.cmp(&b.fmri)
+                .then(a.action_type.cmp(&b.action_type))
+                .then(a.index_type.cmp(&b.index_type))
+                .then(a.value.cmp(&b.value))
+        });
+        results.dedup();
 
-        // Apply limit if specified
         if let Some(max_results) = limit {
             results.truncate(max_results);
         }
@@ -1496,16 +1656,23 @@ impl ReadableRepository for FileBackend {
                 debug!("Index terms: {:?}", index.terms.keys().collect::<Vec<_>>());
 
                 // Search the index
-                let fmris = index.search(query, limit);
-                debug!("Search results (FMRIs): {:?}", fmris);
+                let entries = index.search(query, false, limit);
+                debug!("Search results (entries): {:?}", entries);
 
-                // Convert FMRIs to PackageInfo
-                for fmri_str in fmris {
-                    if let Ok(fmri) = Fmri::parse(&fmri_str) {
+                // Convert entries to PackageInfo
+                // Use a HashSet to track added FMRIs to avoid duplicates
+                let mut added_fmris = HashSet::new();
+                for entry in entries {
+                    if added_fmris.contains(&entry.fmri) {
+                        continue;
+                    }
+                    
+                    if let Ok(fmri) = Fmri::parse(&entry.fmri) {
                         debug!("Adding package to results: {}", fmri);
                         results.push(PackageInfo { fmri });
+                        added_fmris.insert(entry.fmri);
                     } else {
-                        debug!("Failed to parse FMRI: {}", fmri_str);
+                        debug!("Failed to parse FMRI: {}", entry.fmri);
                     }
                 }
             } else {
@@ -2765,134 +2932,126 @@ impl FileBackend {
                     match Manifest::parse_file(&path) {
                         Ok(manifest) => {
                             // Look for the pkg.fmri attribute
-                            for attr in &manifest.attributes {
-                                if attr.key == "pkg.fmri" && !attr.values.is_empty() {
-                                    let fmri_str = &attr.values[0];
+                            let fmri_opt = manifest.attributes.iter().find(|a| a.key == "pkg.fmri").and_then(|a| a.values.first());
+                            
+                            if let Some(fmri_str) = fmri_opt {
+                                // Parse the FMRI using our Fmri type
+                                match Fmri::parse(fmri_str) {
+                                    Ok(parsed_fmri) => {
+                                        let fmri = parsed_fmri.to_string();
+                                        let stem = parsed_fmri.stem().to_string();
+                                        
+                                        // Add package mapping
+                                        index.packages.insert(fmri.clone(), stem.clone());
 
-                                    // Parse the FMRI using our Fmri type
-                                    match Fmri::parse(fmri_str) {
-                                        Ok(parsed_fmri) => {
-                                            // Create a PackageInfo struct
-                                            let package_info = PackageInfo {
-                                                fmri: parsed_fmri.clone(),
-                                            };
-
-                                            // Create a PackageContents struct
-                                            let version = parsed_fmri.version();
-                                            let package_id = if !version.is_empty() {
-                                                format!("{}@{}", parsed_fmri.stem(), version)
-                                            } else {
-                                                parsed_fmri.stem().to_string()
-                                            };
-
-                                            // Extract content information
-                                            let files = if !manifest.files.is_empty() {
-                                                Some(
-                                                    manifest
-                                                        .files
-                                                        .iter()
-                                                        .map(|f| f.path.clone())
-                                                        .collect(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-
-                                            let directories = if !manifest.directories.is_empty() {
-                                                Some(
-                                                    manifest
-                                                        .directories
-                                                        .iter()
-                                                        .map(|d| d.path.clone())
-                                                        .collect(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-
-                                            let links = if !manifest.links.is_empty() {
-                                                Some(
-                                                    manifest
-                                                        .links
-                                                        .iter()
-                                                        .map(|l| l.path.clone())
-                                                        .collect(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-
-                                            let dependencies = if !manifest.dependencies.is_empty()
-                                            {
-                                                Some(
-                                                    manifest
-                                                        .dependencies
-                                                        .iter()
-                                                        .filter_map(|d| {
-                                                            d.fmri.as_ref().map(|f| f.to_string())
-                                                        })
-                                                        .collect(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-
-                                            let licenses = if !manifest.licenses.is_empty() {
-                                                Some(
-                                                    manifest
-                                                        .licenses
-                                                        .iter()
-                                                        .map(|l| {
-                                                            if let Some(path_prop) =
-                                                                l.properties.get("path")
-                                                            {
-                                                                path_prop.value.clone()
-                                                            } else if let Some(license_prop) =
-                                                                l.properties.get("license")
-                                                            {
-                                                                license_prop.value.clone()
-                                                            } else {
-                                                                l.payload.clone()
-                                                            }
-                                                        })
-                                                        .collect(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-
-                                            // Create a PackageContents struct
-                                            let package_contents = PackageContents {
-                                                package_id,
-                                                files,
-                                                directories,
-                                                links,
-                                                dependencies,
-                                                licenses,
-                                            };
-
-                                            // Add the package to the index
-                                            index.add_package(
-                                                &package_info,
-                                                Some(&package_contents),
-                                            );
-
-                                            // Found the package info, no need to check other attributes
-                                            break;
+                                        // 1. Index package stem
+                                        index.add_term(&stem, &fmri, "pkg", "name", &stem, None);
+                                        for part in stem.split('/') {
+                                            if part != stem {
+                                                index.add_term(part, &fmri, "pkg", "name", &stem, None);
+                                            }
                                         }
-                                        Err(err) => {
-                                            // Log the error but continue processing
-                                            error!(
-                                                "FileBackend::build_search_index: Error parsing FMRI '{}': {}",
-                                                fmri_str, err
-                                            );
+                                        
+                                        // 2. Index Publisher
+                                        if let Some(publ) = &parsed_fmri.publisher {
+                                            index.add_term(publ, &fmri, "pkg", "publisher", publ, None);
                                         }
+                                        
+                                        // 3. Index Version
+                                        let version = parsed_fmri.version();
+                                        if !version.is_empty() {
+                                            index.add_term(&version, &fmri, "pkg", "version", &version, None);
+                                        }
+
+                                        // 4. Index Files with attributes
+                                        for file in manifest.files {
+                                            let mut attrs = BTreeMap::new();
+                                            attrs.insert("path".to_string(), file.path.clone());
+                                            attrs.insert("owner".to_string(), file.owner.clone());
+                                            attrs.insert("group".to_string(), file.group.clone());
+                                            attrs.insert("mode".to_string(), file.mode.clone());
+                                            
+                                            if let Some(payload) = &file.payload {
+                                                 let arch_str = match payload.architecture {
+                                                    PayloadArchitecture::I386 => Some("i386"),
+                                                    PayloadArchitecture::SPARC => Some("sparc"),
+                                                    _ => None
+                                                 };
+                                                 if let Some(a) = arch_str {
+                                                     attrs.insert("elfarch".to_string(), a.to_string());
+                                                 }
+                                                 
+                                                 let bits_str = match payload.bitness {
+                                                     PayloadBits::Bits64 => Some("64"),
+                                                     PayloadBits::Bits32 => Some("32"),
+                                                     _ => None
+                                                 };
+                                                 if let Some(b) = bits_str {
+                                                     attrs.insert("elfbits".to_string(), b.to_string());
+                                                 }
+                                                 
+                                                 attrs.insert("pkg.content-hash".to_string(), payload.primary_identifier.to_string());
+                                            }
+                                            
+                                            for prop in file.properties {
+                                                attrs.insert(prop.key, prop.value);
+                                            }
+                                            
+                                            // index=path
+                                            index.add_term(&file.path, &fmri, "file", "path", &file.path, Some(attrs.clone()));
+                                            
+                                            // index=basename
+                                            if let Some(basename) = Path::new(&file.path).file_name().and_then(|s| s.to_str()) {
+                                                index.add_term(basename, &fmri, "file", "basename", &file.path, Some(attrs));
+                                            }
+                                        }
+                                        
+                                        // 5. Index Directories
+                                        for dir in manifest.directories {
+                                            let mut attrs = BTreeMap::new();
+                                            attrs.insert("path".to_string(), dir.path.clone());
+                                            attrs.insert("owner".to_string(), dir.owner.clone());
+                                            attrs.insert("group".to_string(), dir.group.clone());
+                                            attrs.insert("mode".to_string(), dir.mode.clone());
+                                            
+                                            // index=path
+                                            index.add_term(&dir.path, &fmri, "dir", "path", &dir.path, Some(attrs.clone()));
+                                            
+                                            // index=basename
+                                            if let Some(basename) = Path::new(&dir.path).file_name().and_then(|s| s.to_str()) {
+                                                index.add_term(basename, &fmri, "dir", "basename", &dir.path, Some(attrs));
+                                            }
+                                        }
+                                        
+                                        // 6. Index Dependencies
+                                        for dep in manifest.dependencies {
+                                            if let Some(dep_fmri) = &dep.fmri {
+                                                let dep_fmri_str = dep_fmri.to_string();
+                                                let mut attrs = BTreeMap::new();
+                                                
+                                                if !dep.dependency_type.is_empty() {
+                                                    attrs.insert("type".to_string(), dep.dependency_type.clone());
+                                                }
+                                                
+                                                for prop in dep.optional {
+                                                    attrs.insert(prop.key, prop.value);
+                                                }
+                                                
+                                                index.add_term(&dep_fmri_str, &fmri, "depend", "fmri", &dep_fmri_str, Some(attrs.clone()));
+                                                index.add_term(dep_fmri.stem(), &fmri, "depend", "fmri", &dep_fmri_str, Some(attrs));
+                                            }
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            "FileBackend::build_search_index: Error parsing FMRI '{}': {}",
+                                            fmri_str, err
+                                        );
                                     }
                                 }
                             }
                         }
                         Err(err) => {
-                            // Log the error but continue processing other files
                             error!(
                                 "FileBackend::build_search_index: Error parsing manifest file {}: {}",
                                 path.display(),
@@ -2911,6 +3070,66 @@ impl FileBackend {
         info!("Search index built for publisher: {}", publisher);
 
         Ok(())
+    }
+
+    /// Search for packages with detailed results
+    pub fn search_detailed(
+        &self,
+        query: &str,
+        publisher: Option<&str>,
+        limit: Option<usize>,
+        case_sensitive: bool,
+    ) -> Result<Vec<IndexEntry>> {
+        debug!("Searching (detailed) for packages with query: {}", query);
+
+        // If no publisher is specified, use the default publisher if available
+        let publisher = publisher.or_else(|| self.config.default_publisher.as_deref());
+
+        // If still no publisher, we need to search all publishers
+        let publishers = if let Some(pub_name) = publisher {
+            vec![pub_name.to_string()]
+        } else {
+            self.config.publishers.clone()
+        };
+
+        let mut results = Vec::new();
+
+        // For each publisher, search the index
+        for pub_name in publishers {
+            if let Ok(Some(index)) = self.get_search_index(&pub_name) {
+                // Search the index
+                let entries = index.search(query, case_sensitive, limit);
+                results.extend(entries);
+            } else {
+                debug!("No search index found for publisher: {}, falling back to simple listing", pub_name);
+                // Fallback: list packages and convert to basic IndexEntries
+                 let all_packages = self.list_packages(Some(&pub_name), None)?;
+                 let matching_packages: Vec<IndexEntry> = all_packages
+                    .into_iter()
+                    .filter(|pkg| pkg.fmri.stem().contains(query))
+                    .map(|pkg| {
+                        let fmri = pkg.fmri.to_string();
+                        let stem = pkg.fmri.stem().to_string();
+                        IndexEntry {
+                            fmri,
+                            action_type: "pkg".to_string(),
+                            index_type: "name".to_string(),
+                            value: stem.clone(),
+                            token: stem,
+                            attributes: BTreeMap::new(),
+                        }
+                    })
+                    .collect();
+                results.extend(matching_packages);
+            }
+        }
+
+        // Apply limit if specified
+        if let Some(max_results) = limit {
+            results.truncate(max_results);
+        }
+
+        Ok(results)
     }
 
     /// Get the search index for a publisher

@@ -229,7 +229,7 @@ use crate::digest::DigestError;
 pub use catalog::{
     CatalogAttrs, CatalogError, CatalogManager, CatalogOperationType, CatalogPart, UpdateLog,
 };
-pub use file_backend::FileBackend;
+pub use file_backend::{FileBackend, IndexEntry};
 pub use obsoleted::{ObsoletedPackageManager, ObsoletedPackageMetadata};
 pub use progress::{NoopProgressReporter, ProgressInfo, ProgressReporter};
 pub use rest_backend::RestBackend;
