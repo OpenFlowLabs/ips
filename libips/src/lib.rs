@@ -12,6 +12,7 @@ pub mod fmri;
 pub mod image;
 pub mod payload;
 pub mod publisher;
+pub mod recv;
 pub mod repository;
 pub mod solver;
 mod test_json_manifest;

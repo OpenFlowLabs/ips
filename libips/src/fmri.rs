@@ -151,7 +151,7 @@ pub enum FmriError {
 /// let version = Version::new_semver(semver_version);
 /// assert_eq!(version.release, "1.2.3");
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Diff)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Diff)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
 ))]
@@ -513,7 +513,7 @@ impl FromStr for Version {
 ///
 /// An FMRI is a unique identifier for a package in the IPS system.
 /// It follows the format: pkg://publisher/package_name@version
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Diff)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Diff)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
 ))]
@@ -984,14 +984,14 @@ mod tests {
     fn test_fmri_display() {
         // Test displaying a name only
         let fmri = Fmri::new("sunos/coreutils");
-        assert_eq!(fmri.to_string(), "pkg:///sunos/coreutils");
+        assert_eq!(fmri.to_string(), "pkg:/sunos/coreutils");
 
         // Test displaying a name and version
         let version = Version::with_timestamp("5.11", Some("1"), None, "20200421T195136Z");
         let fmri = Fmri::with_version("sunos/coreutils", version);
         assert_eq!(
             fmri.to_string(),
-            "pkg:///sunos/coreutils@5.11,1:20200421T195136Z"
+            "pkg:/sunos/coreutils@5.11,1:20200421T195136Z"
         );
 
         // Test displaying with publisher

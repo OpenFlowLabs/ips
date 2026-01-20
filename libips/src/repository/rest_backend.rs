@@ -3,9 +3,9 @@
 //  MPL was not distributed with this file, You can
 //  obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::{debug, info, warn};
@@ -64,7 +64,7 @@ impl WritableRepository for RestBackend {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to create the repository
 
-        let uri_str = uri.as_ref().to_string_lossy().to_string();
+        let uri_str = uri.as_ref().to_string_lossy().trim_end_matches('/').to_string();
 
         // Create the repository configuration
         let config = RepositoryConfig {
@@ -323,7 +323,7 @@ impl WritableRepository for RestBackend {
 impl ReadableRepository for RestBackend {
     /// Open an existing repository
     fn open<P: AsRef<Path>>(uri: P) -> Result<Self> {
-        let uri_str = uri.as_ref().to_string_lossy().to_string();
+        let uri_str = uri.as_ref().to_string_lossy().trim_end_matches('/').to_string();
 
         // Create an HTTP client
         let client = Client::new();
@@ -344,12 +344,19 @@ impl ReadableRepository for RestBackend {
                     match response.json::<Value>() {
                         Ok(json) => {
                             // Extract publisher information
-                            if let Some(publishers) =
-                                json.get("publishers").and_then(|p| p.as_object())
-                            {
-                                for (name, _) in publishers {
-                                    debug!("Found publisher: {}", name);
-                                    config.publishers.push(name.clone());
+                            if let Some(publishers) = json.get("publishers") {
+                                if let Some(publishers_obj) = publishers.as_object() {
+                                    for (name, _) in publishers_obj {
+                                        debug!("Found publisher: {}", name);
+                                        config.publishers.push(name.clone());
+                                    }
+                                } else if let Some(publishers_arr) = publishers.as_array() {
+                                    for p in publishers_arr {
+                                        if let Some(name) = p.get("name").and_then(|n| n.as_str()) {
+                                            debug!("Found publisher: {}", name);
+                                            config.publishers.push(name.to_string());
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -369,9 +376,9 @@ impl ReadableRepository for RestBackend {
             }
         }
 
-        // If we couldn't get any publishers, add a default one
+        // If we couldn't get any publishers, warn the user
         if config.publishers.is_empty() {
-            config.publishers.push("openindiana.org".to_string());
+            warn!("No publishers discovered for repository: {}", uri_str);
         }
 
         // Create the repository instance
@@ -417,35 +424,64 @@ impl ReadableRepository for RestBackend {
     fn list_packages(
         &self,
         publisher: Option<&str>,
-        _pattern: Option<&str>,
+        pattern: Option<&str>,
     ) -> Result<Vec<PackageInfo>> {
-        // This is a stub implementation
-        // In a real implementation, we would make a REST API call to list packages
+        let pattern = pattern.unwrap_or("*");
 
-        let packages = Vec::new();
+        // Use search API to find packages
+        // URL: /search/0/<pattern>
+        let url = format!("{}/search/0/{}", self.uri, pattern);
+        debug!("Listing packages via search: {}", url);
 
-        // Filter publishers if specified
-        let publishers = if let Some(pub_name) = publisher {
-            if !self.config.publishers.contains(&pub_name.to_string()) {
-                return Err(RepositoryError::PublisherNotFound(pub_name.to_string()));
+        let mut packages = Vec::new();
+        let mut seen_fmris = HashSet::new();
+
+        match self.client.get(&url).send() {
+            Ok(resp) => {
+                let resp = match resp.error_for_status() {
+                    Ok(r) => r,
+                    Err(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+                        return Ok(Vec::new());
+                    }
+                    Err(e) => {
+                        return Err(RepositoryError::Other(format!("Search API error: {} for {}", e, url)));
+                    }
+                };
+
+                let reader = BufReader::new(resp);
+                for line in reader.lines() {
+                    let line = line.map_err(|e| {
+                        RepositoryError::Other(format!("Failed to read search response line: {}", e))
+                    })?;
+                    // Line format: <attr> <fmri> <value_type> <value>
+                    // Example: pkg.fmri pkg:/system/rsyslog@8.2508.0,5.11-151056.0:20251023T180542Z set omnios/system/rsyslog
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 && parts[0] == "pkg.fmri" {
+                        if let Ok(fmri) = crate::fmri::Fmri::parse(parts[1]) {
+                            // Filter by publisher if requested
+                            if let Some(pub_name) = publisher {
+                                if let Some(fmri_pub) = fmri.publisher.as_deref() {
+                                    if fmri_pub != pub_name {
+                                        continue;
+                                    }
+                                }
+                                // If FMRI has no publisher, we assume it matches the requested publisher
+                                // as it's being served by this repository.
+                            }
+
+                            if seen_fmris.insert(fmri.to_string()) {
+                                packages.push(PackageInfo { fmri });
+                            }
+                        }
+                    }
+                }
             }
-            vec![pub_name.to_string()]
-        } else {
-            self.config.publishers.clone()
-        };
-
-        // For each publisher, list packages
-        for _pub_name in publishers {
-            // In a real implementation, we would make a REST API call to get package information
-            // The API call would return a list of packages with their names, versions, and other metadata
-            // We would then parse this information and create PackageInfo structs
-
-            // For now, we return an empty list since we don't want to return placeholder data
-            // and we don't have a real API to call
-
-            // If pattern filtering is needed, it would be applied here to the results from the API
-            // When implementing, use the regex crate to handle user-provided regexp patterns properly,
-            // similar to the implementation in file_backend.rs
+            Err(e) => {
+                return Err(RepositoryError::Other(format!(
+                    "Failed to connect to search API: {} for {}",
+                    e, url
+                )));
+            }
         }
 
         Ok(packages)
@@ -567,17 +603,9 @@ impl ReadableRepository for RestBackend {
             return Err(RepositoryError::Other("Empty digest provided".to_string()));
         }
 
-        let shard = if hash.len() >= 2 {
-            &hash[0..2]
-        } else {
-            &hash[..]
-        };
         let candidates = vec![
-            format!("{}/file/{}/{}", self.uri, shard, hash),
-            format!(
-                "{}/publisher/{}/file/{}/{}",
-                self.uri, publisher, shard, hash
-            ),
+            format!("{}/file/0/{}", self.uri, hash),
+            format!("{}/publisher/{}/file/0/{}", self.uri, publisher, hash),
         ];
 
         // Ensure destination directory exists
@@ -589,35 +617,36 @@ impl ReadableRepository for RestBackend {
         for url in candidates {
             match self.client.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => {
-                    let body = resp.bytes().map_err(|e| {
-                        RepositoryError::Other(format!("Failed to read payload body: {}", e))
+                    let mut resp = resp;
+                    // Write atomically
+                    let tmp_path = dest.with_extension("tmp");
+                    let mut tmp_file = File::create(&tmp_path)?;
+                    
+                    std::io::copy(&mut resp, &mut tmp_file).map_err(|e| {
+                        RepositoryError::Other(format!("Failed to download payload: {}", e))
                     })?;
+                    drop(tmp_file);
 
                     // Verify digest if algorithm is known
                     if let Some(alg) = algo.clone() {
-                        match crate::digest::Digest::from_bytes(
-                            &body,
+                        let f = File::open(&tmp_path)?;
+                        let comp = crate::digest::Digest::from_reader(
+                            f,
                             alg,
                             crate::digest::DigestSource::PrimaryPayloadHash,
-                        ) {
-                            Ok(comp) => {
-                                if comp.hash != hash {
-                                    return Err(RepositoryError::DigestError(format!(
-                                        "Digest mismatch: expected {}, got {}",
-                                        hash, comp.hash
-                                    )));
-                                }
-                            }
-                            Err(e) => return Err(RepositoryError::DigestError(format!("{}", e))),
+                        )
+                        .map_err(|e| RepositoryError::DigestError(format!("{}", e)))?;
+
+                        if comp.hash != hash {
+                            let _ = fs::remove_file(&tmp_path);
+                            return Err(RepositoryError::DigestError(format!(
+                                "Digest mismatch for {}: expected {}, got {}",
+                                url, hash, comp.hash
+                            )));
                         }
                     }
 
-                    // Write atomically
-                    let tmp = dest.with_extension("tmp");
-                    let mut f = File::create(&tmp)?;
-                    f.write_all(&body)?;
-                    drop(f);
-                    fs::rename(&tmp, dest)?;
+                    fs::rename(&tmp_path, dest)?;
                     return Ok(());
                 }
                 Ok(resp) => {
@@ -651,10 +680,8 @@ impl ReadableRepository for RestBackend {
     ) -> Result<Vec<PackageInfo>> {
         todo!()
     }
-}
 
-impl RestBackend {
-    pub fn fetch_manifest_text(
+    fn fetch_manifest_text(
         &mut self,
         publisher: &str,
         fmri: &crate::fmri::Fmri,
@@ -720,6 +747,9 @@ impl RestBackend {
             last_err.unwrap_or_else(|| "manifest not found".to_string()),
         ))
     }
+}
+
+impl RestBackend {
     /// Sets the local path where catalog files will be cached.
     ///
     /// This method creates the directory if it doesn't exist. The local cache path

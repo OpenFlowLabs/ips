@@ -1674,6 +1674,60 @@ impl ReadableRepository for FileBackend {
         )))
     }
 
+    fn fetch_manifest_text(
+        &mut self,
+        publisher: &str,
+        fmri: &Fmri,
+    ) -> Result<String> {
+        // Require a concrete version
+        let version = fmri.version();
+        if version.is_empty() {
+            return Err(RepositoryError::Other(
+                "FMRI must include a version to fetch manifest".into(),
+            ));
+        }
+        // Preferred path: publisher-scoped manifest path
+        let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
+        if path.exists() {
+            return std::fs::read_to_string(&path)
+                .map_err(|e| RepositoryError::FileReadError {
+                    path,
+                    source: e,
+                });
+        }
+        // Fallbacks: global pkg layout without publisher
+        let encoded_stem = Self::url_encode(fmri.stem());
+        let encoded_version = Self::url_encode(&version);
+        let alt1 = self
+            .path
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
+        if alt1.exists() {
+            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError {
+                path: alt1,
+                source: e,
+            });
+        }
+        let alt2 = self
+            .path
+            .join("publisher")
+            .join(publisher)
+            .join("pkg")
+            .join(&encoded_stem)
+            .join(&encoded_version);
+        if alt2.exists() {
+            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError {
+                path: alt2,
+                source: e,
+            });
+        }
+        Err(RepositoryError::NotFound(format!(
+            "manifest for {} not found",
+            fmri
+        )))
+    }
+
     /// Search for packages in the repository
     fn search(
         &self,
@@ -2099,52 +2153,7 @@ impl FileBackend {
         let _ = super::catalog_writer::write_update_log(&path, &mut log)?;
         Ok(path)
     }
-    pub fn fetch_manifest_text(&self, publisher: &str, fmri: &Fmri) -> Result<String> {
-        // Require a concrete version
-        let version = fmri.version();
-        if version.is_empty() {
-            return Err(RepositoryError::Other(
-                "FMRI must include a version to fetch manifest".into(),
-            ));
-        }
-        // Preferred path: publisher-scoped manifest path
-        let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
-        if path.exists() {
-            return std::fs::read_to_string(&path)
-                .map_err(|e| RepositoryError::FileReadError { path, source: e });
-        }
-        // Fallbacks: global pkg layout without publisher
-        let encoded_stem = Self::url_encode(fmri.stem());
-        let encoded_version = Self::url_encode(&version);
-        let alt1 = self
-            .path
-            .join("pkg")
-            .join(&encoded_stem)
-            .join(&encoded_version);
-        if alt1.exists() {
-            return std::fs::read_to_string(&alt1).map_err(|e| RepositoryError::FileReadError {
-                path: alt1,
-                source: e,
-            });
-        }
-        let alt2 = self
-            .path
-            .join("publisher")
-            .join(publisher)
-            .join("pkg")
-            .join(&encoded_stem)
-            .join(&encoded_version);
-        if alt2.exists() {
-            return std::fs::read_to_string(&alt2).map_err(|e| RepositoryError::FileReadError {
-                path: alt2,
-                source: e,
-            });
-        }
-        Err(RepositoryError::NotFound(format!(
-            "manifest for {} not found",
-            fmri
-        )))
-    }
+
     /// Fetch catalog file path
     pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
         if filename.contains('/') || filename.contains('\\') {

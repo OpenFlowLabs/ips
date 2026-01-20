@@ -8,6 +8,7 @@ members = [
   "specfile",
   "ports",
   "pkg6",
+  "pkg6recv",
   "pkgtree",
   "xtask",
 ]

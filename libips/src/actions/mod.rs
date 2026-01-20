@@ -885,8 +885,11 @@ impl Manifest {
             ActionKind::Transform => {
                 self.transforms.push(act.into());
             }
+            ActionKind::Signature => {
+                debug!("signature action encountered, skipping for now");
+            }
             ActionKind::Unknown { action } => {
-                panic!("action {:?} not known", action)
+                debug!("action {:?} not known, skipping", action);
             }
         }
     }
@@ -909,6 +912,19 @@ impl Manifest {
     }
 
     pub fn parse_string(content: String) -> Result<Manifest> {
+        // Try to parse as JSON first
+        if content.trim_start().starts_with('{') {
+            match serde_json::from_str::<Manifest>(&content) {
+                Ok(manifest) => return Ok(manifest),
+                Err(err) => {
+                    debug!(
+                        "Manifest::parse_string: Error in JSON deserialization: {}. Continuing with mtree like format parsing",
+                        err
+                    );
+                }
+            }
+        }
+
         let mut m = Manifest::new();
 
         let pairs = ManifestParser::parse(Rule::manifest, &content)?;
@@ -993,6 +1009,7 @@ pub enum ActionKind {
     Legacy,
     Unknown { action: String },
     Transform,
+    Signature,
 }
 
 impl Default for ActionKind {
@@ -1042,7 +1059,8 @@ fn get_action_kind(act: &str) -> ActionKind {
         "group" => ActionKind::Group,
         "user" => ActionKind::User,
         "legacy" => ActionKind::Legacy,
-        "<transform" => ActionKind::Transform,
+        "<transform" | "transform" => ActionKind::Transform,
+        "signature" => ActionKind::Signature,
         _ => ActionKind::Unknown { action: act.into() },
     }
 }

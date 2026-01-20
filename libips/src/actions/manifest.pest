@@ -15,19 +15,7 @@ action_driver = @{"driver"}
 action_group = @{"group"}
 action_user = @{"user"}
 action_legacy = @{"legacy"}
-action_name = @{
-                action_set |
-                action_depend |
-                action_dir |
-                action_file |
-                action_license |
-                action_hardlink |
-                action_link |
-                action_driver |
-                action_group |
-                action_user |
-                action_legacy
-            }
+action_name = @{ ASCII_ALPHA+ }
 quoted_string = @{
     "\""
     ~ quoted_character*

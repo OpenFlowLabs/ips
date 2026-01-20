@@ -43,7 +43,7 @@ walkdir = "2.4.0"
 redb = { version = "3" }
 bincode = { version = "2", features = ["serde"] }
 rust-ini = "0.21"
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "json", "gzip", "deflate"] }
 resolvo = "0.10"
 
 [features]

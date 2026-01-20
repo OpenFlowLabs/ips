@@ -111,6 +111,10 @@ impl FromStr for Digest {
 impl Digest {
     pub fn from_bytes(b: &[u8], algo: DigestAlgorithm, src: DigestSource) -> Result<Self> {
         let hash = match algo {
+            DigestAlgorithm::SHA1 => {
+                use sha1::Sha1;
+                format!("{:x}", Sha1::digest(b))
+            }
             DigestAlgorithm::SHA256 => {
                 format!("{:x}", sha2::Sha256::digest(b))
             }
@@ -125,6 +129,62 @@ impl Digest {
             }
             DigestAlgorithm::SHA3512 => {
                 format!("{:x}", sha3::Sha3_512::digest(b))
+            }
+            x => {
+                return Err(DigestError::UnknownAlgorithm {
+                    algorithm: x.to_string(),
+                });
+            }
+        };
+
+        Ok(Digest {
+            source: src,
+            algorithm: algo,
+            hash,
+        })
+    }
+
+    pub fn from_reader<R: std::io::Read>(
+        mut r: R,
+        algo: DigestAlgorithm,
+        src: DigestSource,
+    ) -> Result<Self> {
+        let hash = match algo {
+            DigestAlgorithm::SHA1 => {
+                use sha1::{Digest as _, Sha1};
+                let mut hasher = Sha1::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
+            }
+            DigestAlgorithm::SHA256 => {
+                use sha2::{Digest as _, Sha256};
+                let mut hasher = Sha256::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
+            }
+            DigestAlgorithm::SHA512Half => {
+                use sha2::{Digest as _, Sha512_256};
+                let mut hasher = Sha512_256::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
+            }
+            DigestAlgorithm::SHA512 => {
+                use sha2::{Digest as _, Sha512};
+                let mut hasher = Sha512::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
+            }
+            DigestAlgorithm::SHA3512Half | DigestAlgorithm::SHA3256 => {
+                use sha3::{Digest as _, Sha3_256};
+                let mut hasher = Sha3_256::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
+            }
+            DigestAlgorithm::SHA3512 => {
+                use sha3::{Digest as _, Sha3_512};
+                let mut hasher = Sha3_512::new();
+                std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
+                format!("{:x}", hasher.finalize())
             }
             x => {
                 return Err(DigestError::UnknownAlgorithm {
@@ -164,4 +224,8 @@ pub enum DigestError {
         help("Digest should be in the format: source:algorithm:hash")
     )]
     InvalidDigestFormat { digest: String, details: String },
+
+    #[error("I/O error: {0}")]
+    #[diagnostic(code(ips::digest_error::io))]
+    IoError(#[from] std::io::Error),
 }
