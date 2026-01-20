@@ -130,11 +130,6 @@ impl Digest {
             DigestAlgorithm::SHA3512 => {
                 format!("{:x}", sha3::Sha3_512::digest(b))
             }
-            x => {
-                return Err(DigestError::UnknownAlgorithm {
-                    algorithm: x.to_string(),
-                });
-            }
         };
 
         Ok(Digest {
@@ -185,11 +180,6 @@ impl Digest {
                 let mut hasher = Sha3_512::new();
                 std::io::copy(&mut r, &mut hasher).map_err(DigestError::from)?;
                 format!("{:x}", hasher.finalize())
-            }
-            x => {
-                return Err(DigestError::UnknownAlgorithm {
-                    algorithm: x.to_string(),
-                });
             }
         };
 

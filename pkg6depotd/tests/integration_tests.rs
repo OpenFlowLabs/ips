@@ -213,7 +213,7 @@ async fn test_depot_server() {
 #[tokio::test]
 async fn test_ini_only_repo_serving_catalog() {
     use libips::repository::BatchOptions;
-    use libips::repository::{ReadableRepository, WritableRepository};
+    use libips::repository::WritableRepository;
     use std::io::Write as _;
 
     // Setup temp repo

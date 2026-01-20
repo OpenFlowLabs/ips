@@ -246,7 +246,7 @@ mod tests {
         let mut source_repo = FileBackend::create(source_dir.path(), RepositoryVersion::V4)?;
         source_repo.add_publisher("test")?;
         
-        let fmri = Fmri::parse("pkg://test/pkgA@1.0").unwrap();
+        let _fmri = Fmri::parse("pkg://test/pkgA@1.0").unwrap();
         let manifest_content = "set name=pkg.fmri value=pkg://test/pkgA@1.0\nset name=pkg.summary value=test\n";
         
         // Manually write the manifest in IPS format to the source repo
