@@ -25,46 +25,78 @@ struct P5iFile {
 
 pub async fn get_publisher_v0(
     state: State<Arc<DepotRepo>>,
-    path: Path<String>,
+    Path(publisher): Path<String>,
 ) -> Result<Response, DepotError> {
-    get_publisher_impl(state, path).await
+    get_publisher_response(state, Some(publisher)).await
 }
 
 pub async fn get_publisher_v1(
     state: State<Arc<DepotRepo>>,
-    path: Path<String>,
+    Path(publisher): Path<String>,
 ) -> Result<Response, DepotError> {
-    get_publisher_impl(state, path).await
+    get_publisher_response(state, Some(publisher)).await
 }
 
-async fn get_publisher_impl(
+pub async fn get_default_publisher_v0(
+    state: State<Arc<DepotRepo>>,
+) -> Result<Response, DepotError> {
+    get_publisher_response(state, None).await
+}
+
+pub async fn get_default_publisher_v1(
+    state: State<Arc<DepotRepo>>,
+) -> Result<Response, DepotError> {
+    get_publisher_response(state, None).await
+}
+
+async fn get_publisher_response(
     State(repo): State<Arc<DepotRepo>>,
-    Path(publisher): Path<String>,
+    publisher: Option<String>,
 ) -> Result<Response, DepotError> {
     let repo_info = repo.get_info()?;
 
-    let pub_info = repo_info
-        .publishers
-        .into_iter()
-        .find(|p| p.name == publisher);
+    if let Some(name) = publisher {
+        let pub_info = repo_info.publishers.into_iter().find(|p| p.name == name);
 
-    if let Some(p) = pub_info {
-        let p5i = P5iFile {
-            packages: Vec::new(),
-            publishers: vec![P5iPublisherInfo {
+        if let Some(p) = pub_info {
+            let p5i = P5iFile {
+                packages: Vec::new(),
+                publishers: vec![P5iPublisherInfo {
+                    alias: None,
+                    name: p.name,
+                    packages: Vec::new(),
+                    repositories: Vec::new(),
+                }],
+                version: 1,
+            };
+            let json =
+                serde_json::to_string_pretty(&p5i).map_err(|e| DepotError::Server(e.to_string()))?;
+            Ok(([(header::CONTENT_TYPE, "application/vnd.pkg5.info")], json).into_response())
+        } else {
+            Err(DepotError::Repo(
+                libips::repository::RepositoryError::PublisherNotFound(name),
+            ))
+        }
+    } else {
+        // Return all publishers
+        let publishers = repo_info
+            .publishers
+            .into_iter()
+            .map(|p| P5iPublisherInfo {
                 alias: None,
                 name: p.name,
                 packages: Vec::new(),
                 repositories: Vec::new(),
-            }],
+            })
+            .collect();
+
+        let p5i = P5iFile {
+            packages: Vec::new(),
+            publishers,
             version: 1,
         };
         let json =
             serde_json::to_string_pretty(&p5i).map_err(|e| DepotError::Server(e.to_string()))?;
         Ok(([(header::CONTENT_TYPE, "application/vnd.pkg5.info")], json).into_response())
-    } else {
-        Err(DepotError::Repo(
-            libips::repository::RepositoryError::PublisherNotFound(publisher),
-        ))
     }
 }

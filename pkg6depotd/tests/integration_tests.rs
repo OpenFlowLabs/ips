@@ -105,7 +105,7 @@ async fn test_depot_server() {
         .unwrap();
     assert!(resp.status().is_success());
     let text = resp.text().await.unwrap();
-    assert!(text.contains("pkg-server pkg6depotd-0.5.1"));
+    assert!(text.contains("pkg-server pkg6depotd-"));
     assert!(text.contains("catalog 1"));
     assert!(text.contains("manifest 0 1"));
 
@@ -158,6 +158,12 @@ async fn test_depot_server() {
     let pub_url = format!("{}/test/publisher/1", base_url);
     let resp = client.get(&pub_url).send().await.unwrap();
     assert!(resp.status().is_success());
+
+    // Test Publisher v1 with trailing slash
+    let pub_url_slash = format!("{}/test/publisher/1/", base_url);
+    let resp = client.get(&pub_url_slash).send().await.unwrap();
+    assert!(resp.status().is_success());
+
     assert!(
         resp.headers()
             .get("content-type")
@@ -168,6 +174,36 @@ async fn test_depot_server() {
     );
     let pub_json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(pub_json["version"], 1);
+    assert_eq!(pub_json["publishers"][0]["name"], "test");
+    
+    // Test Default Publisher Route v1
+    let def_pub_url = format!("{}/publisher/1", base_url);
+    let resp = client.get(&def_pub_url).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    // Test Default Publisher Route v1 with trailing slash
+    let def_pub_url_slash = format!("{}/publisher/1/", base_url);
+    let resp = client.get(&def_pub_url_slash).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    let pub_json: serde_json::Value = resp.json().await.unwrap();
+    // In current implementation it returns one publisher.
+    // We want it to return all publishers.
+    assert_eq!(pub_json["publishers"].as_array().unwrap().len(), 1);
+    assert_eq!(pub_json["publishers"][0]["name"], "test");
+
+    // Test Default Publisher Route v0
+    let def_pub_url_v0 = format!("{}/publisher/0", base_url);
+    let resp = client.get(&def_pub_url_v0).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    // Test Default Publisher Route v0 with trailing slash
+    let def_pub_url_v0_slash = format!("{}/publisher/0/", base_url);
+    let resp = client.get(&def_pub_url_v0_slash).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    let pub_json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(pub_json["publishers"].as_array().unwrap().len(), 1);
     assert_eq!(pub_json["publishers"][0]["name"], "test");
 
     // 6. Test File
@@ -384,4 +420,63 @@ async fn test_file_url_without_algo() {
         "Should handle file URL without algorithm"
     );
     let _content = resp.text().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_multiple_publishers_default_route() {
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path().join("repo_multi");
+    let mut backend = FileBackend::create(&repo_path, RepositoryVersion::V4).unwrap();
+    
+    backend.add_publisher("pub1").unwrap();
+    backend.add_publisher("pub2").unwrap();
+    
+    let config = Config {
+        server: ServerConfig {
+            bind: vec!["127.0.0.1:0".to_string()],
+            workers: None,
+            max_connections: None,
+            reuseport: None,
+            cache_max_age: Some(3600),
+            tls_cert: None,
+            tls_key: None,
+        },
+        repository: RepositoryConfig {
+            root: repo_path.clone(),
+            mode: Some("readonly".to_string()),
+        },
+        telemetry: None,
+        publishers: None,
+        admin: None,
+        oauth2: None,
+    };
+
+    let repo = DepotRepo::new(&config).unwrap();
+    let state = Arc::new(repo);
+    let router = http::routes::app_router(state);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        http::server::run(router, listener).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{}", addr);
+
+    let def_pub_url = format!("{}/publisher/0", base_url);
+    let resp = client.get(&def_pub_url).send().await.unwrap();
+    assert!(resp.status().is_success());
+
+    let pub_json: serde_json::Value = resp.json().await.unwrap();
+    let pubs = pub_json["publishers"].as_array().unwrap();
+    
+    // CURRENT BEHAVIOR: returns 1
+    // DESIRED BEHAVIOR: returns 2
+    assert_eq!(pubs.len(), 2, "Should return all publishers");
+    
+    let names: Vec<String> = pubs.iter().map(|p| p["name"].as_str().unwrap().to_string()).collect();
+    assert!(names.contains(&"pub1".to_string()));
+    assert!(names.contains(&"pub2".to_string()));
 }

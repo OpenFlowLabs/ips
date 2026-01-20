@@ -274,6 +274,8 @@ pub struct PublisherInfo {
 pub struct RepositoryInfo {
     /// Information about publishers in the repository
     pub publishers: Vec<PublisherInfo>,
+    /// Name of the default publisher, if any
+    pub default_publisher: Option<String>,
 }
 
 /// Information about a package in a repository

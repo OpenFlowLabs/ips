@@ -991,7 +991,10 @@ impl ReadableRepository for FileBackend {
         }
 
         // Create and return a RepositoryInfo struct
-        Ok(RepositoryInfo { publishers })
+        Ok(RepositoryInfo {
+            publishers,
+            default_publisher: self.config.default_publisher.clone(),
+        })
     }
 
     /// List packages in the repository

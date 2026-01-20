@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 
 pub fn app_router(state: Arc<DepotRepo>) -> Router {
     Router::new()
+        .route("/versions/0", get(versions::get_versions))
         .route("/versions/0/", get(versions::get_versions))
         .route(
             "/{publisher}/catalog/1/{filename}",
@@ -37,7 +38,13 @@ pub fn app_router(state: Arc<DepotRepo>) -> Router {
         )
         .route("/{publisher}/info/0/{fmri}", get(info::get_info))
         .route("/{publisher}/publisher/0", get(publisher::get_publisher_v0))
+        .route("/{publisher}/publisher/0/", get(publisher::get_publisher_v0))
         .route("/{publisher}/publisher/1", get(publisher::get_publisher_v1))
+        .route("/{publisher}/publisher/1/", get(publisher::get_publisher_v1))
+        .route("/publisher/0", get(publisher::get_default_publisher_v0))
+        .route("/publisher/0/", get(publisher::get_default_publisher_v0))
+        .route("/publisher/1", get(publisher::get_default_publisher_v1))
+        .route("/publisher/1/", get(publisher::get_default_publisher_v1))
         .route("/{publisher}/search/0/{token}", get(search::get_search_v0))
         .route("/{publisher}/search/1/{token}", get(search::get_search_v1))
         // Admin API over HTTP
