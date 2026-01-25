@@ -1,0 +1,23 @@
+workflow name="Solstice CI for solstice-ci" {
+    // Linux build and test on Ubuntu 22.04 runner
+    job id="linux-build" runs_on="ubuntu-22.04" {
+        setup path=".solstice/setup-linux.sh"
+        step name="Show toolchain" run="rustc -Vv && cargo -V"
+        step name="Format"         run="cargo fmt --check"
+        step name="Clippy"         run="cargo clippy --workspace --all-targets --all-features -- -D warnings"
+        step name="Build"          run="cargo build --workspace"
+        step name="Test"           run="cargo test --workspace --all-targets"
+        // Legacy script hook (runs after all other tests)
+        step name="Legacy job.sh"  run=".solstice/job.sh"
+    }
+
+    // Illumos build (bhyve zone). Keep steps minimal; clippy/format may vary per toolchain.
+    job id="illumos-build" runs_on="illumos-latest" {
+        setup path=".solstice/setup-illumos.sh"
+        step name="Show toolchain" run="rustc -Vv && cargo -V"
+        step name="Build"          run="cargo build --workspace"
+        step name="Test"           run="cargo test --workspace --all-targets"
+        // Legacy script hook (runs after all other tests)
+        step name="Legacy job.sh"  run=".solstice/job.sh"
+    }
+}
