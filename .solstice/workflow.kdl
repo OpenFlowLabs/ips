@@ -21,3 +21,4 @@ workflow name="Solstice CI for solstice-ci" {
         step name="Legacy job.sh"  run=".solstice/job.sh"
     }
 }
+// Testing CI
