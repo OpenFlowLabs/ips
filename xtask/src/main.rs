@@ -262,11 +262,7 @@ fn fmt() -> Result<()> {
 /// Run clippy
 fn clippy() -> Result<()> {
     Command::new("cargo")
-        .args([
-            "clippy",
-            "--all-targets",
-            "--all-features",
-        ])
+        .args(["clippy", "--all-targets", "--all-features"])
         .status()
         .context("Failed to run clippy")?;
 

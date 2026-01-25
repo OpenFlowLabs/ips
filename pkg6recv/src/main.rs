@@ -1,8 +1,10 @@
 use clap::Parser;
-use miette::{IntoDiagnostic, Result};
-use libips::repository::{FileBackend, RestBackend, ReadableRepository, ProgressReporter, ProgressInfo};
-use libips::recv::PackageReceiver;
 use libips::fmri::Fmri;
+use libips::recv::PackageReceiver;
+use libips::repository::{
+    FileBackend, ProgressInfo, ProgressReporter, ReadableRepository, RestBackend,
+};
+use miette::{IntoDiagnostic, Result};
 use std::path::PathBuf;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -56,7 +58,9 @@ fn main() -> Result<()> {
     // Open destination repository
     // We'll open it inside each branch to avoid borrow checker issues with moves
 
-    let fmris: Vec<Fmri> = cli.packages.iter()
+    let fmris: Vec<Fmri> = cli
+        .packages
+        .iter()
         .map(|s| Fmri::parse(s))
         .collect::<std::result::Result<Vec<_>, _>>()
         .into_diagnostic()?;
@@ -69,13 +73,17 @@ fn main() -> Result<()> {
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
         let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
-        receiver.receive(cli.publisher.as_deref(), &fmris, cli.recursive).into_diagnostic()?;
+        receiver
+            .receive(cli.publisher.as_deref(), &fmris, cli.recursive)
+            .into_diagnostic()?;
     } else {
         let mut source_repo = FileBackend::open(&cli.source).into_diagnostic()?;
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
         let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
-        receiver.receive(cli.publisher.as_deref(), &fmris, cli.recursive).into_diagnostic()?;
+        receiver
+            .receive(cli.publisher.as_deref(), &fmris, cli.recursive)
+            .into_diagnostic()?;
     }
 
     info!("Package receive complete.");

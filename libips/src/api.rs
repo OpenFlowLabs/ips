@@ -635,7 +635,10 @@ impl Resolver {
 // Helper: extract the package FMRI from a manifest's attributes
 fn manifest_fmri(manifest: &Manifest) -> Option<Fmri> {
     for attr in &manifest.attributes {
-        if attr.key == "pkg.fmri" && let Some(val) = attr.values.first() && let Ok(f) = Fmri::parse(val) {
+        if attr.key == "pkg.fmri"
+            && let Some(val) = attr.values.first()
+            && let Ok(f) = Fmri::parse(val)
+        {
             return Some(f);
         }
     }

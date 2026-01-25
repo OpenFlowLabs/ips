@@ -64,7 +64,11 @@ impl WritableRepository for RestBackend {
         // This is a stub implementation
         // In a real implementation, we would make a REST API call to create the repository
 
-        let uri_str = uri.as_ref().to_string_lossy().trim_end_matches('/').to_string();
+        let uri_str = uri
+            .as_ref()
+            .to_string_lossy()
+            .trim_end_matches('/')
+            .to_string();
 
         // Create the repository configuration
         let config = RepositoryConfig {
@@ -323,7 +327,11 @@ impl WritableRepository for RestBackend {
 impl ReadableRepository for RestBackend {
     /// Open an existing repository
     fn open<P: AsRef<Path>>(uri: P) -> Result<Self> {
-        let uri_str = uri.as_ref().to_string_lossy().trim_end_matches('/').to_string();
+        let uri_str = uri
+            .as_ref()
+            .to_string_lossy()
+            .trim_end_matches('/')
+            .to_string();
 
         // Create an HTTP client
         let client = Client::new();
@@ -444,14 +452,20 @@ impl ReadableRepository for RestBackend {
                         return Ok(Vec::new());
                     }
                     Err(e) => {
-                        return Err(RepositoryError::Other(format!("Search API error: {} for {}", e, url)));
+                        return Err(RepositoryError::Other(format!(
+                            "Search API error: {} for {}",
+                            e, url
+                        )));
                     }
                 };
 
                 let reader = BufReader::new(resp);
                 for line in reader.lines() {
                     let line = line.map_err(|e| {
-                        RepositoryError::Other(format!("Failed to read search response line: {}", e))
+                        RepositoryError::Other(format!(
+                            "Failed to read search response line: {}",
+                            e
+                        ))
                     })?;
                     // Line format: <attr> <fmri> <value_type> <value>
                     // Example: pkg.fmri pkg:/system/rsyslog@8.2508.0,5.11-151056.0:20251023T180542Z set omnios/system/rsyslog
@@ -621,7 +635,7 @@ impl ReadableRepository for RestBackend {
                     // Write atomically
                     let tmp_path = dest.with_extension("tmp");
                     let mut tmp_file = File::create(&tmp_path)?;
-                    
+
                     std::io::copy(&mut resp, &mut tmp_file).map_err(|e| {
                         RepositoryError::Other(format!("Failed to download payload: {}", e))
                     })?;
@@ -681,11 +695,7 @@ impl ReadableRepository for RestBackend {
         todo!()
     }
 
-    fn fetch_manifest_text(
-        &mut self,
-        publisher: &str,
-        fmri: &crate::fmri::Fmri,
-    ) -> Result<String> {
+    fn fetch_manifest_text(&mut self, publisher: &str, fmri: &crate::fmri::Fmri) -> Result<String> {
         // Require versioned FMRI
         let version = fmri.version();
         if version.is_empty() {

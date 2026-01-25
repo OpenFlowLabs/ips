@@ -69,8 +69,8 @@ async fn get_publisher_response(
                 }],
                 version: 1,
             };
-            let json =
-                serde_json::to_string_pretty(&p5i).map_err(|e| DepotError::Server(e.to_string()))?;
+            let json = serde_json::to_string_pretty(&p5i)
+                .map_err(|e| DepotError::Server(e.to_string()))?;
             Ok(([(header::CONTENT_TYPE, "application/vnd.pkg5.info")], json).into_response())
         } else {
             Err(DepotError::Repo(

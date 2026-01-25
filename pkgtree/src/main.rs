@@ -131,7 +131,12 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Load image
-    let image = Image::load(&cli.image_path).map_err(|e| PkgTreeError(format!("Failed to load image at {:?}: {}", cli.image_path, e)))?;
+    let image = Image::load(&cli.image_path).map_err(|e| {
+        PkgTreeError(format!(
+            "Failed to load image at {:?}: {}",
+            cli.image_path, e
+        ))
+    })?;
 
     // Targeted analysis of solver error file has top priority if provided
     if let Some(err_path) = &cli.solver_error_file {
@@ -164,7 +169,9 @@ fn main() -> Result<()> {
             .query_catalog(Some(needle.as_str()))
             .map_err(|e| PkgTreeError(format!("Failed to query catalog: {}", e)))?
     } else {
-        image.query_catalog(None).map_err(|e| PkgTreeError(format!("Failed to query catalog: {}", e)))?
+        image
+            .query_catalog(None)
+            .map_err(|e| PkgTreeError(format!("Failed to query catalog: {}", e)))?
     };
 
     // Filter by publisher if specified
@@ -765,7 +772,10 @@ fn query_catalog_cached_mut(
         return Ok(v.clone());
     }
     let mut out = Vec::new();
-    for p in image.query_catalog(Some(stem)).map_err(|e| PkgTreeError(format!("Failed to query catalog for {}: {}", stem, e)))? {
+    for p in image
+        .query_catalog(Some(stem))
+        .map_err(|e| PkgTreeError(format!("Failed to query catalog for {}: {}", stem, e)))?
+    {
         out.push((p.publisher, p.fmri));
     }
     ctx.catalog_cache.insert(stem.to_string(), out.clone());
@@ -781,9 +791,13 @@ fn get_manifest_cached(
     if let Some(m) = ctx.manifest_cache.get(&key) {
         return Ok(m.clone());
     }
-    let manifest_opt = image
-        .get_manifest_from_catalog(fmri)
-        .map_err(|e| PkgTreeError(format!("Failed to load manifest for {}: {}", fmri.to_string(), e)))?;
+    let manifest_opt = image.get_manifest_from_catalog(fmri).map_err(|e| {
+        PkgTreeError(format!(
+            "Failed to load manifest for {}: {}",
+            fmri.to_string(),
+            e
+        ))
+    })?;
     let manifest = manifest_opt.unwrap_or_else(|| libips::actions::Manifest::new());
     ctx.manifest_cache.insert(key, manifest.clone());
     Ok(manifest)
@@ -1018,7 +1032,9 @@ fn run_dangling_scan(
     format: OutputFormat,
 ) -> Result<()> {
     // Query full catalog once
-    let mut pkgs = image.query_catalog(None).map_err(|e| PkgTreeError(format!("Failed to query catalog: {}", e)))?;
+    let mut pkgs = image
+        .query_catalog(None)
+        .map_err(|e| PkgTreeError(format!("Failed to query catalog: {}", e)))?;
 
     // Build set of available non-obsolete stems AND an index of available (release, branch) pairs per stem,
     // honoring publisher filter
@@ -1188,7 +1204,12 @@ fn run_dangling_scan(
 
 // ---------- Targeted analysis: parse pkg6 solver error text ----------
 fn analyze_solver_error(image: &Image, publisher: Option<&str>, err_path: &PathBuf) -> Result<()> {
-    let text = std::fs::read_to_string(err_path).map_err(|e| PkgTreeError(format!("Failed to read solver error file {:?}: {}", err_path, e)))?;
+    let text = std::fs::read_to_string(err_path).map_err(|e| {
+        PkgTreeError(format!(
+            "Failed to read solver error file {:?}: {}",
+            err_path, e
+        ))
+    })?;
 
     // Build a stack based on indentation before the tree bullet "└─".
     let mut stack: Vec<String> = Vec::new();

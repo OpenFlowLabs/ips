@@ -1593,11 +1593,7 @@ impl ReadableRepository for FileBackend {
         )))
     }
 
-    fn fetch_manifest_text(
-        &mut self,
-        publisher: &str,
-        fmri: &Fmri,
-    ) -> Result<String> {
+    fn fetch_manifest_text(&mut self, publisher: &str, fmri: &Fmri) -> Result<String> {
         // Require a concrete version
         let version = fmri.version();
         if version.is_empty() {
@@ -1609,10 +1605,7 @@ impl ReadableRepository for FileBackend {
         let path = Self::construct_manifest_path(&self.path, publisher, fmri.stem(), &version);
         if path.exists() {
             return std::fs::read_to_string(&path)
-                .map_err(|e| RepositoryError::FileReadError {
-                    path,
-                    source: e,
-                });
+                .map_err(|e| RepositoryError::FileReadError { path, source: e });
         }
         // Fallbacks: global pkg layout without publisher
         let encoded_stem = Self::url_encode(fmri.stem());

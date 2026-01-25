@@ -385,11 +385,7 @@ pub trait ReadableRepository {
     ) -> Result<crate::actions::Manifest>;
 
     /// Fetch a package manifest as raw text by FMRI from the repository.
-    fn fetch_manifest_text(
-        &mut self,
-        publisher: &str,
-        fmri: &crate::fmri::Fmri,
-    ) -> Result<String>;
+    fn fetch_manifest_text(&mut self, publisher: &str, fmri: &crate::fmri::Fmri) -> Result<String>;
 
     /// Search for packages in the repository
     ///

@@ -38,9 +38,15 @@ pub fn app_router(state: Arc<DepotRepo>) -> Router {
         )
         .route("/{publisher}/info/0/{fmri}", get(info::get_info))
         .route("/{publisher}/publisher/0", get(publisher::get_publisher_v0))
-        .route("/{publisher}/publisher/0/", get(publisher::get_publisher_v0))
+        .route(
+            "/{publisher}/publisher/0/",
+            get(publisher::get_publisher_v0),
+        )
         .route("/{publisher}/publisher/1", get(publisher::get_publisher_v1))
-        .route("/{publisher}/publisher/1/", get(publisher::get_publisher_v1))
+        .route(
+            "/{publisher}/publisher/1/",
+            get(publisher::get_publisher_v1),
+        )
         .route("/publisher/0", get(publisher::get_default_publisher_v0))
         .route("/publisher/0/", get(publisher::get_default_publisher_v0))
         .route("/publisher/1", get(publisher::get_default_publisher_v1))
