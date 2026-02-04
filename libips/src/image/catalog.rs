@@ -1,10 +1,8 @@
 use crate::actions::Manifest;
 use crate::fmri::Fmri;
-use lz4::{Decoder as Lz4Decoder, EncoderBuilder as Lz4EncoderBuilder};
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -42,52 +40,6 @@ pub enum CatalogError {
 
 /// Result type for catalog operations
 pub type Result<T> = std::result::Result<T, CatalogError>;
-
-// Internal helpers for (de)compressing manifest JSON payloads stored in redb
-fn is_likely_json(bytes: &[u8]) -> bool {
-    let mut i = 0;
-    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') {
-        i += 1;
-    }
-    if i >= bytes.len() {
-        return false;
-    }
-    matches!(bytes[i], b'{' | b'[')
-}
-
-pub(crate) fn compress_json_lz4(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut dst = Vec::with_capacity(bytes.len() / 2 + 32);
-    let mut enc = Lz4EncoderBuilder::new()
-        .level(4)
-        .build(Cursor::new(&mut dst))
-        .map_err(|e| CatalogError::Database(format!("Failed to create LZ4 encoder: {}", e)))?;
-    enc.write_all(bytes)
-        .map_err(|e| CatalogError::Database(format!("Failed to write to LZ4 encoder: {}", e)))?;
-    let (_out, res) = enc.finish();
-    res.map_err(|e| CatalogError::Database(format!("Failed to finish LZ4 encoding: {}", e)))?;
-    Ok(dst)
-}
-
-pub(crate) fn decode_manifest_bytes(bytes: &[u8]) -> Result<Manifest> {
-    // Fast path: uncompressed legacy JSON
-    if is_likely_json(bytes) {
-        return Ok(serde_json::from_slice::<Manifest>(bytes)?);
-    }
-    // Try LZ4 frame decode
-    let mut decoder = match Lz4Decoder::new(Cursor::new(bytes)) {
-        Ok(d) => d,
-        Err(_) => {
-            // Fallback: attempt JSON anyway
-            return Ok(serde_json::from_slice::<Manifest>(bytes)?);
-        }
-    };
-    let mut out = Vec::new();
-    if let Err(_e) = decoder.read_to_end(&mut out) {
-        // On decode failure, try JSON as last resort
-        return Ok(serde_json::from_slice::<Manifest>(bytes)?);
-    }
-    Ok(serde_json::from_slice::<Manifest>(&out)?)
-}
 
 /// Check if a package manifest is marked as obsolete.
 pub(crate) fn is_package_obsolete(manifest: &Manifest) -> bool {
@@ -203,11 +155,8 @@ impl ImageCatalog {
     // Removed: create_or_update_manifest - no longer needed, use build_shards() instead
     //
     // Removed: ensure_fmri_attribute - no longer needed, use build_shards() instead
-
-    /// Check if a package is obsolete (deprecated - use free function is_package_obsolete instead)
-    fn is_package_obsolete(&self, manifest: &Manifest) -> bool {
-        is_package_obsolete(manifest)
-    }
+    //
+    // Removed: is_package_obsolete - use free function is_package_obsolete instead
 
     /// Query the catalog for packages matching a pattern
     ///
@@ -394,20 +343,6 @@ impl ImageCatalog {
     pub fn dump_all_tables(&self) -> Result<()> {
         Err(CatalogError::Database(
             "dump_all_tables is not yet implemented for SQLite catalog".to_string(),
-        ))
-    }
-
-    /// Dump the contents of the catalog table (private helper)
-    fn dump_catalog_table(&self, _tx: &()) -> Result<()> {
-        Err(CatalogError::Database(
-            "dump_catalog_table is not yet implemented for SQLite catalog".to_string(),
-        ))
-    }
-
-    /// Dump the contents of the obsoleted table (private helper)
-    fn dump_obsoleted_table(&self, _tx: &()) -> Result<()> {
-        Err(CatalogError::Database(
-            "dump_obsoleted_table is not yet implemented for SQLite catalog".to_string(),
         ))
     }
 

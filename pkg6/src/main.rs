@@ -1383,8 +1383,8 @@ fn main() -> Result<()> {
             // Create a catalog object for the catalog.redb database
             let catalog = libips::image::catalog::ImageCatalog::new(
                 image.catalog_dir(),
-                image.catalog_db_path(),
-                image.obsoleted_db_path(),
+                image.active_db_path(),
+                image.obsolete_db_path(),
             );
 
             // Create an installed packages object for the installed.redb database

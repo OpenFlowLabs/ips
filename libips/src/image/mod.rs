@@ -662,8 +662,8 @@ impl Image {
         // Create the catalog and build it
         let catalog = ImageCatalog::new(
             self.catalog_dir(),
-            self.catalog_db_path(),
-            self.obsoleted_db_path(),
+            self.active_db_path(),
+            self.obsolete_db_path(),
         );
         catalog
             .build_catalog(&publisher_names)
@@ -674,8 +674,8 @@ impl Image {
     pub fn query_catalog(&self, pattern: Option<&str>) -> Result<Vec<PackageInfo>> {
         let catalog = ImageCatalog::new(
             self.catalog_dir(),
-            self.catalog_db_path(),
-            self.obsoleted_db_path(),
+            self.active_db_path(),
+            self.obsolete_db_path(),
         );
         catalog
             .query_packages(pattern)

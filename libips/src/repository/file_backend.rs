@@ -149,6 +149,7 @@ struct SearchIndex {
 
 impl SearchIndex {
     /// Create a new empty search index
+    #[allow(dead_code)]
     fn new() -> Self {
         SearchIndex {
             terms: HashMap::new(),
@@ -161,6 +162,7 @@ impl SearchIndex {
     }
 
     /// Add a term to the index for a package
+    #[allow(dead_code)]
     fn add_term(
         &mut self,
         term: &str,
@@ -323,6 +325,7 @@ impl SearchIndex {
     }
 
     /// Save the index to a file
+    #[allow(dead_code)]
     fn save(&self, path: &Path) -> Result<()> {
         // Create the parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
@@ -2903,6 +2906,7 @@ impl FileBackend {
     }
 
     /// Build a search index for a publisher
+    #[allow(dead_code)]
     fn build_search_index(&self, publisher: &str) -> Result<()> {
         info!("Building search index for publisher: {}", publisher);
 
