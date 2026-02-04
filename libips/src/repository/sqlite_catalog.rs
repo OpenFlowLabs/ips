@@ -249,11 +249,14 @@ pub fn build_shards(
                                         if let Some(name_part) = parts.get(1) {
                                             if let Some(key) = name_part.strip_prefix("name=") {
                                                 if let Some(value_part) = parts.get(2) {
-                                                    if let Some(mut value) = value_part.strip_prefix("value=") {
+                                                    if let Some(mut value) =
+                                                        value_part.strip_prefix("value=")
+                                                    {
                                                         // Remove quotes
                                                         value = value.trim_matches('"');
 
-                                                        let mut attr = crate::actions::Attr::default();
+                                                        let mut attr =
+                                                            crate::actions::Attr::default();
                                                         attr.key = key.to_string();
                                                         attr.values = vec![value.to_string()];
                                                         manifest.attributes.push(attr);
@@ -295,17 +298,28 @@ pub fn build_shards(
 
                         // Obsolete packages go only to obsolete.db, non-obsolete go to active.db
                         if is_obsolete {
-                            insert_obs.execute(rusqlite::params![publisher, pkg_name, pkg_version])?;
+                            insert_obs.execute(rusqlite::params![
+                                publisher,
+                                pkg_name,
+                                pkg_version
+                            ])?;
                         } else {
                             // Insert into packages table (active.db)
-                            insert_pkg.execute(rusqlite::params![pkg_name, pkg_version, publisher])?;
+                            insert_pkg.execute(rusqlite::params![
+                                pkg_name,
+                                pkg_version,
+                                publisher
+                            ])?;
 
                             // Extract and insert dependencies
                             for dep in &manifest.dependencies {
-                                if dep.dependency_type == "require" || dep.dependency_type == "incorporate" {
+                                if dep.dependency_type == "require"
+                                    || dep.dependency_type == "incorporate"
+                                {
                                     if let Some(dep_fmri) = &dep.fmri {
                                         let dep_stem = dep_fmri.stem();
-                                        let dep_version = dep_fmri.version.as_ref().map(|v| v.to_string());
+                                        let dep_version =
+                                            dep_fmri.version.as_ref().map(|v| v.to_string());
                                         insert_dep.execute(rusqlite::params![
                                             pkg_name,
                                             pkg_version,
@@ -353,11 +367,10 @@ pub fn build_shards(
     fts_tx.commit()?;
 
     // Count unique packages (stems)
-    let count: i64 = active_conn.query_row(
-        "SELECT COUNT(DISTINCT stem) FROM packages",
-        [],
-        |row| row.get(0),
-    )?;
+    let count: i64 =
+        active_conn.query_row("SELECT COUNT(DISTINCT stem) FROM packages", [], |row| {
+            row.get(0)
+        })?;
     package_count = count as usize;
 
     // Close connections

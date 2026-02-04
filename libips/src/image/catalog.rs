@@ -189,7 +189,8 @@ impl ImageCatalog {
                 &catalog_parts_dir,
                 publisher,
                 shard_dir,
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 CatalogError::Database(format!("Failed to build catalog shards: {}", e.message))
             })?;
         }

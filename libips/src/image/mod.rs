@@ -559,8 +559,9 @@ impl Image {
         }
 
         let conn = Connection::open(&path)?;
-        conn.execute_batch(ACTIVE_SCHEMA)
-            .map_err(|e| ImageError::Database(format!("Failed to initialize catalog database: {}", e)))?;
+        conn.execute_batch(ACTIVE_SCHEMA).map_err(|e| {
+            ImageError::Database(format!("Failed to initialize catalog database: {}", e))
+        })?;
 
         Ok(())
     }

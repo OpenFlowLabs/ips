@@ -105,10 +105,7 @@ impl DepotRepo {
     }
 
     pub fn shard_dir(&self, publisher: &str) -> PathBuf {
-        self.root
-            .join("publisher")
-            .join(publisher)
-            .join("catalog2")
+        self.root.join("publisher").join(publisher).join("catalog2")
     }
 
     pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {

@@ -74,16 +74,12 @@ use crate::image::Image;
 impl<'a> IpsProvider<'a> {
     fn new(image: &'a Image) -> Result<Self, SolverError> {
         // Open active.db (catalog) read-only with WAL mode for better concurrency
-        let catalog_conn = Connection::open_with_flags(
-            &image.active_db_path(),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(|e| SolverError::new(format!("open catalog db: {}", e)))?;
+        let catalog_conn =
+            Connection::open_with_flags(&image.active_db_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|e| SolverError::new(format!("open catalog db: {}", e)))?;
 
         // Enable WAL mode for better concurrency (ignored if already set)
-        catalog_conn
-            .pragma_update(None, "journal_mode", "WAL")
-            .ok();
+        catalog_conn.pragma_update(None, "journal_mode", "WAL").ok();
 
         let mut prov = IpsProvider {
             image,
@@ -129,8 +125,8 @@ impl<'a> IpsProvider<'a> {
         let mut by_stem: BTreeMap<String, Vec<Fmri>> = BTreeMap::new();
 
         for row_result in collected_rows {
-            let (stem, version, publisher) = row_result
-                .map_err(|e| SolverError::new(format!("read package row: {}", e)))?;
+            let (stem, version, publisher) =
+                row_result.map_err(|e| SolverError::new(format!("read package row: {}", e)))?;
 
             // Parse version
             let ver_obj = crate::fmri::Version::parse(&version).ok();
@@ -477,7 +473,7 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
             rusqlite::params![parent_stem, parent_version, parent_publisher],
             |row| {
                 Ok((
-                    row.get::<_, String>(0)?, // dep_stem
+                    row.get::<_, String>(0)?,         // dep_stem
                     row.get::<_, Option<String>>(1)?, // dep_version
                 ))
             },

@@ -823,11 +823,9 @@ impl SqliteObsoletedPackageIndex {
     fn len(&self) -> Result<usize> {
         let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM obsoleted_packages",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM obsoleted_packages", [], |row| {
+            row.get(0)
+        })?;
 
         Ok(count as usize)
     }
@@ -968,8 +966,8 @@ impl ObsoletedPackageManager {
 
         let index = {
             // Create or open the SQLite-based index
-            let sqlite_index =
-                SqliteObsoletedPackageIndex::create_or_open(&base_path).unwrap_or_else(|e| {
+            let sqlite_index = SqliteObsoletedPackageIndex::create_or_open(&base_path)
+                .unwrap_or_else(|e| {
                     // Log the error and create an empty SQLite index
                     error!("Failed to create or open SQLite-based index: {}", e);
                     SqliteObsoletedPackageIndex::empty()

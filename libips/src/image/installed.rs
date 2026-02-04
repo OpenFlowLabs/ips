@@ -102,7 +102,8 @@ impl InstalledPackages {
     pub fn get_db_stats(&self) -> Result<()> {
         let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-        let installed_count: i64 = conn.query_row("SELECT COUNT(*) FROM installed", [], |row| row.get(0))?;
+        let installed_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM installed", [], |row| row.get(0))?;
 
         println!("Database path: {}", self.db_path.display());
         println!("Table statistics:");
@@ -164,7 +165,10 @@ impl InstalledPackages {
         }
 
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM installed WHERE fmri = ?1", rusqlite::params![key])?;
+        tx.execute(
+            "DELETE FROM installed WHERE fmri = ?1",
+            rusqlite::params![key],
+        )?;
         tx.commit()?;
 
         info!("Removed package from installed database: {}", key);
@@ -176,7 +180,10 @@ impl InstalledPackages {
         let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
         let query = if let Some(pattern) = pattern {
-            format!("SELECT fmri FROM installed WHERE fmri LIKE '%{}%'", pattern.replace('\'', "''"))
+            format!(
+                "SELECT fmri FROM installed WHERE fmri LIKE '%{}%'",
+                pattern.replace('\'', "''")
+            )
         } else {
             "SELECT fmri FROM installed".to_string()
         };
@@ -188,7 +195,10 @@ impl InstalledPackages {
         while let Some(row) = rows.next()? {
             let fmri_str: String = row.get(0)?;
             let fmri = Fmri::from_str(&fmri_str)?;
-            let publisher = fmri.publisher.clone().unwrap_or_else(|| "unknown".to_string());
+            let publisher = fmri
+                .publisher
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
             results.push(InstalledPackageInfo { fmri, publisher });
         }
 

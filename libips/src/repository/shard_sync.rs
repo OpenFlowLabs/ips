@@ -7,7 +7,7 @@
 //!
 //! Downloads catalog shards from the repository server and verifies their integrity.
 
-use crate::repository::sqlite_catalog::{ShardIndex, ShardEntry};
+use crate::repository::sqlite_catalog::{ShardEntry, ShardIndex};
 use miette::Diagnostic;
 use sha2::{Digest, Sha256};
 use std::fs;
