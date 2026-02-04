@@ -80,7 +80,7 @@ pub async fn get_shard_blob(
 
     // Find which shard file corresponds to this hash
     let mut shard_path: Option<std::path::PathBuf> = None;
-    for (name, entry) in &index.shards {
+    for (_name, entry) in &index.shards {
         if entry.sha256 == sha256 {
             shard_path = Some(shard_dir.join(&sha256));
             break;

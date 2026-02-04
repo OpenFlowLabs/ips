@@ -1,15 +1,12 @@
 use crate::actions::Manifest;
 use crate::fmri::Fmri;
-use crate::repository::catalog::{CatalogManager, CatalogPart, PackageVersionEntry};
 use lz4::{Decoder as Lz4Decoder, EncoderBuilder as Lz4EncoderBuilder};
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use tracing::{info, trace, warn};
 
 /// Errors that can occur when working with the image catalog
 #[derive(Error, Debug, Diagnostic)]

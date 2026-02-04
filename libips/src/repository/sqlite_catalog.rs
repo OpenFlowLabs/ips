@@ -12,7 +12,6 @@
 use crate::actions::Manifest;
 use crate::fmri::Fmri;
 use crate::repository::catalog::CatalogManager;
-use base64::Engine as _;
 use miette::Diagnostic;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -478,7 +477,7 @@ pub fn populate_active_db(
 /// Helper function for tests: mark a package as obsolete in obsolete.db.
 /// Creates tables if absent (idempotent).
 pub fn populate_obsolete_db(db_path: &Path, fmri: &Fmri) -> Result<(), ShardBuildError> {
-    let mut conn = Connection::open(db_path)?;
+    let conn = Connection::open(db_path)?;
     conn.execute_batch(OBSOLETE_SCHEMA)?;
 
     conn.execute(
