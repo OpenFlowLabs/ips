@@ -4,7 +4,7 @@ mod tests;
 
 use miette::Diagnostic;
 use properties::*;
-use redb::{Database, ReadableDatabase, ReadableTable};
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -15,7 +15,7 @@ use crate::repository::{FileBackend, ReadableRepository, RepositoryError, RestBa
 
 // Export the catalog module
 pub mod catalog;
-use catalog::{INCORPORATE_TABLE, ImageCatalog, PackageInfo};
+use catalog::{ImageCatalog, PackageInfo};
 
 // Export the installed packages module
 pub mod installed;
@@ -77,6 +77,12 @@ pub enum ImageError {
         help("Configure at least one publisher before performing this operation")
     )]
     NoPublishers,
+}
+
+impl From<rusqlite::Error> for ImageError {
+    fn from(e: rusqlite::Error) -> Self {
+        ImageError::Database(format!("SQLite error: {}", e))
+    }
 }
 
 pub type Result<T> = std::result::Result<T, ImageError>;
@@ -281,7 +287,7 @@ impl Image {
 
     /// Returns the path to the installed packages database
     pub fn installed_db_path(&self) -> PathBuf {
-        self.metadata_dir().join("installed.redb")
+        self.metadata_dir().join("installed.db")
     }
 
     /// Returns the path to the manifest directory
@@ -294,14 +300,31 @@ impl Image {
         self.metadata_dir().join("catalog")
     }
 
-    /// Returns the path to the catalog database
-    pub fn catalog_db_path(&self) -> PathBuf {
-        self.metadata_dir().join("catalog.redb")
+    /// Returns the path to the active catalog database (packages and dependencies)
+    pub fn active_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("active.db")
     }
 
-    /// Returns the path to the obsoleted packages database (separate DB)
+    /// Returns the path to the obsoleted packages database
+    pub fn obsolete_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("obsolete.db")
+    }
+
+    /// Returns the path to the full-text search database
+    pub fn fts_db_path(&self) -> PathBuf {
+        self.metadata_dir().join("fts.db")
+    }
+
+    /// Deprecated: Use active_db_path() instead
+    #[deprecated(note = "Use active_db_path() instead")]
+    pub fn catalog_db_path(&self) -> PathBuf {
+        self.active_db_path()
+    }
+
+    /// Deprecated: Use obsolete_db_path() instead
+    #[deprecated(note = "Use obsolete_db_path() instead")]
     pub fn obsoleted_db_path(&self) -> PathBuf {
-        self.metadata_dir().join("obsoleted.redb")
+        self.obsolete_db_path()
     }
 
     /// Creates the metadata directory if it doesn't exist
@@ -528,14 +551,18 @@ impl Image {
 
     /// Initialize the catalog database
     pub fn init_catalog_db(&self) -> Result<()> {
-        let catalog = ImageCatalog::new(
-            self.catalog_dir(),
-            self.catalog_db_path(),
-            self.obsoleted_db_path(),
-        );
-        catalog.init_db().map_err(|e| {
-            ImageError::Database(format!("Failed to initialize catalog database: {}", e))
-        })
+        use crate::repository::sqlite_catalog::ACTIVE_SCHEMA;
+
+        let path = self.active_db_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let conn = Connection::open(&path)?;
+        conn.execute_batch(ACTIVE_SCHEMA)
+            .map_err(|e| ImageError::Database(format!("Failed to initialize catalog database: {}", e)))?;
+
+        Ok(())
     }
 
     /// Download catalogs from all configured publishers and build the merged catalog
@@ -657,65 +684,102 @@ impl Image {
     /// Look up an incorporation lock for a given stem.
     /// Returns Some(release) if a lock exists, otherwise None.
     pub fn get_incorporated_release(&self, stem: &str) -> Result<Option<String>> {
-        let db = Database::open(self.catalog_db_path())
-            .map_err(|e| ImageError::Database(format!("Failed to open catalog database: {}", e)))?;
-        let tx = db.begin_read().map_err(|e| {
-            ImageError::Database(format!("Failed to begin read transaction: {}", e))
-        })?;
-        match tx.open_table(INCORPORATE_TABLE) {
-            Ok(table) => match table.get(stem) {
-                Ok(Some(val)) => Ok(Some(String::from_utf8_lossy(val.value()).to_string())),
-                Ok(None) => Ok(None),
-                Err(e) => Err(ImageError::Database(format!(
-                    "Failed to read incorporate lock: {}",
-                    e
-                ))),
-            },
-            Err(_) => Ok(None),
+        let conn = Connection::open_with_flags(
+            &self.active_db_path(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| ImageError::Database(format!("Failed to open catalog database: {}", e)))?;
+
+        let result = conn.query_row(
+            "SELECT release FROM incorporate_locks WHERE stem = ?1",
+            rusqlite::params![stem],
+            |row| row.get(0),
+        );
+
+        match result {
+            Ok(release) => Ok(Some(release)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(ImageError::Database(format!(
+                "Failed to read incorporate lock: {}",
+                e
+            ))),
         }
     }
 
     /// Add an incorporation lock for a stem to a specific release.
-    /// Fails if a lock already exists for the stem.
+    /// Uses INSERT OR REPLACE, so will update if a lock already exists.
     pub fn add_incorporation_lock(&self, stem: &str, release: &str) -> Result<()> {
-        let db = Database::open(self.catalog_db_path())
+        let mut conn = Connection::open(&self.active_db_path())
             .map_err(|e| ImageError::Database(format!("Failed to open catalog database: {}", e)))?;
-        let tx = db.begin_write().map_err(|e| {
+
+        let tx = conn.transaction().map_err(|e| {
             ImageError::Database(format!("Failed to begin write transaction: {}", e))
         })?;
-        {
-            let mut table = tx.open_table(INCORPORATE_TABLE).map_err(|e| {
-                ImageError::Database(format!("Failed to open incorporate table: {}", e))
-            })?;
-            if let Ok(Some(_)) = table.get(stem) {
-                return Err(ImageError::Database(format!(
-                    "Incorporation lock already exists for stem {}",
-                    stem
-                )));
-            }
-            table.insert(stem, release.as_bytes()).map_err(|e| {
-                ImageError::Database(format!("Failed to insert incorporate lock: {}", e))
-            })?;
-        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO incorporate_locks (stem, release) VALUES (?1, ?2)",
+            rusqlite::params![stem, release],
+        )
+        .map_err(|e| ImageError::Database(format!("Failed to insert incorporate lock: {}", e)))?;
+
         tx.commit().map_err(|e| {
             ImageError::Database(format!("Failed to commit incorporate lock: {}", e))
         })?;
         Ok(())
     }
 
-    /// Get a manifest from the catalog
+    /// Get a manifest from the catalog.
+    /// First checks the local manifest cache on disk, then falls back to repository fetch.
+    /// Note: active.db does NOT store manifest blobs - manifests are served from the repository.
     pub fn get_manifest_from_catalog(
         &self,
         fmri: &crate::fmri::Fmri,
     ) -> Result<Option<crate::actions::Manifest>> {
-        let catalog = ImageCatalog::new(
+        // Helper to URL-encode filename components
+        fn url_encode(s: &str) -> String {
+            s.chars()
+                .map(|c| match c {
+                    'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+                    ' ' => "+".to_string(),
+                    _ => {
+                        let mut buf = [0u8; 4];
+                        let bytes = c.encode_utf8(&mut buf).as_bytes();
+                        bytes.iter().map(|b| format!("%{:02X}", b)).collect()
+                    }
+                })
+                .collect()
+        }
+
+        // Check local manifest cache on disk
+        let publisher = fmri.publisher.as_deref().unwrap_or("");
+        let manifest_dir = self.manifest_dir().join(publisher);
+
+        let stem_encoded = url_encode(fmri.stem());
+        let version_encoded = url_encode(&fmri.version());
+        let manifest_path = manifest_dir.join(format!("{}@{}.p5m", stem_encoded, version_encoded));
+
+        if manifest_path.exists() {
+            let content = fs::read_to_string(&manifest_path)?;
+            let manifest = crate::actions::Manifest::parse_string(content)
+                .map_err(|e| ImageError::Database(format!("Failed to parse manifest: {}", e)))?;
+            return Ok(Some(manifest));
+        }
+
+        // Check catalog shards for a minimal manifest
+        let catalog = crate::image::catalog::ImageCatalog::new(
             self.catalog_dir(),
-            self.catalog_db_path(),
-            self.obsoleted_db_path(),
+            self.active_db_path(),
+            self.obsolete_db_path(),
         );
-        catalog.get_manifest(fmri).map_err(|e| {
-            ImageError::Database(format!("Failed to get manifest from catalog: {}", e))
-        })
+        if let Ok(Some(manifest)) = catalog.get_manifest(fmri) {
+            return Ok(Some(manifest));
+        }
+
+        // Fall back to repository fetch
+        match self.get_manifest_from_repository(fmri) {
+            Ok(manifest) => Ok(Some(manifest)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Fetch a full manifest for the given FMRI directly from its repository origin.

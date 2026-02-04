@@ -18,54 +18,22 @@
 use miette::Diagnostic;
 // Begin resolvo wiring imports (names discovered by compiler)
 // We start broad and refine with compiler guidance.
-use lz4::Decoder as Lz4Decoder;
-use redb::{ReadableDatabase, ReadableTable};
 use resolvo::{
     self, Candidates, Condition, ConditionId, ConditionalRequirement,
     Dependencies as RDependencies, DependencyProvider, HintDependenciesAvailable, Interner,
     KnownDependencies, Mapping, NameId, Problem as RProblem, SolvableId, Solver as RSolver,
     SolverCache, StringId, UnsolvableOrCancelled, VersionSetId, VersionSetUnionId,
 };
+use rusqlite::{Connection, OpenFlags};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
-use std::io::{Cursor, Read};
 use thiserror::Error;
 
 use crate::actions::Manifest;
-use crate::image::catalog::{CATALOG_TABLE, INCORPORATE_TABLE};
 
 // Public advice API lives in a sibling module
 pub mod advice;
-
-// Local helpers to decode manifest bytes stored in catalog DB (JSON or LZ4-compressed JSON)
-fn is_likely_json_local(bytes: &[u8]) -> bool {
-    let mut i = 0;
-    while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') {
-        i += 1;
-    }
-    if i >= bytes.len() {
-        return false;
-    }
-    matches!(bytes[i], b'{' | b'[')
-}
-
-fn decode_manifest_bytes_local(bytes: &[u8]) -> Result<Manifest, serde_json::Error> {
-    if is_likely_json_local(bytes) {
-        return serde_json::from_slice::<Manifest>(bytes);
-    }
-    // Try LZ4; on failure, fall back to JSON attempt
-    if let Ok(mut dec) = Lz4Decoder::new(Cursor::new(bytes)) {
-        let mut out = Vec::new();
-        if dec.read_to_end(&mut out).is_ok() {
-            if let Ok(m) = serde_json::from_slice::<Manifest>(&out) {
-                return Ok(m);
-            }
-        }
-    }
-    // Fallback to JSON parse of original bytes
-    serde_json::from_slice::<Manifest>(bytes)
-}
 
 #[derive(Clone, Debug)]
 struct PkgCand {
@@ -85,11 +53,8 @@ enum VersionSetKind {
 
 struct IpsProvider<'a> {
     image: &'a Image,
-    // Persistent database handles and read transactions for catalog/obsoleted
-    _catalog_db: redb::Database,
-    catalog_tx: redb::ReadTransaction,
-    _obsoleted_db: redb::Database,
-    _obsoleted_tx: redb::ReadTransaction,
+    // SQLite connection to active.db (catalog), opened read-only
+    catalog_conn: Connection,
     // interner storages
     names: Mapping<NameId, String>,
     name_by_str: BTreeMap<String, NameId>,
@@ -108,24 +73,21 @@ use crate::image::Image;
 
 impl<'a> IpsProvider<'a> {
     fn new(image: &'a Image) -> Result<Self, SolverError> {
-        // Open databases and keep read transactions alive for the provider lifetime
-        let catalog_db = redb::Database::open(image.catalog_db_path())
-            .map_err(|e| SolverError::new(format!("open catalog db: {}", e)))?;
-        let catalog_tx = catalog_db
-            .begin_read()
-            .map_err(|e| SolverError::new(format!("begin read catalog db: {}", e)))?;
-        let obsoleted_db = redb::Database::open(image.obsoleted_db_path())
-            .map_err(|e| SolverError::new(format!("open obsoleted db: {}", e)))?;
-        let obsoleted_tx = obsoleted_db
-            .begin_read()
-            .map_err(|e| SolverError::new(format!("begin read obsoleted db: {}", e)))?;
+        // Open active.db (catalog) read-only with WAL mode for better concurrency
+        let catalog_conn = Connection::open_with_flags(
+            &image.active_db_path(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| SolverError::new(format!("open catalog db: {}", e)))?;
+
+        // Enable WAL mode for better concurrency (ignored if already set)
+        catalog_conn
+            .pragma_update(None, "journal_mode", "WAL")
+            .ok();
 
         let mut prov = IpsProvider {
             image,
-            _catalog_db: catalog_db,
-            catalog_tx,
-            _obsoleted_db: obsoleted_db,
-            _obsoleted_tx: obsoleted_tx,
+            catalog_conn,
             names: Mapping::default(),
             name_by_str: BTreeMap::new(),
             strings: Mapping::default(),
@@ -141,80 +103,70 @@ impl<'a> IpsProvider<'a> {
     }
 
     fn build_index(&mut self) -> Result<(), SolverError> {
-        use crate::image::catalog::CATALOG_TABLE;
-        // Iterate catalog table and build in-memory index of non-obsolete candidates
-        let table = self
-            .catalog_tx
-            .open_table(CATALOG_TABLE)
-            .map_err(|e| SolverError::new(format!("open catalog table: {}", e)))?;
+        // Query packages table directly - no manifest decoding needed
+        // Use a scope to ensure stmt is dropped before we start mutating self
+        let collected_rows: Vec<Result<(String, String, String), rusqlite::Error>> = {
+            let mut stmt = self
+                .catalog_conn
+                .prepare("SELECT stem, version, publisher FROM packages")
+                .map_err(|e| SolverError::new(format!("prepare packages query: {}", e)))?;
+
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|e| SolverError::new(format!("query packages: {}", e)))?;
+
+            // Collect all rows into a Vec to avoid holding a borrow on the connection
+            rows.collect()
+        };
 
         // Temporary map: stem string -> Vec<Fmri>
         let mut by_stem: BTreeMap<String, Vec<Fmri>> = BTreeMap::new();
-        for entry in table
-            .iter()
-            .map_err(|e| SolverError::new(format!("iterate catalog table: {}", e)))?
-        {
-            let (k, v) =
-                entry.map_err(|e| SolverError::new(format!("read catalog entry: {}", e)))?;
-            let key = k.value(); // stem@version
 
-            // Try to decode manifest and extract full FMRI (including publisher)
-            let mut pushed = false;
-            if let Ok(manifest) = decode_manifest_bytes_local(v.value()) {
-                if let Some(attr) = manifest.attributes.iter().find(|a| a.key == "pkg.fmri") {
-                    if let Some(fmri_str) = attr.values.first() {
-                        if let Ok(mut fmri) = Fmri::parse(fmri_str) {
-                            // Ensure publisher is present; if missing/empty, use image default publisher
-                            let missing_pub = fmri
-                                .publisher
-                                .as_deref()
-                                .map(|s| s.is_empty())
-                                .unwrap_or(true);
-                            if missing_pub {
-                                if let Ok(defp) = self.image.default_publisher() {
-                                    fmri.publisher = Some(defp.name.clone());
-                                }
-                            }
-                            by_stem
-                                .entry(fmri.stem().to_string())
-                                .or_default()
-                                .push(fmri);
-                            pushed = true;
-                        }
-                    }
+        for row_result in collected_rows {
+            let (stem, version, publisher) = row_result
+                .map_err(|e| SolverError::new(format!("read package row: {}", e)))?;
+
+            // Parse version
+            let ver_obj = crate::fmri::Version::parse(&version).ok();
+
+            // Build FMRI with publisher, stem, and version
+            let mut fmri = if let Some(v) = ver_obj {
+                Fmri::with_publisher(&publisher, &stem, Some(v))
+            } else {
+                // No parsable version; still record a minimal FMRI without version
+                Fmri::with_publisher(&publisher, &stem, None)
+            };
+
+            // Normalize: empty publisher string -> None
+            if fmri.publisher.as_deref() == Some("") {
+                fmri.publisher = None;
+            }
+
+            // If publisher is still None/empty, try using image default publisher
+            let missing_pub = fmri
+                .publisher
+                .as_deref()
+                .map(|s| s.is_empty())
+                .unwrap_or(true);
+            if missing_pub {
+                if let Ok(defp) = self.image.default_publisher() {
+                    fmri.publisher = Some(defp.name.clone());
                 }
             }
 
-            // Fallback: derive FMRI from catalog key if we couldn't push from manifest
-            if !pushed {
-                if let Some((stem, ver_str)) = key.split_once('@') {
-                    let ver_obj = crate::fmri::Version::parse(ver_str).ok();
-                    // Prefer default publisher if configured; else leave None by constructing and then setting publisher
-                    let mut fmri = if let Some(v) = ver_obj.clone() {
-                        if let Ok(defp) = self.image.default_publisher() {
-                            Fmri::with_publisher(&defp.name, stem, Some(v))
-                        } else {
-                            Fmri::with_version(stem, v)
-                        }
-                    } else {
-                        // No parsable version; still record a minimal FMRI without version
-                        if let Ok(defp) = self.image.default_publisher() {
-                            Fmri::with_publisher(&defp.name, stem, None)
-                        } else {
-                            Fmri::with_publisher("", stem, None)
-                        }
-                    };
-                    // Normalize: empty publisher string -> None
-                    if fmri.publisher.as_deref() == Some("") {
-                        fmri.publisher = None;
-                    }
-                    by_stem.entry(stem.to_string()).or_default().push(fmri);
-                }
-            }
+            by_stem.entry(stem).or_default().push(fmri);
         }
 
         // Intern and populate solvables per stem
-        for (stem, mut fmris) in by_stem {
+        // Collect into Vec to avoid borrow checker issues with mutating self while iterating
+        let stems_and_fmris: Vec<(String, Vec<Fmri>)> = by_stem.into_iter().collect();
+        for (stem, mut fmris) in stems_and_fmris {
             let name_id = self.intern_name(&stem);
             // Sort fmris newest-first using IPS ordering
             fmris.sort_by(|a, b| version_order_desc(a, b));
@@ -254,22 +206,13 @@ impl<'a> IpsProvider<'a> {
     }
 
     fn lookup_incorporated_release(&self, stem: &str) -> Option<String> {
-        if let Ok(table) = self.catalog_tx.open_table(INCORPORATE_TABLE) {
-            if let Ok(Some(rel)) = table.get(stem) {
-                return Some(String::from_utf8_lossy(rel.value()).to_string());
-            }
-        }
-        None
-    }
-
-    fn read_manifest_from_catalog(&self, fmri: &Fmri) -> Option<Manifest> {
-        let key = format!("{}@{}", fmri.stem(), fmri.version());
-        if let Ok(table) = self.catalog_tx.open_table(CATALOG_TABLE) {
-            if let Ok(Some(bytes)) = table.get(key.as_str()) {
-                return decode_manifest_bytes_local(bytes.value()).ok();
-            }
-        }
-        None
+        self.catalog_conn
+            .query_row(
+                "SELECT release FROM incorporate_locks WHERE stem = ?1",
+                rusqlite::params![stem],
+                |row| row.get(0),
+            )
+            .ok()
     }
 }
 
@@ -516,9 +459,31 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
     async fn get_dependencies(&self, solvable: SolvableId) -> RDependencies {
         let pkg = self.solvables.get(solvable).unwrap();
         let fmri = &pkg.fmri;
-        let manifest_opt = self.read_manifest_from_catalog(fmri);
-        let Some(manifest) = manifest_opt else {
-            return RDependencies::Known(KnownDependencies::default());
+
+        // Query dependencies table directly instead of decoding manifest
+        let mut stmt = match self.catalog_conn.prepare(
+            "SELECT dep_stem, dep_version FROM dependencies
+             WHERE pkg_stem = ?1 AND pkg_version = ?2 AND pkg_publisher = ?3 AND dep_type = 'require'"
+        ) {
+            Ok(s) => s,
+            Err(_) => return RDependencies::Known(KnownDependencies::default()),
+        };
+
+        let parent_stem = fmri.stem();
+        let parent_version = fmri.version();
+        let parent_publisher = fmri.publisher.as_deref().unwrap_or("");
+
+        let rows = match stmt.query_map(
+            rusqlite::params![parent_stem, parent_version, parent_publisher],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?, // dep_stem
+                    row.get::<_, Option<String>>(1)?, // dep_version
+                ))
+            },
+        ) {
+            Ok(r) => r,
+            Err(_) => return RDependencies::Known(KnownDependencies::default()),
         };
 
         // Build requirements for "require" deps
@@ -526,38 +491,43 @@ impl<'a> DependencyProvider for IpsProvider<'a> {
         let parent_branch = fmri.version.as_ref().and_then(|v| v.branch.clone());
         let parent_pub = fmri.publisher.as_deref();
 
-        for d in manifest
-            .dependencies
-            .iter()
-            .filter(|d| d.dependency_type == "require")
-        {
-            if let Some(df) = &d.fmri {
-                let stem = df.stem().to_string();
-                let Some(child_name_id) = self.name_by_str.get(&stem).copied() else {
-                    // If the dependency name isn't present in the catalog index, skip it
-                    continue;
-                };
-                // Create version set by release (from dep expr) and branch (from parent)
-                let vs_kind = match (&df.version, &parent_branch) {
-                    (Some(ver), Some(branch)) => VersionSetKind::ReleaseAndBranch {
-                        release: ver.release.clone(),
-                        branch: branch.clone(),
-                    },
-                    (Some(ver), None) => VersionSetKind::ReleaseEq(ver.release.clone()),
-                    (None, Some(branch)) => VersionSetKind::BranchEq(branch.clone()),
-                    (None, None) => VersionSetKind::Any,
-                };
-                let vs_id = self.version_set_for(child_name_id, vs_kind);
-                reqs.push(ConditionalRequirement::from(vs_id));
+        for row_result in rows {
+            let (dep_stem, dep_version_str) = match row_result {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
 
-                // Set publisher preferences for the child to parent-first, then image order
-                let order = build_publisher_preference(parent_pub, self.image);
-                self.publisher_prefs
-                    .borrow_mut()
-                    .entry(child_name_id)
-                    .or_insert(order);
-            }
+            let Some(child_name_id) = self.name_by_str.get(&dep_stem).copied() else {
+                // If the dependency name isn't present in the catalog index, skip it
+                continue;
+            };
+
+            // Parse dep_version to extract release component
+            let dep_version = dep_version_str
+                .as_ref()
+                .and_then(|s| crate::fmri::Version::parse(s).ok());
+
+            // Create version set by release (from dep expr) and branch (from parent)
+            let vs_kind = match (&dep_version, &parent_branch) {
+                (Some(ver), Some(branch)) => VersionSetKind::ReleaseAndBranch {
+                    release: ver.release.clone(),
+                    branch: branch.clone(),
+                },
+                (Some(ver), None) => VersionSetKind::ReleaseEq(ver.release.clone()),
+                (None, Some(branch)) => VersionSetKind::BranchEq(branch.clone()),
+                (None, None) => VersionSetKind::Any,
+            };
+            let vs_id = self.version_set_for(child_name_id, vs_kind);
+            reqs.push(ConditionalRequirement::from(vs_id));
+
+            // Set publisher preferences for the child to parent-first, then image order
+            let order = build_publisher_preference(parent_pub, self.image);
+            self.publisher_prefs
+                .borrow_mut()
+                .entry(child_name_id)
+                .or_insert(order);
         }
+
         RDependencies::Known(KnownDependencies {
             requirements: reqs,
             constrains: vec![],
@@ -820,18 +790,6 @@ pub fn resolve_install(
         }
         name_to_fmris.insert(*name_id, v);
     }
-    // Snapshot: Catalog manifest cache keyed by stem@version for all candidates
-    let mut key_to_manifest: HashMap<String, Manifest> = HashMap::new();
-    for fmris in name_to_fmris.values() {
-        for fmri in fmris {
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            if !key_to_manifest.contains_key(&key) {
-                if let Some(man) = provider.read_manifest_from_catalog(fmri) {
-                    key_to_manifest.insert(key, man);
-                }
-            }
-        }
-    }
 
     // Run the solver
     let roots_for_err: Vec<Constraint> = root_names.iter().map(|(_, c)| c.clone()).collect();
@@ -864,25 +822,18 @@ pub fn resolve_install(
     let mut plan = InstallPlan::default();
     for sid in solution_ids {
         if let Some(fmri) = sid_to_fmri.get(&sid).cloned() {
-            // Prefer repository manifest; fallback to preloaded catalog snapshot, then image catalog
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
+            // Fetch manifest from repository or catalog cache
             let manifest = match image_ref.get_manifest_from_repository(&fmri) {
                 Ok(m) => m,
-                Err(repo_err) => {
-                    if let Some(m) = key_to_manifest.get(&key).cloned() {
-                        m
-                    } else {
-                        match image_ref.get_manifest_from_catalog(&fmri) {
-                            Ok(Some(m)) => m,
-                            _ => {
-                                return Err(SolverError::new(format!(
-                                    "failed to obtain manifest for {}: {}",
-                                    fmri, repo_err
-                                )));
-                            }
-                        }
+                Err(repo_err) => match image_ref.get_manifest_from_catalog(&fmri) {
+                    Ok(Some(m)) => m,
+                    _ => {
+                        return Err(SolverError::new(format!(
+                            "failed to obtain manifest for {}: {}",
+                            fmri, repo_err
+                        )));
                     }
-                }
+                },
             };
             plan.reasons.push(format!("selected {} via solver", fmri));
             plan.add.push(ResolvedPkg { fmri, manifest });
@@ -933,8 +884,7 @@ mod solver_integration_tests {
     use crate::actions::Dependency;
     use crate::fmri::Version;
     use crate::image::ImageType;
-    use crate::image::catalog::{CATALOG_TABLE, OBSOLETED_TABLE};
-    use redb::Database;
+    use crate::repository::sqlite_catalog;
     use tempfile::tempdir;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
@@ -970,34 +920,13 @@ mod solver_integration_tests {
     }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
-        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table
-                .insert(key.as_str(), val.as_slice())
-                .expect("insert manifest");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_active_db(&image.active_db_path(), fmri, manifest)
+            .expect("populate active db");
     }
 
     fn mark_obsolete(image: &Image, fmri: &Fmri) {
-        let db = Database::open(image.obsoleted_db_path()).expect("open obsoleted db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx
-                .open_table(OBSOLETED_TABLE)
-                .expect("open obsoleted table");
-            let key = fmri.to_string();
-            // store empty value
-            let empty: Vec<u8> = Vec::new();
-            table
-                .insert(key.as_str(), empty.as_slice())
-                .expect("insert obsolete");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_obsolete_db(&image.obsolete_db_path(), fmri)
+            .expect("populate obsolete db");
     }
 
     fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {
@@ -1322,8 +1251,7 @@ mod solver_error_message_tests {
     use crate::actions::{Dependency, Manifest};
     use crate::fmri::{Fmri, Version};
     use crate::image::ImageType;
-    use crate::image::catalog::CATALOG_TABLE;
-    use redb::Database;
+    use crate::repository::sqlite_catalog;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
@@ -1354,17 +1282,8 @@ mod solver_error_message_tests {
     }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
-        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table
-                .insert(key.as_str(), val.as_slice())
-                .expect("insert manifest");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_active_db(&image.active_db_path(), fmri, manifest)
+            .expect("populate active db");
     }
 
     #[test]
@@ -1427,8 +1346,7 @@ mod incorporate_lock_tests {
     use crate::actions::Dependency;
     use crate::fmri::Version;
     use crate::image::ImageType;
-    use crate::image::catalog::CATALOG_TABLE;
-    use redb::Database;
+    use crate::repository::sqlite_catalog;
     use tempfile::tempdir;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
@@ -1447,17 +1365,8 @@ mod incorporate_lock_tests {
     }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
-        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table
-                .insert(key.as_str(), val.as_slice())
-                .expect("insert manifest");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_active_db(&image.active_db_path(), fmri, manifest)
+            .expect("populate active db");
     }
 
     fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {
@@ -1638,8 +1547,7 @@ mod composite_release_tests {
     use crate::actions::{Dependency, Manifest};
     use crate::fmri::{Fmri, Version};
     use crate::image::ImageType;
-    use crate::image::catalog::CATALOG_TABLE;
-    use redb::Database;
+    use crate::repository::sqlite_catalog;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
         let mut v = Version::new(release);
@@ -1657,17 +1565,8 @@ mod composite_release_tests {
     }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
-        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table
-                .insert(key.as_str(), val.as_slice())
-                .expect("insert manifest");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_active_db(&image.active_db_path(), fmri, manifest)
+            .expect("populate active db");
     }
 
     fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {
@@ -1772,8 +1671,7 @@ mod circular_dependency_tests {
     use crate::actions::Dependency;
     use crate::fmri::{Fmri, Version};
     use crate::image::ImageType;
-    use crate::image::catalog::CATALOG_TABLE;
-    use redb::Database;
+    use crate::repository::sqlite_catalog;
     use std::collections::HashSet;
 
     fn mk_version(release: &str, branch: Option<&str>, timestamp: Option<&str>) -> Version {
@@ -1809,17 +1707,8 @@ mod circular_dependency_tests {
     }
 
     fn write_manifest_to_catalog(image: &Image, fmri: &Fmri, manifest: &Manifest) {
-        let db = Database::open(image.catalog_db_path()).expect("open catalog db");
-        let tx = db.begin_write().expect("begin write");
-        {
-            let mut table = tx.open_table(CATALOG_TABLE).expect("open catalog table");
-            let key = format!("{}@{}", fmri.stem(), fmri.version());
-            let val = serde_json::to_vec(manifest).expect("serialize manifest");
-            table
-                .insert(key.as_str(), val.as_slice())
-                .expect("insert manifest");
-        }
-        tx.commit().expect("commit");
+        sqlite_catalog::populate_active_db(&image.active_db_path(), fmri, manifest)
+            .expect("populate active db");
     }
 
     fn make_image_with_publishers(pubs: &[(&str, bool)]) -> Image {

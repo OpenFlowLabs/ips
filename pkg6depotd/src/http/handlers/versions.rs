@@ -68,7 +68,7 @@ pub async fn get_versions() -> impl IntoResponse {
             },
             SupportedOperation {
                 op: Operation::Catalog,
-                versions: vec![1],
+                versions: vec![1, 2],
             },
             SupportedOperation {
                 op: Operation::Manifest,

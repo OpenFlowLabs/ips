@@ -31,6 +31,8 @@ serde_json = "1.0"
 dirs = "6"
 nix = { version = "0.30", features = ["signal", "process", "user", "fs"] }
 sha1 = "0.10"
+sha2 = "0.10"
+rusqlite = { version = "0.31", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 flate2 = "1"
 httpdate = "1"
@@ -55,3 +57,7 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["rusqlite/bundled"]

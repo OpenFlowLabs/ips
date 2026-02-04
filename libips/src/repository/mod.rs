@@ -168,60 +168,21 @@ impl From<StripPrefixError> for RepositoryError {
     }
 }
 
-// Implement From for redb error types
-impl From<redb::Error> for RepositoryError {
-    fn from(err: redb::Error) -> Self {
+// Implement From for rusqlite error types
+impl From<rusqlite::Error> for RepositoryError {
+    fn from(err: rusqlite::Error) -> Self {
         RepositoryError::Other(format!("Database error: {}", err))
     }
 }
 
-impl From<redb::DatabaseError> for RepositoryError {
-    fn from(err: redb::DatabaseError) -> Self {
-        RepositoryError::Other(format!("Database error: {}", err))
-    }
-}
-
-impl From<redb::TransactionError> for RepositoryError {
-    fn from(err: redb::TransactionError) -> Self {
-        RepositoryError::Other(format!("Transaction error: {}", err))
-    }
-}
-
-impl From<redb::TableError> for RepositoryError {
-    fn from(err: redb::TableError) -> Self {
-        RepositoryError::Other(format!("Table error: {}", err))
-    }
-}
-
-impl From<redb::StorageError> for RepositoryError {
-    fn from(err: redb::StorageError) -> Self {
-        RepositoryError::Other(format!("Storage error: {}", err))
-    }
-}
-
-impl From<redb::CommitError> for RepositoryError {
-    fn from(err: redb::CommitError) -> Self {
-        RepositoryError::Other(format!("Commit error: {}", err))
-    }
-}
-
-impl From<bincode::error::DecodeError> for RepositoryError {
-    fn from(err: bincode::error::DecodeError) -> Self {
-        RepositoryError::Other(format!("Serialization error: {}", err))
-    }
-}
-
-impl From<bincode::error::EncodeError> for RepositoryError {
-    fn from(err: bincode::error::EncodeError) -> Self {
-        RepositoryError::Other(format!("Serialization error: {}", err))
-    }
-}
 pub mod catalog;
 mod catalog_writer;
 pub(crate) mod file_backend;
 mod obsoleted;
 pub mod progress;
 mod rest_backend;
+pub mod shard_sync;
+pub mod sqlite_catalog;
 #[cfg(test)]
 mod tests;
 

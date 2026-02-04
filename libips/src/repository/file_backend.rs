@@ -1899,11 +1899,25 @@ impl WritableRepository for FileBackend {
             if !no_catalog {
                 info!("Rebuilding catalog...");
                 self.rebuild_catalog(&pub_name, true)?;
+
+                // Build SQLite catalog shards (active.db, obsolete.db, fts.db)
+                info!("Building catalog shards...");
+                let catalog_dir = Self::construct_catalog_path(&self.path, &pub_name);
+                let shard_dir = self.shard_dir(&pub_name);
+                crate::repository::sqlite_catalog::build_shards(
+                    &catalog_dir,
+                    &pub_name,
+                    &shard_dir,
+                )
+                .map_err(|e| {
+                    RepositoryError::Other(format!("Failed to build catalog shards: {}", e.message))
+                })?;
             }
 
             if !no_index {
-                info!("Rebuilding search index...");
-                self.build_search_index(&pub_name)?;
+                // FTS index is now built as part of catalog shards (fts.db)
+                // No separate index building needed
+                info!("Search index built as part of catalog shards (fts.db)");
             }
         }
 
@@ -1929,11 +1943,25 @@ impl WritableRepository for FileBackend {
             if !no_catalog {
                 info!("Refreshing catalog...");
                 self.rebuild_catalog(&pub_name, true)?;
+
+                // Build SQLite catalog shards (active.db, obsolete.db, fts.db)
+                info!("Building catalog shards...");
+                let catalog_dir = Self::construct_catalog_path(&self.path, &pub_name);
+                let shard_dir = self.shard_dir(&pub_name);
+                crate::repository::sqlite_catalog::build_shards(
+                    &catalog_dir,
+                    &pub_name,
+                    &shard_dir,
+                )
+                .map_err(|e| {
+                    RepositoryError::Other(format!("Failed to build catalog shards: {}", e.message))
+                })?;
             }
 
             if !no_index {
-                info!("Refreshing search index...");
-                self.build_search_index(&pub_name)?;
+                // FTS index is now built as part of catalog shards (fts.db)
+                // No separate index building needed
+                info!("Search index built as part of catalog shards (fts.db)");
             }
         }
 
@@ -2164,6 +2192,13 @@ impl FileBackend {
     /// Format: base_path/publisher/publisher_name/catalog
     pub fn construct_catalog_path(base_path: &Path, publisher: &str) -> PathBuf {
         base_path.join("publisher").join(publisher).join("catalog")
+    }
+
+    /// Helper method to construct a shard directory path for catalog v2 shards
+    ///
+    /// Format: base_path/publisher/publisher_name/catalog2
+    pub fn shard_dir(&self, publisher: &str) -> PathBuf {
+        self.path.join("publisher").join(publisher).join("catalog2")
     }
 
     /// Helper method to construct a manifest path consistently

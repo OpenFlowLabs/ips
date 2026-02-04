@@ -104,6 +104,13 @@ impl DepotRepo {
         self.cache_max_age
     }
 
+    pub fn shard_dir(&self, publisher: &str) -> PathBuf {
+        self.root
+            .join("publisher")
+            .join(publisher)
+            .join("catalog2")
+    }
+
     pub fn get_catalog_file_path(&self, publisher: &str, filename: &str) -> Result<PathBuf> {
         let backend = self
             .backend

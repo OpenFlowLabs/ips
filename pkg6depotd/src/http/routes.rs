@@ -1,5 +1,5 @@
 use crate::http::admin;
-use crate::http::handlers::{catalog, file, info, manifest, publisher, search, versions};
+use crate::http::handlers::{catalog, file, info, manifest, publisher, search, shard, versions};
 use crate::repo::DepotRepo;
 use axum::{
     Router,
@@ -15,6 +15,14 @@ pub fn app_router(state: Arc<DepotRepo>) -> Router {
         .route(
             "/{publisher}/catalog/1/{filename}",
             get(catalog::get_catalog_v1).head(catalog::get_catalog_v1),
+        )
+        .route(
+            "/{publisher}/catalog/2/catalog.attrs",
+            get(shard::get_shard_index).head(shard::get_shard_index),
+        )
+        .route(
+            "/{publisher}/catalog/2/{sha256}",
+            get(shard::get_shard_blob).head(shard::get_shard_blob),
         )
         .route(
             "/{publisher}/manifest/0/{fmri}",

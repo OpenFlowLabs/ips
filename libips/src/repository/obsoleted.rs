@@ -1,11 +1,11 @@
 use crate::fmri::Fmri;
+use crate::repository::sqlite_catalog::OBSOLETED_INDEX_SCHEMA;
 use crate::repository::{RepositoryError, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use miette::Diagnostic;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use regex::Regex;
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
-use serde_cbor;
 use serde_json;
 use sha2::Digest;
 use std::fs;
@@ -176,51 +176,9 @@ impl From<crate::fmri::FmriError> for ObsoletedPackageError {
     }
 }
 
-impl From<redb::Error> for ObsoletedPackageError {
-    fn from(err: redb::Error) -> Self {
+impl From<rusqlite::Error> for ObsoletedPackageError {
+    fn from(err: rusqlite::Error) -> Self {
         ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<redb::DatabaseError> for ObsoletedPackageError {
-    fn from(err: redb::DatabaseError) -> Self {
-        ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<redb::TransactionError> for ObsoletedPackageError {
-    fn from(err: redb::TransactionError) -> Self {
-        ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<redb::TableError> for ObsoletedPackageError {
-    fn from(err: redb::TableError) -> Self {
-        ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<redb::StorageError> for ObsoletedPackageError {
-    fn from(err: redb::StorageError) -> Self {
-        ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<redb::CommitError> for ObsoletedPackageError {
-    fn from(err: redb::CommitError) -> Self {
-        ObsoletedPackageError::DatabaseError(err.to_string())
-    }
-}
-
-impl From<bincode::error::EncodeError> for ObsoletedPackageError {
-    fn from(err: bincode::error::EncodeError) -> Self {
-        ObsoletedPackageError::SerializationError(err.to_string())
-    }
-}
-
-impl From<bincode::error::DecodeError> for ObsoletedPackageError {
-    fn from(err: bincode::error::DecodeError) -> Self {
-        ObsoletedPackageError::SerializationError(err.to_string())
     }
 }
 
@@ -325,19 +283,11 @@ impl ObsoletedPackageKey {
     }
 }
 
-// Table definitions for the redb database
-// Table for mapping FMRI directly to metadata
-static FMRI_TO_METADATA_TABLE: TableDefinition<&[u8], &[u8]> =
-    TableDefinition::new("fmri_to_metadata");
-// Table for mapping content hash to manifest (for non-NULL_HASH entries)
-static HASH_TO_MANIFEST_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("hash_to_manifest");
-
-/// Index of obsoleted packages using redb for faster lookups and content-addressable storage
+/// Index of obsoleted packages using SQLite for faster lookups and content-addressable storage
 #[derive(Debug)]
-struct RedbObsoletedPackageIndex {
-    /// The redb database
-    db: Database,
+struct SqliteObsoletedPackageIndex {
+    /// Path to the SQLite database file
+    db_path: PathBuf,
     /// Last time the index was accessed
     last_accessed: Instant,
     /// Whether the index is dirty and needs to be rebuilt
@@ -346,26 +296,18 @@ struct RedbObsoletedPackageIndex {
     max_age: Duration,
 }
 
-impl RedbObsoletedPackageIndex {
-    /// Create a new RedbObsoletedPackageIndex
+impl SqliteObsoletedPackageIndex {
+    /// Create a new SqliteObsoletedPackageIndex
     fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
-        let db_path = base_path.as_ref().join("index.redb");
-        debug!("Creating redb database at {}", db_path.display());
+        let db_path = base_path.as_ref().join("index.db");
+        debug!("Creating SQLite database at {}", db_path.display());
 
-        // Create the database
-        let db = Database::create(&db_path)?;
-
-        // Create the tables if they don't exist
-        let write_txn = db.begin_write()?;
-        {
-            // Create the new table for direct FMRI to metadata mapping
-            write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
-            write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-        }
-        write_txn.commit()?;
+        // Create the database and tables
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(OBSOLETED_INDEX_SCHEMA)?;
 
         Ok(Self {
-            db,
+            db_path,
             last_accessed: Instant::now(),
             dirty: false,
             max_age: Duration::from_secs(300), // 5 minutes
@@ -377,12 +319,12 @@ impl RedbObsoletedPackageIndex {
         self.dirty || self.last_accessed.elapsed() > self.max_age
     }
 
-    /// Create an empty temporary file-based RedbObsoletedPackageIndex
+    /// Create an empty temporary file-based SqliteObsoletedPackageIndex
     ///
     /// This is used as a fallback when the database creation fails.
     /// It creates a database in a temporary directory that can be used temporarily.
     fn empty() -> Self {
-        debug!("Creating empty temporary file-based redb database");
+        debug!("Creating empty temporary file-based SQLite database");
 
         // Create a temporary directory
         let temp_dir = tempfile::tempdir().unwrap_or_else(|e| {
@@ -391,50 +333,44 @@ impl RedbObsoletedPackageIndex {
         });
 
         // Create a database file in the temporary directory
-        let db_path = temp_dir.path().join("empty.redb");
+        let db_path = temp_dir.path().join("empty.db");
 
-        // Create the database
-        let db = Database::create(&db_path).unwrap_or_else(|e| {
+        // Create the database and tables
+        let conn = Connection::open(&db_path).unwrap_or_else(|e| {
             error!("Failed to create temporary database: {}", e);
             panic!("Failed to create temporary database: {}", e);
         });
 
-        // Create the tables
-        let write_txn = db.begin_write().unwrap();
-        {
-            // Create the new table for direct FMRI to metadata mapping
-            let _ = write_txn.open_table(FMRI_TO_METADATA_TABLE).unwrap();
-            let _ = write_txn.open_table(HASH_TO_MANIFEST_TABLE).unwrap();
-        }
-        write_txn.commit().unwrap();
+        conn.execute_batch(OBSOLETED_INDEX_SCHEMA).unwrap();
 
         Self {
-            db,
+            db_path,
             last_accessed: Instant::now(),
             dirty: false,
             max_age: Duration::from_secs(300), // 5 minutes
         }
     }
 
-    /// Open an existing RedbObsoletedPackageIndex
+    /// Open an existing SqliteObsoletedPackageIndex
     fn open<P: AsRef<Path>>(base_path: P) -> Result<Self> {
-        let db_path = base_path.as_ref().join("index.redb");
-        debug!("Opening redb database at {}", db_path.display());
+        let db_path = base_path.as_ref().join("index.db");
+        debug!("Opening SQLite database at {}", db_path.display());
 
-        // Open the database
-        let db = Database::open(&db_path)?;
+        // Open the database (creating tables if they don't exist)
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(OBSOLETED_INDEX_SCHEMA)?;
 
         Ok(Self {
-            db,
+            db_path,
             last_accessed: Instant::now(),
             dirty: false,
             max_age: Duration::from_secs(300), // 5 minutes
         })
     }
 
-    /// Create or open a RedbObsoletedPackageIndex
+    /// Create or open a SqliteObsoletedPackageIndex
     fn create_or_open<P: AsRef<Path>>(base_path: P) -> Result<Self> {
-        let db_path = base_path.as_ref().join("index.redb");
+        let db_path = base_path.as_ref().join("index.db");
 
         if db_path.exists() {
             Self::open(base_path)
@@ -464,69 +400,46 @@ impl RedbObsoletedPackageIndex {
             metadata.content_hash.clone()
         };
 
-        // Use the FMRI string directly as the key
-        let key_bytes = metadata.fmri.as_bytes();
+        // Serialize obsoleted_by as JSON string (or NULL if None)
+        let obsoleted_by_json = metadata
+            .obsoleted_by
+            .as_ref()
+            .map(|obs| serde_json::to_string(obs))
+            .transpose()?;
 
-        let metadata_bytes = match serde_cbor::to_vec(metadata) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Failed to serialize metadata with CBOR: {}", e);
-                return Err(ObsoletedPackageError::SerializationError(format!(
-                    "Failed to serialize metadata with CBOR: {}",
-                    e
-                ))
-                .into());
-            }
-        };
+        let mut conn = Connection::open(&self.db_path)?;
+        let tx = conn.transaction()?;
 
-        // Begin write transaction
-        let write_txn = match self.db.begin_write() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to begin write transaction: {}", e);
-                return Err(e.into());
-            }
-        };
+        // Insert into obsoleted_packages table
+        tx.execute(
+            "INSERT OR REPLACE INTO obsoleted_packages (
+                fmri, publisher, stem, version, status, obsolescence_date,
+                deprecation_message, obsoleted_by, metadata_version, content_hash
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                &metadata.fmri,
+                &key.publisher,
+                &key.stem,
+                &key.version,
+                &metadata.status,
+                &metadata.obsolescence_date,
+                metadata.deprecation_message.as_deref(),
+                obsoleted_by_json.as_deref(),
+                metadata.metadata_version,
+                &content_hash,
+            ],
+        )?;
 
-        {
-            // Open the tables
-            let mut fmri_to_metadata = match write_txn.open_table(FMRI_TO_METADATA_TABLE) {
-                Ok(table) => table,
-                Err(e) => {
-                    error!("Failed to open FMRI_TO_METADATA_TABLE: {}", e);
-                    return Err(e.into());
-                }
-            };
-
-            let mut hash_to_manifest = match write_txn.open_table(HASH_TO_MANIFEST_TABLE) {
-                Ok(table) => table,
-                Err(e) => {
-                    error!("Failed to open HASH_TO_MANIFEST_TABLE: {}", e);
-                    return Err(e.into());
-                }
-            };
-
-            // Insert the metadata directly with FMRI as the key
-            // This is the new approach that eliminates the intermediate hash lookup
-            if let Err(e) = fmri_to_metadata.insert(key_bytes, metadata_bytes.as_slice()) {
-                error!("Failed to insert into FMRI_TO_METADATA_TABLE: {}", e);
-                return Err(e.into());
-            }
-
-            // Only store the manifest if it's not a NULL_HASH entry
-            // For NULL_HASH entries, a minimal manifest will be generated when requested
-            if content_hash != NULL_HASH {
-                if let Err(e) = hash_to_manifest.insert(content_hash.as_str(), manifest) {
-                    error!("Failed to insert into HASH_TO_MANIFEST_TABLE: {}", e);
-                    return Err(e.into());
-                }
-            }
+        // Only store the manifest if it's not a NULL_HASH entry
+        // For NULL_HASH entries, a minimal manifest will be generated when requested
+        if content_hash != NULL_HASH {
+            tx.execute(
+                "INSERT OR REPLACE INTO obsoleted_manifests (content_hash, manifest) VALUES (?1, ?2)",
+                rusqlite::params![&content_hash, manifest],
+            )?;
         }
 
-        if let Err(e) = write_txn.commit() {
-            error!("Failed to commit transaction: {}", e);
-            return Err(e.into());
-        }
+        tx.commit()?;
 
         debug!("Successfully added entry to index: {}", metadata.fmri);
         Ok(())
@@ -536,32 +449,25 @@ impl RedbObsoletedPackageIndex {
     fn remove_entry(&self, key: &ObsoletedPackageKey) -> Result<bool> {
         // Use the FMRI string directly as the key
         let fmri = key.to_fmri_string();
-        let key_bytes = fmri.as_bytes();
 
-        // First, check if the key exists in the new table
-        let exists_in_new_table = {
-            let read_txn = self.db.begin_read()?;
-            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
+        let conn = Connection::open(&self.db_path)?;
 
-            fmri_to_metadata.get(key_bytes)?.is_some()
-        };
+        // Check if the entry exists
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM obsoleted_packages WHERE fmri = ?1)",
+            rusqlite::params![&fmri],
+            |row| row.get(0),
+        )?;
 
-        // If the key doesn't exist in either table, return early
-        if !exists_in_new_table {
+        if !exists {
             return Ok(false);
         }
 
-        // Now perform the actual removal
-        let write_txn = self.db.begin_write()?;
-        {
-            // Remove the entry from the new table
-            if exists_in_new_table {
-                let mut fmri_to_metadata = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
-                fmri_to_metadata.remove(key_bytes)?;
-            }
-        }
-
-        write_txn.commit()?;
+        // Remove the entry
+        conn.execute(
+            "DELETE FROM obsoleted_packages WHERE fmri = ?1",
+            rusqlite::params![&fmri],
+        )?;
 
         Ok(true)
     }
@@ -573,43 +479,61 @@ impl RedbObsoletedPackageIndex {
     ) -> Result<Option<(ObsoletedPackageMetadata, String)>> {
         // Use the FMRI string directly as the key
         let fmri = key.to_fmri_string();
-        let key_bytes = fmri.as_bytes();
 
-        // First, try to get the metadata directly from the new table
-        let metadata_result = {
-            let read_txn = self.db.begin_read()?;
-            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
+        let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-            // Get the metadata bytes
-            match fmri_to_metadata.get(key_bytes)? {
-                Some(bytes) => {
-                    // Convert to owned bytes before the transaction is dropped
-                    let metadata_bytes = bytes.value().to_vec();
-                    // Try to deserialize the metadata
-                    match serde_cbor::from_slice::<ObsoletedPackageMetadata>(&metadata_bytes) {
-                        Ok(metadata) => Some(metadata),
-                        Err(e) => {
-                            warn!(
-                                "Failed to deserialize metadata from FMRI_TO_METADATA_TABLE with CBOR: {}",
-                                e
-                            );
-                            None
-                        }
-                    }
-                }
-                None => None,
-            }
+        // Try to get the metadata from the database
+        let metadata_result = match conn.query_row(
+            "SELECT fmri, status, obsolescence_date, deprecation_message,
+                    obsoleted_by, metadata_version, content_hash
+             FROM obsoleted_packages WHERE fmri = ?1",
+            rusqlite::params![&fmri],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, u32>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            },
+        ) {
+            Ok(result) => Some(result),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(e.into()),
         };
 
-        // If we found the metadata in the new table, use it
-        if let Some(metadata) = metadata_result {
-            // Get the content hash from the metadata
-            let content_hash = metadata.content_hash.clone();
+        if let Some((
+            fmri,
+            status,
+            obsolescence_date,
+            deprecation_message,
+            obsoleted_by_json,
+            metadata_version,
+            content_hash,
+        )) = metadata_result
+        {
+            // Deserialize obsoleted_by from JSON if present
+            let obsoleted_by = obsoleted_by_json
+                .as_ref()
+                .map(|json| serde_json::from_str::<Vec<String>>(json))
+                .transpose()?;
+
+            let metadata = ObsoletedPackageMetadata {
+                fmri,
+                status,
+                obsolescence_date,
+                deprecation_message,
+                obsoleted_by,
+                metadata_version,
+                content_hash: content_hash.clone(),
+            };
 
             // For NULL_HASH entries, generate a minimal manifest
             let manifest_str = if content_hash == NULL_HASH {
                 // Generate a minimal manifest for NULL_HASH entries
-                // Construct an FMRI string from the metadata
                 format!(
                     r#"{{
     "attributes": [
@@ -631,13 +555,13 @@ impl RedbObsoletedPackageIndex {
                 )
             } else {
                 // For non-NULL_HASH entries, get the manifest from the database
-                let read_txn = self.db.begin_read()?;
-                let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-
-                // Get the manifest string
-                match hash_to_manifest.get(content_hash.as_str())? {
-                    Some(manifest) => manifest.value().to_string(),
-                    None => {
+                match conn.query_row(
+                    "SELECT manifest FROM obsoleted_manifests WHERE content_hash = ?1",
+                    rusqlite::params![&content_hash],
+                    |row| row.get::<_, String>(0),
+                ) {
+                    Ok(manifest) => manifest,
+                    Err(rusqlite::Error::QueryReturnedNoRows) => {
                         warn!(
                             "Manifest not found for content hash: {}, generating minimal manifest",
                             content_hash
@@ -663,6 +587,7 @@ impl RedbObsoletedPackageIndex {
                             metadata.fmri
                         )
                     }
+                    Err(e) => return Err(e.into()),
                 }
             };
             Ok(Some((metadata, manifest_str)))
@@ -676,119 +601,146 @@ impl RedbObsoletedPackageIndex {
         &self,
     ) -> Result<Vec<(ObsoletedPackageKey, ObsoletedPackageMetadata, String)>> {
         let mut entries = Vec::new();
-        let mut processed_keys = std::collections::HashSet::new();
 
-        // First, collect all entries from the new table
-        {
-            let read_txn = self.db.begin_read()?;
-            let fmri_to_metadata = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
+        let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-            let mut iter = fmri_to_metadata.iter()?;
+        let mut stmt = conn.prepare(
+            "SELECT fmri, publisher, stem, version, status, obsolescence_date,
+                    deprecation_message, obsoleted_by, metadata_version, content_hash
+             FROM obsoleted_packages",
+        )?;
 
-            while let Some(entry) = iter.next() {
-                let (key_bytes, metadata_bytes) = entry?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, u32>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })?;
 
-                // Convert to owned types before the transaction is dropped
-                let key_data = key_bytes.value().to_vec();
-                let metadata_data = metadata_bytes.value().to_vec();
+        for row_result in rows {
+            let (
+                fmri,
+                _publisher,
+                _stem,
+                _version,
+                status,
+                obsolescence_date,
+                deprecation_message,
+                obsoleted_by_json,
+                metadata_version,
+                content_hash,
+            ) = match row_result {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed to read row: {}", e);
+                    continue;
+                }
+            };
 
-                // Convert key bytes to string and parse as FMRI
-                let fmri_str = match std::str::from_utf8(&key_data) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!("Failed to convert key bytes to string: {}", e);
-                        continue;
-                    }
-                };
+            // Parse the FMRI string to create an ObsoletedPackageKey
+            let key = match ObsoletedPackageKey::from_fmri_string(&fmri) {
+                Ok(key) => key,
+                Err(e) => {
+                    warn!("Failed to parse FMRI string: {}", e);
+                    continue;
+                }
+            };
 
-                // Parse the FMRI string to create an ObsoletedPackageKey
-                let key = match ObsoletedPackageKey::from_fmri_string(fmri_str) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        warn!("Failed to parse FMRI string: {}", e);
-                        continue;
-                    }
-                };
+            // Deserialize obsoleted_by from JSON if present
+            let obsoleted_by = match obsoleted_by_json
+                .as_ref()
+                .map(|json| serde_json::from_str::<Vec<String>>(json))
+                .transpose()
+            {
+                Ok(obs) => obs,
+                Err(e) => {
+                    warn!("Failed to deserialize obsoleted_by JSON: {}", e);
+                    continue;
+                }
+            };
 
-                let metadata: ObsoletedPackageMetadata = match serde_cbor::from_slice(
-                    &metadata_data,
+            let metadata = ObsoletedPackageMetadata {
+                fmri: fmri.clone(),
+                status,
+                obsolescence_date,
+                deprecation_message,
+                obsoleted_by,
+                metadata_version,
+                content_hash: content_hash.clone(),
+            };
+
+            // For NULL_HASH entries, generate a minimal manifest
+            let manifest_str = if content_hash == NULL_HASH {
+                // Generate a minimal manifest for NULL_HASH entries
+                format!(
+                    r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#,
+                    fmri
+                )
+            } else {
+                // For non-NULL_HASH entries, get the manifest from the database
+                match conn.query_row(
+                    "SELECT manifest FROM obsoleted_manifests WHERE content_hash = ?1",
+                    rusqlite::params![&content_hash],
+                    |row| row.get::<_, String>(0),
                 ) {
-                    Ok(metadata) => metadata,
-                    Err(e) => {
+                    Ok(manifest) => manifest,
+                    Err(rusqlite::Error::QueryReturnedNoRows) => {
                         warn!(
-                            "Failed to deserialize metadata from FMRI_TO_METADATA_TABLE with CBOR: {}",
-                            e
+                            "Manifest not found for content hash: {}, generating minimal manifest",
+                            content_hash
                         );
+                        // Generate a minimal manifest as a fallback
+                        format!(
+                            r#"{{
+    "attributes": [
+        {{
+            "key": "pkg.fmri",
+            "values": [
+                "{}"
+            ]
+        }},
+        {{
+            "key": "pkg.obsolete",
+            "values": [
+                "true"
+            ]
+        }}
+    ]
+}}"#,
+                            fmri
+                        )
+                    }
+                    Err(e) => {
+                        warn!("Failed to get manifest for content hash: {}", e);
                         continue;
                     }
-                };
+                }
+            };
 
-                // Add the key to the set of processed keys
-                processed_keys.insert(key_data);
-
-                // Get the content hash from the metadata
-                let content_hash = metadata.content_hash.clone();
-
-                // For NULL_HASH entries, generate a minimal manifest
-                let manifest_str = if content_hash == NULL_HASH {
-                    // Generate a minimal manifest for NULL_HASH entries
-                    format!(
-                        r#"{{
-    "attributes": [
-        {{
-            "key": "pkg.fmri",
-            "values": [
-                "{}"
-            ]
-        }},
-        {{
-            "key": "pkg.obsolete",
-            "values": [
-                "true"
-            ]
-        }}
-    ]
-}}"#,
-                        metadata.fmri
-                    )
-                } else {
-                    // For non-NULL_HASH entries, get the manifest from the database
-                    let hash_to_manifest = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-
-                    // Get the manifest string
-                    match hash_to_manifest.get(content_hash.as_str())? {
-                        Some(manifest) => manifest.value().to_string(),
-                        None => {
-                            warn!(
-                                "Manifest not found for content hash: {}, generating minimal manifest",
-                                content_hash
-                            );
-                            // Generate a minimal manifest as a fallback
-                            format!(
-                                r#"{{
-    "attributes": [
-        {{
-            "key": "pkg.fmri",
-            "values": [
-                "{}"
-            ]
-        }},
-        {{
-            "key": "pkg.obsolete",
-            "values": [
-                "true"
-            ]
-        }}
-    ]
-}}"#,
-                                metadata.fmri
-                            )
-                        }
-                    }
-                };
-
-                entries.push((key, metadata, manifest_str));
-            }
+            entries.push((key, metadata, manifest_str));
         }
 
         Ok(entries)
@@ -858,86 +810,26 @@ impl RedbObsoletedPackageIndex {
 
     /// Clear the index
     fn clear(&self) -> Result<()> {
-        // Begin a writing transaction
-        let write_txn = self.db.begin_write()?;
-        {
-            // Clear all tables by removing all entries
-            // Since redb doesn't have a clear() method, we need to iterate and remove each key
+        let conn = Connection::open(&self.db_path)?;
 
-            // Clear hash_to_manifest table
-            {
-                let mut hash_to_manifest = write_txn.open_table(FMRI_TO_METADATA_TABLE)?;
-                let keys_to_remove = {
-                    // First, collect all keys in a separate scope
-                    let read_txn = self.db.begin_read()?;
-                    let hash_to_manifest_read = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
-                    let mut keys = Vec::new();
-                    let mut iter = hash_to_manifest_read.iter()?;
-                    while let Some(entry) = iter.next() {
-                        let (key, _) = entry?;
-                        keys.push(key.value().to_vec());
-                    }
-                    keys
-                };
-
-                // Then remove all keys
-                for key in keys_to_remove {
-                    hash_to_manifest.remove(key.as_slice())?;
-                }
-            }
-
-            // Clear hash_to_manifest table
-            {
-                let mut hash_to_manifest = write_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-                let keys_to_remove = {
-                    // First, collect all keys in a separate scope
-                    let read_txn = self.db.begin_read()?;
-                    let hash_to_manifest_read = read_txn.open_table(HASH_TO_MANIFEST_TABLE)?;
-                    let mut keys = Vec::new();
-                    let mut iter = hash_to_manifest_read.iter()?;
-                    while let Some(entry) = iter.next() {
-                        let (key, _) = entry?;
-                        keys.push(key.value().to_string());
-                    }
-                    keys
-                };
-
-                // Then remove all keys
-                for key in keys_to_remove {
-                    hash_to_manifest.remove(key.as_str())?;
-                }
-            }
-        }
-        write_txn.commit()?;
+        // Clear both tables
+        conn.execute("DELETE FROM obsoleted_packages", [])?;
+        conn.execute("DELETE FROM obsoleted_manifests", [])?;
 
         Ok(())
     }
 
     /// Get the number of entries in the index
     fn len(&self) -> Result<usize> {
-        // Begin a read transaction
-        let read_txn = self.db.begin_read()?;
+        let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-        // Open the fmri_to_hash table
-        let fmri_to_hash = read_txn.open_table(FMRI_TO_METADATA_TABLE)?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM obsoleted_packages",
+            [],
+            |row| row.get(0),
+        )?;
 
-        // Count the entries
-        let mut count = 0;
-        let mut iter = fmri_to_hash.iter()?;
-
-        // Iterate through all entries and count them
-        while let Some(entry_result) = iter.next() {
-            // Just check if the entry exists, we don't need to access its value
-            entry_result?;
-            count += 1;
-        }
-
-        // Drop the iterator and table before returning
-        drop(iter);
-        drop(fmri_to_hash);
-        drop(read_txn);
-
-        Ok(count)
+        Ok(count as usize)
     }
 
     /// Check if the index is empty
@@ -1033,8 +925,8 @@ impl ObsoletedPackageMetadata {
 pub struct ObsoletedPackageManager {
     /// Base path for obsoleted packages
     base_path: PathBuf,
-    /// Index of obsoleted packages for faster lookups using redb
-    index: RwLock<RedbObsoletedPackageIndex>,
+    /// Index of obsoleted packages for faster lookups using SQLite
+    index: RwLock<SqliteObsoletedPackageIndex>,
 }
 
 impl ObsoletedPackageManager {
@@ -1075,14 +967,14 @@ impl ObsoletedPackageManager {
         let base_path = repo_path.as_ref().join("obsoleted");
 
         let index = {
-            // Create or open the redb-based index
-            let redb_index =
-                RedbObsoletedPackageIndex::create_or_open(&base_path).unwrap_or_else(|e| {
-                    // Log the error and create an empty redb index
-                    error!("Failed to create or open redb-based index: {}", e);
-                    RedbObsoletedPackageIndex::empty()
+            // Create or open the SQLite-based index
+            let sqlite_index =
+                SqliteObsoletedPackageIndex::create_or_open(&base_path).unwrap_or_else(|e| {
+                    // Log the error and create an empty SQLite index
+                    error!("Failed to create or open SQLite-based index: {}", e);
+                    SqliteObsoletedPackageIndex::empty()
                 });
-            RwLock::new(redb_index)
+            RwLock::new(sqlite_index)
         };
 
         Self { base_path, index }

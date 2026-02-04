@@ -1,7 +1,7 @@
 use super::*;
 use crate::actions::{Attr, Manifest};
 use crate::fmri::Fmri;
-use redb::{Database, ReadableTable};
+use rusqlite::Connection;
 use std::str::FromStr;
 use tempfile::tempdir;
 
@@ -82,7 +82,7 @@ fn test_installed_packages() {
 fn test_installed_packages_key_format() {
     // Create a temporary directory for the test
     let temp_dir = tempdir().unwrap();
-    let db_path = temp_dir.path().join("installed.redb");
+    let db_path = temp_dir.path().join("installed.db");
 
     // Create the installed packages database
     let installed = InstalledPackages::new(&db_path);
@@ -104,15 +104,15 @@ fn test_installed_packages_key_format() {
     installed.add_package(&fmri, &manifest).unwrap();
 
     // Open the database directly to check the key format
-    let db = Database::open(&db_path).unwrap();
-    let tx = db.begin_read().unwrap();
-    let table = tx.open_table(installed::INSTALLED_TABLE).unwrap();
+    let conn = Connection::open(&db_path).unwrap();
+    let mut stmt = conn.prepare("SELECT fmri FROM installed").unwrap();
+    let mut rows = stmt.query([]).unwrap();
 
-    // Iterate through the keys
+    // Collect the keys
     let mut keys = Vec::new();
-    for entry in table.iter().unwrap() {
-        let (key, _) = entry.unwrap();
-        keys.push(key.value().to_string());
+    while let Some(row) = rows.next().unwrap() {
+        let fmri_str: String = row.get(0).unwrap();
+        keys.push(fmri_str);
     }
 
     // Verify that there is one key and it has the correct format
