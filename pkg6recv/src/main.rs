@@ -50,7 +50,7 @@ struct Cli {
 fn main() -> Result<()> {
     // Initialize tracing
     fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 
     let cli = Cli::parse();

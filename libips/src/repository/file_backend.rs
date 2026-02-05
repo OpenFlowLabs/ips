@@ -571,15 +571,30 @@ impl Transaction {
         // Save the JSON manifest to the transaction directory
         let manifest_json_path = self.path.join("manifest.json");
         let manifest_json = serde_json::to_string_pretty(&self.manifest)?;
-        fs::write(&manifest_json_path, &manifest_json)?;
+        fs::write(&manifest_json_path, &manifest_json).map_err(|e| {
+            RepositoryError::FileWriteError {
+                path: manifest_json_path.clone(),
+                source: e,
+            }
+        })?;
 
         // Save the legacy manifest to the transaction directory
         let manifest_legacy_path = self.path.join("manifest");
         if let Some(content) = &self.legacy_manifest_content {
-            fs::write(&manifest_legacy_path, content)?;
+            fs::write(&manifest_legacy_path, content).map_err(|e| {
+                RepositoryError::FileWriteError {
+                    path: manifest_legacy_path.clone(),
+                    source: e,
+                }
+            })?;
         } else {
             // Fallback: write JSON as legacy content if none provided (status quo)
-            fs::write(&manifest_legacy_path, &manifest_json)?;
+            fs::write(&manifest_legacy_path, &manifest_json).map_err(|e| {
+                RepositoryError::FileWriteError {
+                    path: manifest_legacy_path.clone(),
+                    source: e,
+                }
+            })?;
         }
 
         // Determine the publisher to use
@@ -625,12 +640,19 @@ impl Transaction {
 
             // Create parent directories if they don't exist
             if let Some(parent) = dest_path.parent() {
-                fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent).map_err(|e| RepositoryError::DirectoryCreateError {
+                    path: parent.to_path_buf(),
+                    source: e,
+                })?;
             }
 
             // Copy the file if it doesn't already exist
             if !dest_path.exists() {
-                fs::copy(source_path, &dest_path)?;
+                fs::copy(&source_path, &dest_path).map_err(|e| RepositoryError::FileCopyError {
+                    from: source_path.clone(),
+                    to: dest_path,
+                    source: e,
+                })?;
             }
         }
 
@@ -689,7 +711,10 @@ impl Transaction {
         debug!("Package directory: {}", pkg_dir.display());
         if !pkg_dir.exists() {
             debug!("Creating package directory");
-            fs::create_dir_all(&pkg_dir)?;
+            fs::create_dir_all(&pkg_dir).map_err(|e| RepositoryError::DirectoryCreateError {
+                path: pkg_dir.clone(),
+                source: e,
+            })?;
         }
 
         // Construct the manifest path using the helper method
@@ -710,7 +735,10 @@ impl Transaction {
         // Create parent directories if they don't exist
         if let Some(parent) = pkg_manifest_path.parent() {
             debug!("Creating parent directories: {}", parent.display());
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(|e| RepositoryError::DirectoryCreateError {
+                path: parent.to_path_buf(),
+                source: e,
+            })?;
         }
 
         // Copy to pkg directory
@@ -721,7 +749,13 @@ impl Transaction {
             manifest_json_path.display(),
             pkg_manifest_json_path.display()
         );
-        fs::copy(&manifest_json_path, &pkg_manifest_json_path)?;
+        fs::copy(&manifest_json_path, &pkg_manifest_json_path).map_err(|e| {
+            RepositoryError::FileCopyError {
+                from: manifest_json_path,
+                to: pkg_manifest_json_path,
+                source: e,
+            }
+        })?;
 
         // 2. Copy legacy manifest
         debug!(
@@ -729,7 +763,13 @@ impl Transaction {
             manifest_legacy_path.display(),
             pkg_manifest_path.display()
         );
-        fs::copy(&manifest_legacy_path, &pkg_manifest_path)?;
+        fs::copy(&manifest_legacy_path, &pkg_manifest_path).map_err(|e| {
+            RepositoryError::FileCopyError {
+                from: manifest_legacy_path,
+                to: pkg_manifest_path,
+                source: e,
+            }
+        })?;
 
         // Check if we need to create a pub.p5i file for the publisher
         let config_path = self.repo.join(REPOSITORY_CONFIG_FILENAME);
@@ -757,7 +797,10 @@ impl Transaction {
         }
 
         // Clean up the transaction directory
-        fs::remove_dir_all(self.path)?;
+        fs::remove_dir_all(&self.path).map_err(|e| RepositoryError::DirectoryRemoveError {
+            path: self.path.clone(),
+            source: e,
+        })?;
 
         Ok(())
     }
@@ -1498,7 +1541,10 @@ impl ReadableRepository for FileBackend {
 
         // Ensure destination directory exists
         if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(|e| RepositoryError::DirectoryCreateError {
+                path: parent.to_path_buf(),
+                source: e,
+            })?;
         }
 
         // If destination already exists and matches digest, do nothing
@@ -1541,10 +1587,20 @@ impl ReadableRepository for FileBackend {
         // Write atomically
         let tmp = dest.with_extension("tmp");
         {
-            let mut f = File::create(&tmp)?;
-            f.write_all(&bytes)?;
+            let mut f = File::create(&tmp).map_err(|e| RepositoryError::FileCreateError {
+                path: tmp.clone(),
+                source: e,
+            })?;
+            f.write_all(&bytes).map_err(|e| RepositoryError::FileWriteError {
+                path: tmp.clone(),
+                source: e,
+            })?;
         }
-        fs::rename(&tmp, dest)?;
+        fs::rename(&tmp, dest).map_err(|e| RepositoryError::FileRenameError {
+            from: tmp,
+            to: dest.to_path_buf(),
+            source: e,
+        })?;
 
         Ok(())
     }

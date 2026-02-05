@@ -69,6 +69,17 @@ pub enum RepositoryError {
         source: io::Error,
     },
 
+    #[error("failed to open file {path}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::file_open),
+        help("Check that the file exists and is accessible")
+    )]
+    FileOpenError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
     #[error("failed to read file {path}: {source}")]
     #[diagnostic(
         code(ips::repository_error::file_read),
@@ -87,6 +98,63 @@ pub enum RepositoryError {
     )]
     FileWriteError {
         path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("failed to create file {path}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::file_create),
+        help("Check that the directory is writable and has enough space")
+    )]
+    FileCreateError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("failed to rename {from} to {to}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::file_rename),
+        help("Check that the files are on the same filesystem and not in use")
+    )]
+    FileRenameError {
+        from: PathBuf,
+        to: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("failed to remove file {path}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::file_remove),
+        help("Check that the file exists and you have permissions to remove it")
+    )]
+    FileRemoveError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("failed to remove directory {path}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::directory_remove),
+        help("Check that the directory exists and you have permissions to remove it")
+    )]
+    DirectoryRemoveError {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("failed to copy {from} to {to}: {source}")]
+    #[diagnostic(
+        code(ips::repository_error::file_copy),
+        help("Check that both paths are valid and you have necessary permissions")
+    )]
+    FileCopyError {
+        from: PathBuf,
+        to: PathBuf,
         #[source]
         source: io::Error,
     },
