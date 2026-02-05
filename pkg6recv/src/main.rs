@@ -69,17 +69,17 @@ fn main() -> Result<()> {
 
     // Determine if source is a URL or a path and receive packages
     if cli.source.starts_with("http://") || cli.source.starts_with("https://") {
-        let mut source_repo = RestBackend::open(&cli.source).into_diagnostic()?;
+        let source_repo = RestBackend::open(&cli.source).into_diagnostic()?;
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
-        let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
+        let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
         receiver
             .receive(cli.publisher.as_deref(), &fmris, cli.recursive)
             .into_diagnostic()?;
     } else {
-        let mut source_repo = FileBackend::open(&cli.source).into_diagnostic()?;
+        let source_repo = FileBackend::open(&cli.source).into_diagnostic()?;
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
-        let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
+        let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
         receiver
             .receive(cli.publisher.as_deref(), &fmris, cli.recursive)

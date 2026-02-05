@@ -9,21 +9,23 @@ use crate::repository::{
     FileBackend, NoopProgressReporter, ProgressInfo, ProgressReporter, ReadableRepository,
     RepositoryError, Result, WritableRepository,
 };
+use rayon::prelude::*;
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 use tracing::{debug, info};
 
 /// PackageReceiver handles downloading packages from a source repository
 /// and storing them in a destination repository.
 pub struct PackageReceiver<'a, S: ReadableRepository> {
-    source: &'a mut S,
+    source: &'a S,
     dest: FileBackend,
     progress: Option<&'a dyn ProgressReporter>,
 }
 
-impl<'a, S: ReadableRepository> PackageReceiver<'a, S> {
+impl<'a, S: ReadableRepository + Sync> PackageReceiver<'a, S> {
     /// Create a new PackageReceiver
-    pub fn new(source: &'a mut S, dest: FileBackend) -> Self {
+    pub fn new(source: &'a S, dest: FileBackend) -> Self {
         Self {
             source,
             dest,
@@ -215,28 +217,53 @@ impl<'a, S: ReadableRepository> PackageReceiver<'a, S> {
             .collect();
         let total_files = payload_files.len() as u64;
 
-        for (i, file) in payload_files.into_iter().enumerate() {
-            if let Some(payload) = &file.payload {
-                let files_done = (i + 1) as u64;
+        // Download all payloads in parallel
+        let files_done = Arc::new(Mutex::new(0u64));
+        let publisher_str = publisher.to_string();
+        let fmri_name = fmri.name.clone();
+        let temp_dir_path = temp_dir.path().to_path_buf();
+
+        let download_results: std::result::Result<Vec<_>, RepositoryError> = payload_files
+            .par_iter()
+            .map(|file| {
+                let payload = file.payload.as_ref().unwrap();
                 let digest = &payload.primary_identifier.hash;
+                let temp_file_path = temp_dir_path.join(digest);
 
-                progress.update(
-                    &ProgressInfo::new(format!("Receiving payloads for {}", fmri.name))
-                        .with_total(total_files)
-                        .with_current(files_done)
-                        .with_context(format!("Payload: {}", digest)),
-                );
-
-                let temp_file_path = temp_dir.path().join(digest);
                 debug!(
                     "Fetching payload {} to {}",
                     digest,
                     temp_file_path.display()
                 );
+
+                // Download the payload (now works with &self)
                 self.source
-                    .fetch_payload(publisher, digest, &temp_file_path)?;
-                txn.add_file(file.clone(), &temp_file_path)?;
-            }
+                    .fetch_payload(&publisher_str, digest, &temp_file_path)?;
+
+                // Update progress atomically
+                let current_count = {
+                    let mut count = files_done.lock()
+                        .map_err(|e| RepositoryError::Other(format!("Failed to lock progress counter: {}", e)))?;
+                    *count += 1;
+                    *count
+                };
+
+                progress.update(
+                    &ProgressInfo::new(format!("Receiving payloads for {}", fmri_name))
+                        .with_total(total_files)
+                        .with_current(current_count)
+                        .with_context(format!("Payload: {}", digest)),
+                );
+
+                Ok((file, temp_file_path))
+            })
+            .collect();
+
+        let download_info = download_results?;
+
+        // Add all files to the transaction
+        for (file, temp_file_path) in download_info {
+            txn.add_file((*file).clone(), &temp_file_path)?;
         }
 
         txn.update_manifest(manifest.clone());
@@ -279,7 +306,7 @@ mod tests {
         // Create dest repo
         let dest_repo = FileBackend::create(dest_dir.path(), RepositoryVersion::V4)?;
 
-        let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
+        let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver.receive(Some("test"), &[Fmri::new("pkgA")], false)?;
 
         // Verify dest repo has the package
@@ -318,7 +345,7 @@ mod tests {
         // Create dest repo
         let dest_repo = FileBackend::create(dest_dir.path(), RepositoryVersion::V4)?;
 
-        let mut receiver = PackageReceiver::new(&mut source_repo, dest_repo);
+        let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver.receive(Some("test"), &[Fmri::new("pkgA")], false)?;
 
         // Verify dest repo has the package and the manifest is in IPS format

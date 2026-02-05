@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 
 use reqwest::blocking::Client;
 use serde_json::Value;
+use std::time::Duration;
 
 use super::catalog::CatalogManager;
 use super::{
@@ -81,7 +82,7 @@ impl WritableRepository for RestBackend {
             uri: uri_str,
             config,
             local_cache_path: None,
-            client: Client::new(),
+            client: Self::create_optimized_client(),
             catalog_managers: HashMap::new(),
         };
 
@@ -263,7 +264,7 @@ impl WritableRepository for RestBackend {
             uri: self.uri.clone(),
             config: self.config.clone(),
             local_cache_path: self.local_cache_path.clone(),
-            client: Client::new(),
+            client: Self::create_optimized_client(),
             catalog_managers: HashMap::new(),
         };
 
@@ -334,7 +335,7 @@ impl ReadableRepository for RestBackend {
             .to_string();
 
         // Create an HTTP client
-        let client = Client::new();
+        let client = Self::create_optimized_client();
 
         // Fetch the repository configuration from the remote server
         // We'll try to get the publisher information using the publisher endpoint
@@ -602,7 +603,7 @@ impl ReadableRepository for RestBackend {
         Ok(package_contents)
     }
 
-    fn fetch_payload(&mut self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
+    fn fetch_payload(&self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
         // Determine hash and algorithm from the provided digest string
         let mut hash = digest.to_string();
         let mut algo: Option<crate::digest::DigestAlgorithm> = None;
@@ -678,7 +679,7 @@ impl ReadableRepository for RestBackend {
     }
 
     fn fetch_manifest(
-        &mut self,
+        &self,
         publisher: &str,
         fmri: &crate::fmri::Fmri,
     ) -> Result<crate::actions::Manifest> {
@@ -695,7 +696,7 @@ impl ReadableRepository for RestBackend {
         todo!()
     }
 
-    fn fetch_manifest_text(&mut self, publisher: &str, fmri: &crate::fmri::Fmri) -> Result<String> {
+    fn fetch_manifest_text(&self, publisher: &str, fmri: &crate::fmri::Fmri) -> Result<String> {
         // Require versioned FMRI
         let version = fmri.version();
         if version.is_empty() {
@@ -760,6 +761,19 @@ impl ReadableRepository for RestBackend {
 }
 
 impl RestBackend {
+    /// Create an optimized HTTP client with connection pooling and timeouts
+    fn create_optimized_client() -> Client {
+        Client::builder()
+            .pool_idle_timeout(Some(Duration::from_secs(90)))
+            .pool_max_idle_per_host(8)
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(300))
+            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .http2_prior_knowledge()
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    }
+
     /// Sets the local path where catalog files will be cached.
     ///
     /// This method creates the directory if it doesn't exist. The local cache path

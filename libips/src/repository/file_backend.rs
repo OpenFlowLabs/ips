@@ -16,6 +16,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info};
 use walkdir::WalkDir;
@@ -358,11 +359,11 @@ pub struct FileBackend {
     pub path: PathBuf,
     pub config: RepositoryConfig,
     /// Catalog manager for handling catalog operations
-    /// Uses RefCell for interior mutability to allow mutation through immutable references
-    catalog_manager: Option<std::cell::RefCell<crate::repository::catalog::CatalogManager>>,
+    /// Uses Mutex for interior mutability to allow mutation through immutable references (thread-safe)
+    catalog_manager: Option<Mutex<crate::repository::catalog::CatalogManager>>,
     /// Manager for obsoleted packages
     obsoleted_manager:
-        Option<std::cell::RefCell<crate::repository::obsoleted::ObsoletedPackageManager>>,
+        Option<Mutex<crate::repository::obsoleted::ObsoletedPackageManager>>,
 }
 
 /// Transaction for publishing packages
@@ -1467,7 +1468,7 @@ impl ReadableRepository for FileBackend {
         Ok(package_contents)
     }
 
-    fn fetch_payload(&mut self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
+    fn fetch_payload(&self, publisher: &str, digest: &str, dest: &Path) -> Result<()> {
         // Parse digest; supports both raw hash and source:algorithm:hash
         let parsed = match Digest::from_str(digest) {
             Ok(d) => d,
@@ -1549,7 +1550,7 @@ impl ReadableRepository for FileBackend {
     }
 
     fn fetch_manifest(
-        &mut self,
+        &self,
         publisher: &str,
         fmri: &crate::fmri::Fmri,
     ) -> Result<crate::actions::Manifest> {
@@ -1596,7 +1597,7 @@ impl ReadableRepository for FileBackend {
         )))
     }
 
-    fn fetch_manifest_text(&mut self, publisher: &str, fmri: &Fmri) -> Result<String> {
+    fn fetch_manifest_text(&self, publisher: &str, fmri: &Fmri) -> Result<String> {
         // Require a concrete version
         let version = fmri.version();
         if version.is_empty() {
@@ -2387,8 +2388,9 @@ impl FileBackend {
                                                 &self.obsoleted_manager
                                             {
                                                 obsoleted_manager
-                                                    .borrow()
-                                                    .is_obsoleted(publisher, &final_fmri)
+                                                    .lock()
+                                                    .map(|mgr| mgr.is_obsoleted(publisher, &final_fmri))
+                                                    .unwrap_or(false)
                                             } else {
                                                 false
                                             };
@@ -2853,40 +2855,46 @@ impl FileBackend {
     /// Get or initialize the catalog manager
     ///
     /// This method returns a mutable reference to the catalog manager.
-    /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
+    /// It uses interior mutability with Mutex to allow mutation through an immutable reference.
     ///
     /// The catalog manager is specific to the given publisher.
     pub fn get_catalog_manager(
         &mut self,
         publisher: &str,
-    ) -> Result<std::cell::RefMut<'_, crate::repository::catalog::CatalogManager>> {
+    ) -> Result<std::sync::MutexGuard<'_, crate::repository::catalog::CatalogManager>> {
         if self.catalog_manager.is_none() {
             let publisher_dir = self.path.join("publisher");
             let manager =
                 crate::repository::catalog::CatalogManager::new(&publisher_dir, publisher)?;
-            let refcell = std::cell::RefCell::new(manager);
-            self.catalog_manager = Some(refcell);
+            let mutex = Mutex::new(manager);
+            self.catalog_manager = Some(mutex);
         }
 
-        // This is safe because we just checked that catalog_manager is Some
-        Ok(self.catalog_manager.as_ref().unwrap().borrow_mut())
+        self.catalog_manager
+            .as_ref()
+            .ok_or_else(|| RepositoryError::Other("Catalog manager not initialized".to_string()))?
+            .lock()
+            .map_err(|e| RepositoryError::Other(format!("Failed to lock catalog manager: {}", e)))
     }
 
     /// Get or initialize the obsoleted package manager
     ///
     /// This method returns a mutable reference to the obsoleted package manager.
-    /// It uses interior mutability with RefCell to allow mutation through an immutable reference.
+    /// It uses interior mutability with Mutex to allow mutation through an immutable reference.
     pub fn get_obsoleted_manager(
         &mut self,
-    ) -> Result<std::cell::RefMut<'_, crate::repository::obsoleted::ObsoletedPackageManager>> {
+    ) -> Result<std::sync::MutexGuard<'_, crate::repository::obsoleted::ObsoletedPackageManager>> {
         if self.obsoleted_manager.is_none() {
             let manager = crate::repository::obsoleted::ObsoletedPackageManager::new(&self.path);
-            let refcell = std::cell::RefCell::new(manager);
-            self.obsoleted_manager = Some(refcell);
+            let mutex = Mutex::new(manager);
+            self.obsoleted_manager = Some(mutex);
         }
 
-        // This is safe because we just checked that obsoleted_manager is Some
-        Ok(self.obsoleted_manager.as_ref().unwrap().borrow_mut())
+        self.obsoleted_manager
+            .as_ref()
+            .ok_or_else(|| RepositoryError::Other("Obsoleted manager not initialized".to_string()))?
+            .lock()
+            .map_err(|e| RepositoryError::Other(format!("Failed to lock obsoleted manager: {}", e)))
     }
 
     /// URL encode a string for use in a filename

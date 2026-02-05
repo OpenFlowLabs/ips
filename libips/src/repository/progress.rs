@@ -35,7 +35,7 @@ use std::fmt;
 ///     }
 /// }
 /// ```
-pub trait ProgressReporter {
+pub trait ProgressReporter: Send + Sync {
     /// Called when an operation starts.
     ///
     /// # Arguments
