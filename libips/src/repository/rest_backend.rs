@@ -1218,7 +1218,7 @@ impl RestBackend {
                     .join(&pub_name)
             };
 
-            let catalog_manager = self.get_catalog_manager(&pub_name)?;
+            let mut catalog_manager = self.get_catalog_manager(&pub_name)?;
 
             let attrs_path = cache_path.join("catalog.attrs");
             let attrs_content = fs::read_to_string(&attrs_path).map_err(|e| {
@@ -1238,6 +1238,11 @@ impl RestBackend {
             let mut seen_fmris = HashSet::new();
 
             for part_name in parts.keys() {
+                // Load part explicitly because CatalogManager doesn't load them automatically
+                catalog_manager.load_part(part_name).map_err(|e| {
+                    RepositoryError::Other(format!("Failed to load catalog part {}: {}", part_name, e))
+                })?;
+
                 if let Some(part) = catalog_manager.get_part(part_name) {
                     // Match stems against pattern
                     for (publisher_in_catalog, stems) in &part.packages {
@@ -1248,16 +1253,13 @@ impl RestBackend {
                         for (stem, versions) in stems {
                             let matches = if pattern == "*" {
                                 true
-                            } else if pattern.contains('*') {
-                                // Basic glob matching (stem matching pattern)
-                                let re_pattern = pattern.replace('*', ".*");
-                                if let Ok(re) = regex::Regex::new(&format!("^{}$", re_pattern)) {
+                            } else {
+                                let re_str = super::file_backend::glob_to_regex(pattern);
+                                if let Ok(re) = regex::Regex::new(&re_str) {
                                     re.is_match(stem)
                                 } else {
                                     stem == pattern
                                 }
-                            } else {
-                                stem == pattern
                             };
 
                             if matches {

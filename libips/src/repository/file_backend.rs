@@ -120,7 +120,7 @@ fn parse_query(query: &str) -> SearchQuery {
     }
 }
 
-fn glob_to_regex(pattern: &str) -> String {
+pub fn glob_to_regex(pattern: &str) -> String {
     let mut regex = String::from("^");
     for c in pattern.chars() {
         match c {
@@ -1000,7 +1000,7 @@ impl ReadableRepository for FileBackend {
                 self.find_manifests_recursive(
                     &publisher_pkg_dir,
                     &pub_name,
-                    pattern,
+                    pattern.map(glob_to_regex).as_deref(),
                     &mut packages,
                 )?;
             }

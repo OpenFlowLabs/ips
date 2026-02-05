@@ -6,7 +6,7 @@ use libips::repository::{
 };
 use miette::{IntoDiagnostic, Result};
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
 
 struct ConsoleProgressReporter;
@@ -55,22 +55,15 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Open destination repository
-    // We'll open it inside each branch to avoid borrow checker issues with moves
-
-    let fmris: Vec<Fmri> = cli
-        .packages
-        .iter()
-        .map(|s| Fmri::parse(s))
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .into_diagnostic()?;
-
     let progress = ConsoleProgressReporter;
 
     // Determine if source is a URL or a path and receive packages
     if cli.source.starts_with("http://") || cli.source.starts_with("https://") {
         let source_repo = RestBackend::open(&cli.source).into_diagnostic()?;
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
+        
+        let fmris = resolve_packages(&source_repo, cli.publisher.as_deref(), &cli.packages)?;
+        
         let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
         receiver
@@ -79,6 +72,9 @@ fn main() -> Result<()> {
     } else {
         let source_repo = FileBackend::open(&cli.source).into_diagnostic()?;
         let dest_repo = FileBackend::open(&cli.dest).into_diagnostic()?;
+        
+        let fmris = resolve_packages(&source_repo, cli.publisher.as_deref(), &cli.packages)?;
+        
         let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
         receiver = receiver.with_progress(&progress);
         receiver
@@ -89,4 +85,60 @@ fn main() -> Result<()> {
     info!("Package receive complete.");
 
     Ok(())
+}
+
+fn resolve_packages<R: ReadableRepository>(
+    repo: &R,
+    default_publisher: Option<&str>,
+    packages: &[String],
+) -> Result<Vec<Fmri>> {
+    let mut resolved_fmris = Vec::new();
+
+    for pkg_str in packages {
+        if pkg_str.contains('*') || pkg_str.contains('?') {
+            // It's a pattern, resolve it
+            info!("Resolving wildcard pattern: {}", pkg_str);
+            let matched = repo.list_packages(default_publisher, Some(pkg_str)).into_diagnostic()?;
+            
+            if matched.is_empty() {
+                warn!("No packages matched pattern: {}", pkg_str);
+            }
+            
+            // For each matched stem, we probably want the newest version if not specified.
+            // list_packages returns all versions. PackageReceiver::receive also handles 
+            // FMRIs without versions by picking the newest.
+            // But list_packages returns full FMRIs. If the pattern matched multiple packages,
+            // we get all versions of all of them.
+            
+            // To be consistent with IPS, if someone says "text/*", they usually want 
+            // the latest version of everything that matches.
+            
+            let mut latest_versions: std::collections::HashMap<String, Fmri> = std::collections::HashMap::new();
+            
+            for pi in matched {
+                let entry = latest_versions.entry(pi.fmri.name.clone());
+                match entry {
+                    std::collections::hash_map::Entry::Occupied(mut oe) => {
+                        if pi.fmri.version() > oe.get().version() {
+                            oe.insert(pi.fmri);
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(ve) => {
+                        ve.insert(pi.fmri);
+                    }
+                }
+            }
+            
+            for (_, fmri) in latest_versions {
+                info!("Found package: {}", fmri);
+                resolved_fmris.push(fmri);
+            }
+        } else {
+            // It's a regular FMRI or package name
+            let fmri = Fmri::parse(pkg_str).into_diagnostic()?;
+            resolved_fmris.push(fmri);
+        }
+    }
+
+    Ok(resolved_fmris)
 }
