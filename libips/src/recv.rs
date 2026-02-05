@@ -190,7 +190,7 @@ impl<'a, S: ReadableRepository + Sync> PackageReceiver<'a, S> {
     }
 
     /// Receive a single package
-    fn receive_one(&mut self, publisher: &str, fmri: &Fmri) -> Result<Manifest> {
+    pub fn receive_one(&mut self, publisher: &str, fmri: &Fmri) -> Result<Manifest> {
         let progress = self.progress.unwrap_or(&NoopProgressReporter);
 
         let manifest_text = self.source.fetch_manifest_text(publisher, fmri)?;
@@ -268,19 +268,55 @@ impl<'a, S: ReadableRepository + Sync> PackageReceiver<'a, S> {
 
         // Fetch signature payloads
         for sig in &manifest.signatures {
-            if sig.value.is_empty() {
+            // In IPS, signature actions have the digest of the actual signature payload in 'value'.
+            // The 'chash' field usually contains the digest of the manifest itself or is empty.
+            let digest = if !sig.value.is_empty() {
+                &sig.value
+            } else if !sig.chash.is_empty() {
+                &sig.chash
+            } else {
                 continue;
+            };
+
+            let temp_file_path = temp_dir.path().join(format!("sig-{}", digest));
+            debug!(
+                "Fetching signature payload {} to {}",
+                digest,
+                temp_file_path.display()
+            );
+
+            self.source
+                .fetch_payload(publisher, digest, &temp_file_path)?;
+
+            info!("Successfully fetched signature payload {}", digest);
+
+            // Store the signature payload in the destination repository's file store.
+            // Signature payloads are identified by their digest (from 'value' or 'chash').
+            // We store them in the same way as other files in the FileBackend.
+            let dest_path = crate::repository::FileBackend::construct_file_path_with_publisher(
+                &self.dest.path,
+                publisher,
+                digest,
+            );
+
+            if let Some(parent) = dest_path.parent() {
+                std::fs::create_dir_all(parent).map_err(RepositoryError::IoError)?;
             }
 
-            let digest = &sig.value;
-            let temp_file_path = temp_dir.path().join(format!("sig-{}", digest));
-            debug!("Fetching signature payload {} to {}", digest, temp_file_path.display());
+            // Also check the global location as a fallback
+            let global_dest_path = crate::repository::FileBackend::construct_file_path(
+                &self.dest.path,
+                digest,
+            );
 
-            self.source.fetch_payload(publisher, digest, &temp_file_path)?;
-
-            let mut sig_file_action = crate::actions::File::default();
-            sig_file_action.path = format!("signature-{}", digest);
-            txn.add_file(sig_file_action, &temp_file_path)?;
+            if !dest_path.exists() && !global_dest_path.exists() {
+                debug!(
+                    "Storing signature payload {} to {}",
+                    digest,
+                    dest_path.display()
+                );
+                std::fs::copy(&temp_file_path, &dest_path).map_err(RepositoryError::IoError)?;
+            }
         }
 
         txn.update_manifest(manifest.clone());
@@ -389,6 +425,71 @@ mod tests {
             json_content.starts_with('{'),
             "JSON manifest should be JSON"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_receive_with_signature() -> Result<()> {
+        let source_dir = tempdir().map_err(RepositoryError::IoError)?;
+        let dest_dir = tempdir().map_err(RepositoryError::IoError)?;
+
+        // Create source repo with one package having a signature
+        let mut source_repo = FileBackend::create(source_dir.path(), RepositoryVersion::V4)?;
+        source_repo.add_publisher("test")?;
+
+        let fmri = Fmri::parse("pkg://test/pkgA@1.0").unwrap();
+        let mut manifest = Manifest::new();
+        manifest.attributes.push(Attr {
+            key: "pkg.fmri".to_string(),
+            values: vec![fmri.to_string()],
+            ..Default::default()
+        });
+
+        // Create the signature payload in the source repo
+        // FileBackend::fetch_payload expects SHA1 by default if no prefix is provided.
+        use sha1::{Digest as Sha1Digest, Sha1};
+        let payload_content = b"fake-signature-payload-content";
+        let mut hasher = Sha1::new();
+        hasher.update(payload_content);
+        let payload_hash = format!("{:x}", hasher.finalize());
+
+        let payload_dir = source_dir.path().join("publisher/test/file/27");
+        std::fs::create_dir_all(&payload_dir).map_err(RepositoryError::IoError)?;
+        std::fs::write(payload_dir.join(&payload_hash), payload_content)
+            .map_err(RepositoryError::IoError)?;
+
+        let mut sig = crate::actions::Signature::default();
+        sig.algorithm = "rsa-sha256".to_string();
+        sig.value = payload_hash.clone();
+        sig.chash = "fake-manifest-hash".to_string();
+        manifest.signatures.push(sig);
+
+        let mut txn = source_repo.begin_transaction()?;
+        txn.set_publisher("test");
+        txn.update_manifest(manifest);
+        txn.commit()?;
+        source_repo.rebuild(Some("test"), false, false)?;
+
+        // Create dest repo
+        let dest_repo = FileBackend::create(dest_dir.path(), RepositoryVersion::V4)?;
+
+        let mut receiver = PackageReceiver::new(&source_repo, dest_repo);
+        receiver.receive(Some("test"), &[Fmri::new("pkgA")], false)?;
+
+        // Verify dest repo has the signature payload in the correct location
+        let expected_sig_path = FileBackend::construct_file_path_with_publisher(
+            dest_dir.path(),
+            "test",
+            &payload_hash,
+        );
+        let global_sig_path = FileBackend::construct_file_path(
+            dest_dir.path(),
+            &payload_hash,
+        );
+        let final_path = if expected_sig_path.exists() { expected_sig_path } else { global_sig_path };
+        let content = std::fs::read(&final_path).unwrap();
+        assert_eq!(content, payload_content);
 
         Ok(())
     }

@@ -447,6 +447,12 @@ impl Transaction {
         self.manifest.dependencies.extend(manifest.dependencies);
         self.manifest.licenses.extend(manifest.licenses);
         self.manifest.links.extend(manifest.links);
+        self.manifest.signatures.extend(manifest.signatures);
+        self.manifest.users.extend(manifest.users);
+        self.manifest.groups.extend(manifest.groups);
+        self.manifest.drivers.extend(manifest.drivers);
+        self.manifest.legacies.extend(manifest.legacies);
+        self.manifest.transforms.extend(manifest.transforms);
     }
 
     /// Process a file for the transaction

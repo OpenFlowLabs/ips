@@ -562,6 +562,7 @@ impl ReadableRepository for RestBackend {
 
         let candidates = vec![
             format!("{}/file/0/{}", self.uri, hash),
+            format!("{}/{}/file/0/{}", self.uri, publisher, hash),
             format!("{}/publisher/{}/file/0/{}", self.uri, publisher, hash),
         ];
 
