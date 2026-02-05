@@ -790,6 +790,35 @@ impl From<Action> for Transform {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Clone, Deserialize, Serialize, Diff)]
+#[diff(attr(
+    #[derive(Debug, PartialEq)]
+))]
+pub struct Signature {
+    pub value: String,
+    pub algorithm: String,
+    pub chain: String,
+    pub chash: String,
+    pub version: String,
+}
+
+impl From<Action> for Signature {
+    fn from(act: Action) -> Self {
+        let mut sig = Signature::default();
+        sig.value = act.payload_string;
+        for prop in act.properties {
+            match prop.key.as_str() {
+                "algorithm" => sig.algorithm = prop.value,
+                "chain" => sig.chain = prop.value,
+                "chash" => sig.chash = prop.value,
+                "version" => sig.version = prop.value,
+                _ => {}
+            }
+        }
+        sig
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Debug, Default, Clone, Deserialize, Serialize, Diff)]
 #[diff(attr(
     #[derive(Debug, PartialEq)]
@@ -827,6 +856,8 @@ pub struct Manifest {
     pub legacies: Vec<Legacy>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub transforms: Vec<Transform>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub signatures: Vec<Signature>,
 }
 
 impl Manifest {
@@ -843,6 +874,7 @@ impl Manifest {
             drivers: Vec::new(),
             legacies: Vec::new(),
             transforms: Vec::new(),
+            signatures: Vec::new(),
         }
     }
 
@@ -886,7 +918,7 @@ impl Manifest {
                 self.transforms.push(act.into());
             }
             ActionKind::Signature => {
-                debug!("signature action encountered, skipping for now");
+                self.signatures.push(act.into());
             }
             ActionKind::Unknown { action } => {
                 debug!("action {:?} not known, skipping", action);

@@ -554,6 +554,47 @@ impl Pkg5Importer {
             }
         }
 
+        // Import signature files
+        for signature in &manifest.signatures {
+            if signature.value.is_empty() {
+                continue;
+            }
+
+            let hash = &signature.value;
+            // Determine the file path in the source repository
+            let first_two = &hash[0..2];
+            let next_two = &hash[2..4];
+            let file_path_new = file_dir.join(first_two).join(next_two).join(hash);
+            let file_path_old = file_dir.join(first_two).join(hash);
+
+            let file_path = if file_path_new.exists() {
+                file_path_new
+            } else if file_path_old.exists() {
+                file_path_old
+            } else {
+                warn!(
+                    "Signature file not found in source repository: {}",
+                    hash
+                );
+                continue;
+            };
+
+            // Use a unique name for the signature file in the proto dir
+            let proto_sig_path = proto_dir.join(format!("signature-{}", hash));
+            if let Some(parent) = proto_sig_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| Pkg6RepoError::IoError(e))?;
+            }
+
+            fs::copy(&file_path, &proto_sig_path).map_err(|e| Pkg6RepoError::IoError(e))?;
+
+            // We need a FileAction to add it to the transaction
+            // Even though it's a signature, FileBackend uses add_file to store payloads
+            let mut sig_file_action = libips::actions::File::default();
+            sig_file_action.path = format!("signature-{}", hash);
+            // transaction.add_file will calculate the hash and store it in the repo's file dir
+            transaction.add_file(sig_file_action, &proto_sig_path)?;
+        }
+
         // Update the manifest in the transaction
         transaction.update_manifest(manifest);
 

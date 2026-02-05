@@ -266,6 +266,23 @@ impl<'a, S: ReadableRepository + Sync> PackageReceiver<'a, S> {
             txn.add_file((*file).clone(), &temp_file_path)?;
         }
 
+        // Fetch signature payloads
+        for sig in &manifest.signatures {
+            if sig.value.is_empty() {
+                continue;
+            }
+
+            let digest = &sig.value;
+            let temp_file_path = temp_dir.path().join(format!("sig-{}", digest));
+            debug!("Fetching signature payload {} to {}", digest, temp_file_path.display());
+
+            self.source.fetch_payload(publisher, digest, &temp_file_path)?;
+
+            let mut sig_file_action = crate::actions::File::default();
+            sig_file_action.path = format!("signature-{}", digest);
+            txn.add_file(sig_file_action, &temp_file_path)?;
+        }
+
         txn.update_manifest(manifest.clone());
         txn.commit()?;
 
