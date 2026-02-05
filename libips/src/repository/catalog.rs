@@ -5,6 +5,7 @@
 
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -205,23 +206,68 @@ pub struct PackageVersionEntry {
 }
 
 /// Catalog part (base, dependency, summary)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CatalogPart {
     /// Packages by publisher and stem
     #[serde(flatten)]
     pub packages: BTreeMap<String, BTreeMap<String, Vec<PackageVersionEntry>>>,
 
-    /// Optional signature information
-    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<BTreeMap<String, String>>,
+    /// Metadata fields (keys starting with '_')
+    #[serde(flatten)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for CatalogPart {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let all_entries = BTreeMap::<String, Value>::deserialize(deserializer)?;
+        let mut packages = BTreeMap::new();
+        let mut metadata = BTreeMap::new();
+
+        for (k, v) in all_entries {
+            if k.starts_with('_') {
+                metadata.insert(k, v);
+            } else {
+                // Try to parse as package map
+                if let Ok(pkg_map) = serde_json::from_value(v.clone()) {
+                    packages.insert(k, pkg_map);
+                } else {
+                    // If it fails, treat as metadata
+                    metadata.insert(k, v);
+                }
+            }
+        }
+
+        Ok(CatalogPart { packages, metadata })
+    }
 }
 
 impl CatalogPart {
     /// Create a new catalog part
     pub fn new() -> Self {
         CatalogPart {
-            signature: None,
             packages: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    /// Get signature information if present
+    pub fn signature(&self) -> Option<BTreeMap<String, String>> {
+        self.metadata.get("_SIGNATURE").and_then(|v| {
+            serde_json::from_value::<BTreeMap<String, String>>(v.clone()).ok()
+        })
+    }
+
+    /// Set signature information
+    pub fn set_signature(&mut self, signature: Option<BTreeMap<String, String>>) {
+        if let Some(sig) = signature {
+            if let Ok(val) = serde_json::to_value(sig) {
+                self.metadata.insert("_SIGNATURE".to_string(), val);
+            }
+        } else {
+            self.metadata.remove("_SIGNATURE");
         }
     }
 
@@ -296,7 +342,7 @@ pub enum CatalogOperationType {
 }
 
 /// Package update entry in an update log
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackageUpdateEntry {
     /// Type of operation (add or remove)
     #[serde(rename = "op-type")]
@@ -316,25 +362,116 @@ pub struct PackageUpdateEntry {
     /// Optional SHA-1 signature of the package manifest
     #[serde(rename = "signature-sha-1", skip_serializing_if = "Option::is_none")]
     pub signature_sha1: Option<String>,
+
+    /// Metadata fields (keys starting with '_')
+    #[serde(flatten)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for PackageUpdateEntry {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Internal {
+            #[serde(rename = "op-type")]
+            op_type: CatalogOperationType,
+            #[serde(rename = "op-time")]
+            op_time: String,
+            version: String,
+            #[serde(rename = "signature-sha-1")]
+            signature_sha1: Option<String>,
+            #[serde(flatten)]
+            all_entries: BTreeMap<String, Value>,
+        }
+
+        let internal = Internal::deserialize(deserializer)?;
+        let mut catalog_parts = BTreeMap::new();
+        let mut metadata = BTreeMap::new();
+
+        for (k, v) in internal.all_entries {
+            if k.starts_with('_') {
+                metadata.insert(k, v);
+            } else {
+                if let Ok(part_map) = serde_json::from_value(v.clone()) {
+                    catalog_parts.insert(k, part_map);
+                } else {
+                    metadata.insert(k, v);
+                }
+            }
+        }
+
+        Ok(PackageUpdateEntry {
+            op_type: internal.op_type,
+            op_time: internal.op_time,
+            version: internal.version,
+            catalog_parts,
+            signature_sha1: internal.signature_sha1,
+            metadata,
+        })
+    }
 }
 
 /// Update log
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UpdateLog {
     /// Updates by publisher and stem
     pub updates: BTreeMap<String, BTreeMap<String, Vec<PackageUpdateEntry>>>,
 
-    /// Optional signature information
-    #[serde(rename = "_SIGNATURE", skip_serializing_if = "Option::is_none")]
-    pub signature: Option<BTreeMap<String, String>>,
+    /// Metadata fields (keys starting with '_')
+    #[serde(flatten)]
+    pub metadata: BTreeMap<String, Value>,
+}
+
+impl<'de> Deserialize<'de> for UpdateLog {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Internal {
+            #[serde(default)]
+            updates: BTreeMap<String, BTreeMap<String, Vec<PackageUpdateEntry>>>,
+            #[serde(flatten)]
+            all_entries: BTreeMap<String, Value>,
+        }
+
+        let internal = Internal::deserialize(deserializer)?;
+        let mut metadata = internal.all_entries;
+        metadata.remove("updates");
+
+        Ok(UpdateLog {
+            updates: internal.updates,
+            metadata,
+        })
+    }
 }
 
 impl UpdateLog {
     /// Create a new update log
     pub fn new() -> Self {
         UpdateLog {
-            signature: None,
             updates: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    /// Get signature information if present
+    pub fn signature(&self) -> Option<BTreeMap<String, String>> {
+        self.metadata.get("_SIGNATURE").and_then(|v| {
+            serde_json::from_value::<BTreeMap<String, String>>(v.clone()).ok()
+        })
+    }
+
+    /// Set signature information
+    pub fn set_signature(&mut self, signature: Option<BTreeMap<String, String>>) {
+        if let Some(sig) = signature {
+            if let Ok(val) = serde_json::to_value(sig) {
+                self.metadata.insert("_SIGNATURE".to_string(), val);
+            }
+        } else {
+            self.metadata.remove("_SIGNATURE");
         }
     }
 
@@ -364,6 +501,7 @@ impl UpdateLog {
             version: fmri.version(),
             catalog_parts,
             signature_sha1: signature,
+            metadata: BTreeMap::new(),
         });
     }
 

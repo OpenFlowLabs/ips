@@ -117,18 +117,18 @@ pub(crate) fn write_catalog_attrs(path: &Path, attrs: &mut CatalogAttrs) -> Resu
 #[instrument(level = "debug", skip(part))]
 pub(crate) fn write_catalog_part(path: &Path, part: &mut CatalogPart) -> Result<String> {
     // Compute signature over content without _SIGNATURE
-    part.signature = None;
+    part.set_signature(None);
     let bytes_without_sig = serialize_python_style(&part)?;
     let sig = sha1_hex(&bytes_without_sig);
     let mut sig_map = std::collections::BTreeMap::new();
     sig_map.insert("sha-1".to_string(), sig);
-    part.signature = Some(sig_map);
+    part.set_signature(Some(sig_map));
 
     let final_bytes = serialize_python_style(&part)?;
     debug!(path = %path.display(), bytes = final_bytes.len(), "writing catalog part");
     atomic_write_bytes(path, &final_bytes)?;
     Ok(part
-        .signature
+        .signature()
         .as_ref()
         .and_then(|m| m.get("sha-1").cloned())
         .unwrap_or_default())
@@ -137,18 +137,18 @@ pub(crate) fn write_catalog_part(path: &Path, part: &mut CatalogPart) -> Result<
 #[instrument(level = "debug", skip(log))]
 pub(crate) fn write_update_log(path: &Path, log: &mut UpdateLog) -> Result<String> {
     // Compute signature over content without _SIGNATURE
-    log.signature = None;
+    log.set_signature(None);
     let bytes_without_sig = serialize_python_style(&log)?;
     let sig = sha1_hex(&bytes_without_sig);
     let mut sig_map = std::collections::BTreeMap::new();
     sig_map.insert("sha-1".to_string(), sig);
-    log.signature = Some(sig_map);
+    log.set_signature(Some(sig_map));
 
     let final_bytes = serialize_python_style(&log)?;
     debug!(path = %path.display(), bytes = final_bytes.len(), "writing update log");
     atomic_write_bytes(path, &final_bytes)?;
     Ok(log
-        .signature
+        .signature()
         .as_ref()
         .and_then(|m| m.get("sha-1").cloned())
         .unwrap_or_default())
