@@ -530,7 +530,7 @@ impl Image {
             if origin.starts_with("file://") {
                 let path_str = origin.trim_start_matches("file://");
                 let path = std::path::PathBuf::from(path_str);
-                let mut repo = crate::repository::FileBackend::open(&path)?;
+                let repo = crate::repository::FileBackend::open(&path)?;
                 repo.fetch_manifest_text(&publisher_name, fmri)?
             } else {
                 let mut repo = crate::repository::RestBackend::open(origin)?;
@@ -814,7 +814,7 @@ impl Image {
         if origin.starts_with("file://") {
             let path_str = origin.trim_start_matches("file://");
             let path = PathBuf::from(path_str);
-            let mut repo = FileBackend::open(&path)?;
+            let repo = FileBackend::open(&path)?;
             repo.fetch_manifest(&publisher_name, fmri)
                 .map_err(Into::into)
         } else {

@@ -57,7 +57,7 @@ impl DepotRepo {
     }
 
     pub fn get_manifest_text(&self, publisher: &str, fmri: &Fmri) -> Result<String> {
-        let mut backend = self
+        let backend = self
             .backend
             .lock()
             .map_err(|e| DepotError::Server(format!("Lock poisoned: {}", e)))?;

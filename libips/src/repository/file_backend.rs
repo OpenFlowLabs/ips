@@ -2553,10 +2553,42 @@ impl FileBackend {
             let mut dependency_actions = Vec::new();
             for dep in &manifest.dependencies {
                 if let Some(dep_fmri) = &dep.fmri {
-                    dependency_actions.push(format!(
+                    let mut action = format!(
                         "depend fmri={} type={}",
                         dep_fmri, dep.dependency_type
-                    ));
+                    );
+
+                    // Add predicate for conditional dependencies
+                    if let Some(predicate_fmri) = &dep.predicate {
+                        action.push_str(&format!(" predicate={}", predicate_fmri));
+                    }
+
+                    // Add root-image if present
+                    if !dep.root_image.is_empty() {
+                        action.push_str(&format!(" root-image={}", dep.root_image));
+                    }
+
+                    // Add any optional properties
+                    for prop in &dep.optional {
+                        action.push_str(&format!(" {}={}", prop.key, quote_action_value(&prop.value)));
+                    }
+
+                    // Add facets
+                    for (facet_name, facet) in &dep.facets {
+                        action.push_str(&format!(" facet.{}={}", facet_name, quote_action_value(&facet.value)));
+                    }
+
+                    // Add any optional properties
+                    for prop in &dep.optional {
+                        action.push_str(&format!(" {}={}", prop.key, quote_action_value(&prop.value)));
+                    }
+
+                    // Add facets
+                    for (facet_name, facet) in &dep.facets {
+                        action.push_str(&format!(" facet.{}={}", facet_name, quote_action_value(&facet.value)));
+                    }
+
+                    dependency_actions.push(action);
                 }
             }
 
